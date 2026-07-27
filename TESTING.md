@@ -4,19 +4,26 @@
 
 ```bash
 xcodebuild test \
-  -project Whisper.xcodeproj \
-  -scheme Whisper \
+  -project Pressay.xcodeproj \
+  -scheme Pressay \
   -configuration Debug \
   -destination 'platform=macOS'
 ```
 
-La cible `WhisperTests` couvre :
+La cible `PressayTests` couvre :
 
 - silence et enregistrement trop court ;
+- pic sonore bref rejeté et voix détectée au-dessus du bruit ambiant ;
 - voix au-dessus d'un bruit ambiant adaptatif ;
-- réponse vide ou égale au vocabulaire de contexte ;
+- réponse vide ou égale au vocabulaire/prompt français ou anglais ;
 - assemblage multipart et délimiteur final ;
-- expiration de l'historique.
+- expiration de l'historique ;
+- migration idempotente depuis `fr.yodev.whisper` et `com.hyrak.whisper` ;
+- priorité des données Pressay et reprise après une erreur Keychain ;
+- déplacement atomique de `Application Support/Whisper` ;
+- configuration Sparkle sans profil système et action manuelle.
+
+La baseline Pressay 1.0.0 contient actuellement 19 tests.
 
 ## Matrice manuelle avant une release
 

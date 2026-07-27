@@ -17,14 +17,14 @@ jobs:
       - name: Tests
         run: >-
           xcodebuild test
-          -project Whisper.xcodeproj
-          -scheme Whisper
+          -project Pressay.xcodeproj
+          -scheme Pressay
           -configuration Debug
           -destination 'platform=macOS'
       - name: Analyse statique
         run: >-
           xcodebuild analyze
-          -project Whisper.xcodeproj
-          -scheme Whisper
+          -project Pressay.xcodeproj
+          -scheme Pressay
           -configuration Debug
           -destination 'platform=macOS'

@@ -1,0 +1,107 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: pressay-release
+  cancel-in-progress: false
+
+jobs:
+  verify:
+    name: Tests et validation
+    runs-on: macos-15
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v6
+      - name: Valider le tag, la version et le build
+        run: scripts/validate-release.sh
+      - name: Tests
+        run: >-
+          xcodebuild test
+          -project Pressay.xcodeproj
+          -scheme Pressay
+          -configuration Debug
+          -destination 'platform=macOS'
+      - name: Analyse statique
+        run: >-
+          xcodebuild analyze
+          -project Pressay.xcodeproj
+          -scheme Pressay
+          -configuration Release
+          -destination 'platform=macOS'
+
+  publish:
+    name: Signer, notariser et publier
+    needs: verify
+    runs-on: macos-15
+    timeout-minutes: 45
+    environment: release
+    permissions:
+      contents: write
+    env:
+      DEVELOPER_ID_APPLICATION: ${{ vars.DEVELOPER_ID_APPLICATION }}
+      APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+      APPLE_ID: ${{ secrets.APPLE_ID }}
+      APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
+      SPARKLE_PRIVATE_KEY: ${{ secrets.SPARKLE_PRIVATE_KEY }}
+      RELEASE_TAG: ${{ github.ref_name }}
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Importer le certificat Developer ID
+        env:
+          BUILD_CERTIFICATE_BASE64: ${{ secrets.BUILD_CERTIFICATE_BASE64 }}
+          P12_PASSWORD: ${{ secrets.P12_PASSWORD }}
+          KEYCHAIN_PASSWORD: ${{ secrets.KEYCHAIN_PASSWORD }}
+        run: |
+          certificate_path="$RUNNER_TEMP/developer-id.p12"
+          keychain_path="$RUNNER_TEMP/pressay-signing.keychain-db"
+          printf '%s' "$BUILD_CERTIFICATE_BASE64" | base64 --decode --output "$certificate_path"
+          security create-keychain -p "$KEYCHAIN_PASSWORD" "$keychain_path"
+          security set-keychain-settings -lut 21600 "$keychain_path"
+          security unlock-keychain -p "$KEYCHAIN_PASSWORD" "$keychain_path"
+          security import "$certificate_path" \
+            -P "$P12_PASSWORD" \
+            -A \
+            -t cert \
+            -f pkcs12 \
+            -k "$keychain_path"
+          security set-key-partition-list \
+            -S apple-tool:,apple:,codesign: \
+            -k "$KEYCHAIN_PASSWORD" \
+            "$keychain_path"
+          security list-keychain -d user -s "$keychain_path"
+
+      - name: Télécharger les outils Sparkle 2.9.2
+        run: |
+          mkdir -p "$RUNNER_TEMP/sparkle"
+          gh release download 2.9.2 \
+            --repo sparkle-project/Sparkle \
+            --pattern 'Sparkle-2.9.2.tar.xz' \
+            --dir "$RUNNER_TEMP/sparkle"
+          tar -xf "$RUNNER_TEMP/sparkle/Sparkle-2.9.2.tar.xz" -C "$RUNNER_TEMP/sparkle"
+          echo "SPARKLE_GENERATE_APPCAST=$RUNNER_TEMP/sparkle/bin/generate_appcast" >> "$GITHUB_ENV"
+
+      - name: Fabriquer, notariser et contrôler la release
+        run: scripts/notarize.sh
+
+      - name: Publier la GitHub Release
+        run: |
+          gh release create "$GITHUB_REF_NAME" \
+            build/release/Pressay.dmg \
+            build/release/Pressay.dmg.sha256 \
+            build/release/appcast.xml \
+            --verify-tag \
+            --generate-notes \
+            --title "Pressay $GITHUB_REF_NAME"
+
+      - name: Supprimer le Keychain temporaire
+        if: always()
+        run: security delete-keychain "$RUNNER_TEMP/pressay-signing.keychain-db" || true

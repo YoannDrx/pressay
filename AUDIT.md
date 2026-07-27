@@ -1,95 +1,95 @@
-# Audit technique — Whisper macOS
+# Audit technique — Pressay 1.0.0
 
 Date : 27 juillet 2026
 
-## Synthèse
+## État du socle
 
-Le produit a une bonne base : peu de dépendances, une architecture lisible, une clé API dans le Trousseau et un flux push-to-talk très direct. La version 1.1 corrige le défaut le plus visible — l'envoi et le collage d'une hallucination sur un enregistrement silencieux — et renforce les points fragiles du chemin critique.
+Pressay 1.0.0 est le nouveau point de départ public de l’application macOS
+anciennement distribuée en développement sous le nom Whisper. Le produit cible
+macOS 14+, Apple Silicon et Intel, avec un bundle public
+`fr.yodev.pressay`.
 
-La version 1.2 industrialise le chemin critique : tests automatisés, détection
-adaptative, permissions guidées, historique chiffré, mesures locales, file
-d'attente, annulation, CI et préparation de la notarisation.
+Le cœur actuellement livré est volontairement limité :
 
-## Flux applicatif
+1. maintenir Fn/Globe — ou un modificateur droit configurable — pour enregistrer ;
+2. relâcher pour terminer ;
+3. rejeter localement le silence et les pics trop courts ;
+4. transcrire avec la clé OpenAI personnelle de l’utilisateur ;
+5. valider la réponse contre les échos de prompt connus ;
+6. restituer le texte dans l’application initialement ciblée ;
+7. conserver facultativement un historique local chiffré.
 
-1. `KeyboardService` observe uniquement la touche Fn/Globe.
-2. `AudioRecorder` enregistre en AAC mono 16 kHz et mesure le niveau sonore.
-3. `AppState` annule localement si aucune voix n'est détectée.
-4. `TranscriptionService` envoie le fichier, la langue et le vocabulaire à `gpt-4o-mini-transcribe`.
-5. La réponse vide ou égale au vocabulaire de contexte est rejetée.
-6. `TextInjector` réactive l'app cible, colle le texte et restaure le presse-papiers si l'utilisateur ne l'a pas modifié.
-7. `HistoryService` conserve localement les transcriptions pendant 24 heures.
+Les transformations, commandes, moteurs locaux, comptes Pro, intégrations et
+réunions appartiennent à la roadmap. Aucun bouton ne doit les présenter comme
+disponibles avant leur livraison de bout en bout.
 
-## Corrections et améliorations livrées
+## Risque corrigé : transcription fantôme
 
-- Détection locale du silence avant tout appel API.
-- Protection secondaire contre le retour exact du vocabulaire de contexte.
-- Déclenchement limité à Fn/Globe, sans faux positif sur F1 à F12.
-- Choix français, anglais ou détection automatique.
-- Vocabulaire technique modifiable dans les préférences.
-- Température de transcription déterministe et délais réseau bornés.
-- Validation de clé sans écriture temporaire d'une clé invalide.
-- Conservation de tous les formats du presse-papiers et protection contre les copies concurrentes.
-- Rafraîchissement réactif de l'historique dans le menu.
-- Écriture atomique de l'historique.
-- Retour utilisateur explicite lorsqu'aucune voix n'est détectée.
-- Icône macOS complète et couleur d'accent dédiée.
+Un enregistrement silencieux pouvait auparavant renvoyer le prompt de vocabulaire
+technique comme transcription. Pressay cumule désormais deux barrières :
 
-## Recommandations prioritaires
+- un VAD énergétique adaptatif exécuté avant tout appel réseau ;
+- une validation de sortie rejetant une réponse vide ou égale au vocabulaire ou
+  au prompt normalisé.
 
-### P0 — Fiabilité
+La suite couvre le silence, les enregistrements trop courts, les pics sonores,
+la voix au-dessus du bruit ambiant ainsi que les échos de prompt français et
+anglais.
 
-- Ajouter une suite de tests unitaires pour la détection de silence, le filtrage des réponses, le multipart et la rétention de l'historique.
-- Ajouter un test UI manuel automatisable couvrant : appui Fn silencieux, dictée courte, refus micro, refus accessibilité, changement de presse-papiers pendant l'injection.
-- Enregistrer des métriques locales anonymes et optionnelles de durée par étape, sans audio ni texte, pour mesurer capture, upload, transcription et collage.
-- Remplacer le seuil sonore fixe par une calibration du bruit ambiant ou une détection d'activité vocale adaptative.
+## Identité et migration
 
-### P1 — Expérience
+La migration reconnaît, dans cet ordre :
 
-- Afficher un petit HUD non activant près du curseur : écoute, transcription, succès, annulation.
-- Ajouter un raccourci configurable en alternative à Fn et un mode bascule pour les dictées longues.
-- Ajouter « Annuler » pendant la transcription et une file d'attente pour pouvoir redicter immédiatement.
-- Exposer le choix de conserver ou non l'historique, sa durée et un bouton de copie du dernier résultat.
-- Guider les permissions dans un onboarding plutôt que de demander l'accessibilité au lancement.
+1. les données Pressay déjà présentes ;
+2. `fr.yodev.whisper` ;
+3. `com.hyrak.whisper`.
 
-### P1 — Distribution et sécurité
+Elle migre les préférences connues, la clé API, la clé d’historique et
+`Application Support/Whisper`. Une ancienne entrée Keychain n’est supprimée
+qu’après écriture et relecture réussies sous `fr.yodev.pressay`. Le marqueur
+Pressay est indépendant des migrations historiques et l’opération peut être
+rejouée après une interruption.
 
-- Configurer une équipe Apple, la signature Developer ID, le hardened runtime et la notarisation.
-- Réévaluer le sandbox macOS. L'injection globale peut imposer des contraintes, mais la désactivation doit être un choix documenté.
-- Ajouter une politique de confidentialité courte et explicite pour l'audio, le texte et l'historique.
-- Vérifier le comportement des clés OpenAI restreintes : l'endpoint `/models` utilisé pour la validation peut être interdit alors que la transcription est autorisée.
-- Chiffrer ou désactiver l'historique pour les environnements manipulant des données sensibles.
+Le changement de bundle oblige les installations de développement existantes à
+réaccorder Microphone et Accessibilité. Les nouveaux utilisateurs ne sont pas
+concernés.
 
-### P2 — Performance et qualité de reconnaissance
+## Distribution
 
-- Mesurer avant de migrer vers le streaming de transcription de fichier : le gain dépend surtout de la durée des dictées.
-- Évaluer `gpt-4o-transcribe` contre `gpt-4o-mini-transcribe` sur un corpus réel avant d'offrir un mode « précision maximale ».
-- Exploiter les log-probabilités disponibles pour signaler les transcriptions incertaines, après calibration sur des exemples réels.
-- Pour les longues dictées, écrire le multipart en flux plutôt que de charger deux copies du fichier en mémoire.
-- Ajouter des profils de vocabulaire par contexte (développement, noms de clients, médical, juridique) sans envoyer plus de contexte que nécessaire.
+La configuration de release contient :
 
-## Recommandations intégrées en version 1.2
+- Sparkle 2.9.2 épinglé par Swift Package Manager ;
+- une clé publique Ed25519 intégrée et aucun profil système envoyé ;
+- un workflow de tag `v*` isolé dans l’environnement GitHub `release` ;
+- un certificat Developer ID importé dans un Keychain CI temporaire ;
+- la fabrication d’un DMG universel, sa signature, sa notarisation et son
+  agrafage ;
+- les contrôles `codesign`, `lipo`, `stapler`, `spctl`, montage du DMG, SHA-256
+  et appcast à URL immuable.
 
-- 8 tests unitaires et une matrice de validation manuelle.
-- VAD énergétique adaptatif au bruit de chaque dictée.
-- HUD non activant, raccourcis alternatifs et mode bascule.
-- Annulation et file de dictées conservant leur application cible.
-- Historique AES-256-GCM optionnel et rétention configurable.
-- Mesures de latence locales, anonymes et opt-in.
-- Choix mini/précision, profils de vocabulaire et indicateur de faible confiance.
-- Multipart audio écrit par blocs sur disque.
-- Validation des clés restreintes sur l'endpoint audio, sans `/v1/models`.
-- Hardened Runtime Release, CI, politique de confidentialité et script de notarisation.
+Le certificat local disponible est :
+`Developer ID Application: Yoann ANDRIEUX (G9WFV7HNV6)`.
 
-## Limites connues de la version 1.2
+La release ne doit pas être taguée tant que les modifications Pressay ne sont pas
+relues, poussées et que le test d’installation sur une session propre n’est pas
+prêt. Aucun ancien tag ou DMG Whisper ne doit être publié.
 
-- Le VAD adaptatif est énergétique : il réduit fortement les faux positifs mais
-  ne distingue pas sémantiquement une voix d'un bruit soudain.
-- Les 350 premières millisecondes sont ignorées pour ne pas classer le son de démarrage comme de la parole ; l'utilisateur doit parler après le signal.
-- Le collage dépend de l'autorisation Accessibilité et d'AppleScript/System Events.
-- La qualité et le seuil de faible confiance doivent être calibrés sur un corpus
-  réel et plusieurs microphones.
-- La notarisation finale nécessite le certificat et le compte Apple Developer du
-  propriétaire ; le dépôt contient toute la préparation mais aucun secret.
-- Le streaming de fichier n'est pas activé : les métriques ajoutées doivent d'abord
-  démontrer un gain, conformément à la recommandation d'audit.
+## Vérifications effectuées
+
+- 19 tests Xcode réussis ;
+- `xcodebuild analyze` en Release réussi ;
+- archive Release non signée réussie avec `arm64 + x86_64` ;
+- validation `v1.0.0`, build `1`, bundle `fr.yodev.pressay` réussie ;
+- `pnpm lint` et `pnpm build` réussis sur le portfolio ;
+- secrets GitHub `release`, règle de tag `v*` et approbateur vérifiés sans
+  exposer leurs valeurs.
+
+## Gates encore externes
+
+- recherche formelle de marque INPI/EUIPO ;
+- création/vérification de l’App ID explicite Apple ;
+- première exécution réelle du workflow de notarisation Pressay ;
+- installation du DMG et dictée sur session macOS propre ;
+- mise à jour Sparkle entre deux builds signés ;
+- capture réelle de l’interface Pressay pour le portfolio ;
+- activation du CTA uniquement après disponibilité effective de `v1.0.0`.
