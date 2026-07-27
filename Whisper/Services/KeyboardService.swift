@@ -1,4 +1,5 @@
 import AppKit
+import Carbon.HIToolbox
 import Foundation
 
 final class KeyboardService: ObservableObject {
@@ -43,6 +44,10 @@ final class KeyboardService: ObservableObject {
     }
 
     private func handleFlagsChanged(_ event: NSEvent) {
+        // Les touches F1…F12 portent aussi le flag `.function`. Seule la vraie
+        // touche Fn/Globe (keyCode 63) doit piloter l'enregistrement.
+        guard event.keyCode == UInt16(kVK_Function) else { return }
+
         let fnKeyPressed = event.modifierFlags.contains(.function)
 
         // Fn vient d'être pressé

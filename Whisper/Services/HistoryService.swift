@@ -33,8 +33,12 @@ final class HistoryService: ObservableObject {
     }
 
     func add(_ text: String) {
-        let entry = TranscriptionEntry(text: text)
+        let cleanText = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !cleanText.isEmpty else { return }
+
+        let entry = TranscriptionEntry(text: cleanText)
         entries.insert(entry, at: 0)
+        cleanup(saveAfterCleanup: false)
         save()
     }
 
@@ -48,10 +52,12 @@ final class HistoryService: ObservableObject {
         save()
     }
 
-    private func cleanup() {
+    private func cleanup(saveAfterCleanup: Bool = true) {
         let now = Date()
         entries.removeAll { now.timeIntervalSince($0.date) > maxAge }
-        save()
+        if saveAfterCleanup {
+            save()
+        }
     }
 
     private func load() {
@@ -64,6 +70,6 @@ final class HistoryService: ObservableObject {
 
     private func save() {
         guard let data = try? JSONEncoder().encode(entries) else { return }
-        try? data.write(to: fileURL)
+        try? data.write(to: fileURL, options: .atomic)
     }
 }

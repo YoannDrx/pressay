@@ -3,6 +3,7 @@ import SwiftUI
 struct MenuBarView: View {
     @EnvironmentObject var appState: AppState
     @Environment(\.openSettings) private var openSettings
+    @ObservedObject private var historyService = HistoryService.shared
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
@@ -45,14 +46,23 @@ struct MenuBarView: View {
                         .foregroundStyle(.secondary)
                 }
                 .padding(.horizontal)
+            } else if let notice = appState.lastNotice {
+                HStack {
+                    Image(systemName: "checkmark.circle.fill")
+                        .foregroundStyle(.green)
+                    Text(notice)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+                .padding(.horizontal)
             }
 
             Divider()
 
             // Historique
-            if !HistoryService.shared.entries.isEmpty {
+            if !historyService.entries.isEmpty {
                 Menu {
-                    ForEach(HistoryService.shared.entries.prefix(5)) { entry in
+                    ForEach(historyService.entries.prefix(5)) { entry in
                         Button {
                             NSPasteboard.general.clearContents()
                             NSPasteboard.general.setString(entry.text, forType: .string)

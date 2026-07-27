@@ -2,11 +2,24 @@ import AVFoundation
 import Foundation
 
 final class AudioRecorder: NSObject, ObservableObject {
+    struct RecordingResult {
+        let url: URL
+        let duration: TimeInterval
+        let voicedDuration: TimeInterval
+
+        var containsSpeech: Bool {
+            duration >= Constants.minimumRecordingDuration &&
+            voicedDuration >= Constants.minimumVoicedDuration
+        }
+    }
+
     @Published private(set) var isRecording = false
     @Published private(set) var hasPermission = false
 
     private var audioRecorder: AVAudioRecorder?
     private var recordingURL: URL?
+    private var meteringTimer: Timer?
+    private var voicedDuration: TimeInterval = 0
 
     override init() {
         super.init()
@@ -40,6 +53,8 @@ final class AudioRecorder: NSObject, ObservableObject {
             throw RecordingError.noPermission
         }
 
+        cleanup()
+
         let url = getRecordingURL()
         recordingURL = url
 
@@ -52,20 +67,72 @@ final class AudioRecorder: NSObject, ObservableObject {
 
         audioRecorder = try AVAudioRecorder(url: url, settings: settings)
         audioRecorder?.delegate = self
-        audioRecorder?.record()
+        audioRecorder?.isMeteringEnabled = true
+
+        guard audioRecorder?.record() == true else {
+            cleanup()
+            throw RecordingError.recordingFailed
+        }
+
+        voicedDuration = 0
+        startMetering()
         isRecording = true
     }
 
-    func stopRecording() -> URL? {
-        audioRecorder?.stop()
+    func stopRecording() -> RecordingResult? {
+        guard let recorder = audioRecorder, let recordingURL else {
+            return nil
+        }
+
+        sampleAudioLevel()
+        let duration = recorder.currentTime
+        recorder.stop()
+        stopMetering()
         isRecording = false
-        return recordingURL
+        audioRecorder = nil
+
+        return RecordingResult(
+            url: recordingURL,
+            duration: duration,
+            voicedDuration: voicedDuration
+        )
     }
 
     func cleanup() {
+        stopMetering()
+        audioRecorder?.stop()
+        audioRecorder = nil
+        isRecording = false
+
         if let url = recordingURL {
             try? FileManager.default.removeItem(at: url)
             recordingURL = nil
+        }
+
+        voicedDuration = 0
+    }
+
+    private func startMetering() {
+        let timer = Timer(timeInterval: Constants.audioMeteringInterval, repeats: true) { [weak self] _ in
+            self?.sampleAudioLevel()
+        }
+        RunLoop.main.add(timer, forMode: .common)
+        meteringTimer = timer
+    }
+
+    private func stopMetering() {
+        meteringTimer?.invalidate()
+        meteringTimer = nil
+    }
+
+    private func sampleAudioLevel() {
+        guard let recorder = audioRecorder, recorder.isRecording else { return }
+
+        recorder.updateMeters()
+        guard recorder.currentTime >= Constants.ignoredLeadingAudioDuration else { return }
+
+        if recorder.averagePower(forChannel: 0) >= Constants.speechPowerThreshold {
+            voicedDuration += Constants.audioMeteringInterval
         }
     }
 

@@ -5,6 +5,10 @@ final class TextInjector {
     static let shared = TextInjector()
     private init() {}
 
+    private struct PasteboardItemSnapshot {
+        let values: [NSPasteboard.PasteboardType: Data]
+    }
+
     /// L'app qui avait le focus quand l'enregistrement a commencé
     private var targetApp: NSRunningApplication?
 
@@ -13,34 +17,73 @@ final class TextInjector {
         targetApp = NSWorkspace.shared.frontmostApplication
     }
 
+    func clearTargetApp() {
+        targetApp = nil
+    }
+
     /// Injecte le texte à la position actuelle du curseur via CGEvent
     func inject(text: String) {
-        // Sauvegarder le contenu actuel du presse-papiers
-        let pasteboard = NSPasteboard.general
-        let previousContents = pasteboard.string(forType: .string)
+        let cleanText = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !cleanText.isEmpty else {
+            clearTargetApp()
+            return
+        }
 
-        // Mettre le texte transcrit dans le presse-papiers
+        // Sauvegarder tous les types (texte, image, fichier…), pas uniquement String.
+        let pasteboard = NSPasteboard.general
+        let previousContents = snapshot(of: pasteboard)
+
         pasteboard.clearContents()
-        pasteboard.setString(text, forType: .string)
+        guard pasteboard.setString(cleanText, forType: .string) else {
+            restore(previousContents, to: pasteboard)
+            clearTargetApp()
+            return
+        }
+        let transcriptionChangeCount = pasteboard.changeCount
 
         // S'assurer que l'app cible a le focus
-        if let app = targetApp {
-            app.activate(options: [.activateIgnoringOtherApps])
+        if let app = targetApp, !app.isTerminated {
+            app.activate(options: [])
         }
 
         // Délai pour s'assurer que l'app est vraiment active
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) {
             self.pasteViaCGEvent()
 
-            // Restaurer le presse-papiers après un délai
+            // Ne jamais écraser une nouvelle copie effectuée par l'utilisateur
+            // pendant l'injection.
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
-                if let previous = previousContents {
-                    pasteboard.clearContents()
-                    pasteboard.setString(previous, forType: .string)
+                if pasteboard.changeCount == transcriptionChangeCount {
+                    self.restore(previousContents, to: pasteboard)
                 }
-                self.targetApp = nil
+                self.clearTargetApp()
             }
         }
+    }
+
+    private func snapshot(of pasteboard: NSPasteboard) -> [PasteboardItemSnapshot] {
+        pasteboard.pasteboardItems?.map { item in
+            let values = item.types.reduce(into: [NSPasteboard.PasteboardType: Data]()) { result, type in
+                if let data = item.data(forType: type) {
+                    result[type] = data
+                }
+            }
+            return PasteboardItemSnapshot(values: values)
+        } ?? []
+    }
+
+    private func restore(_ snapshots: [PasteboardItemSnapshot], to pasteboard: NSPasteboard) {
+        pasteboard.clearContents()
+        guard !snapshots.isEmpty else { return }
+
+        let items = snapshots.map { snapshot in
+            let item = NSPasteboardItem()
+            for (type, data) in snapshot.values {
+                item.setData(data, forType: type)
+            }
+            return item
+        }
+        pasteboard.writeObjects(items)
     }
 
     private func pasteViaCGEvent() {
@@ -68,14 +111,17 @@ final class TextInjector {
 
     private func pasteViaMenuClick() {
         guard let appName = targetApp?.localizedName else { return }
+        let escapedAppName = appName
+            .replacingOccurrences(of: "\\", with: "\\\\")
+            .replacingOccurrences(of: "\"", with: "\\\"")
 
         let script = """
-        tell application "\(appName)"
+        tell application "\(escapedAppName)"
             activate
         end tell
         delay 0.1
         tell application "System Events"
-            tell process "\(appName)"
+            tell process "\(escapedAppName)"
                 click menu item "Paste" of menu "Edit" of menu bar 1
             end tell
         end tell

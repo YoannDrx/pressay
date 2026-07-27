@@ -12,7 +12,7 @@ Maintiens la touche **Fn** enfoncée, parle, relâche, et le texte apparaît là
 4. Tu relâches **Fn**
 5. Le texte transcrit est automatiquement collé là où tu étais en train d'écrire
 
-L'app utilise l'API OpenAI Whisper pour la transcription. C'est rapide, précis, et ça comprend super bien le français (y compris le vocabulaire tech : API, SDK, React, Node.js, etc.).
+L'app utilise l'endpoint de transcription audio OpenAI avec `gpt-4o-mini-transcribe`. C'est rapide, précis, et le vocabulaire technique est personnalisable.
 
 ## Installation
 
@@ -26,7 +26,7 @@ L'app utilise l'API OpenAI Whisper pour la transcription. C'est rapide, précis,
 
 1. **Clone le repo**
    ```bash
-   git clone https://github.com/Paseru/whisper.git
+   git clone https://github.com/YoannDrx/whisper.git
    cd whisper
    ```
 
@@ -75,6 +75,12 @@ L'historique se nettoie automatiquement après 24h pour ne pas encombrer ton Mac
 ### Feedback audio
 Un petit son te confirme quand l'enregistrement commence et quand la transcription est prête.
 
+### Protection contre les transcriptions fantômes
+L'app mesure le niveau audio localement. Si aucune parole n'est détectée, le fichier n'est pas envoyé à l'API et aucun texte n'est collé.
+
+### Reconnaissance personnalisable
+Dans les préférences, tu peux choisir le français, l'anglais ou la détection automatique, puis ajouter les noms propres et acronymes que tu utilises souvent.
+
 ## Permissions requises
 
 L'app a besoin de ces permissions pour fonctionner :
@@ -94,24 +100,25 @@ Tu as besoin d'une clé API OpenAI pour utiliser Whisper :
 4. Copie la clé (elle commence par `sk-...`)
 5. Colle-la dans les réglages de Whisper
 
-**Note** : L'utilisation de l'API est payante, mais la transcription audio coûte très peu (~0.006$/minute). Consulte les [tarifs OpenAI](https://openai.com/pricing) pour plus de détails.
+**Note** : L'utilisation de l'API est payante. Consulte les [tarifs OpenAI](https://openai.com/api/pricing/) pour les prix actuels.
 
 Ta clé API est stockée de façon sécurisée dans le Keychain de macOS (le même endroit où sont stockés tes mots de passe).
 
 ## Comment ça fonctionne techniquement ?
 
 1. Quand tu appuies sur **Fn**, l'app commence à enregistrer ton micro
-2. L'audio est enregistré en format M4A (16kHz, mono)
-3. Quand tu relâches **Fn**, l'audio est envoyé à l'API OpenAI Whisper
-4. Le texte transcrit revient en quelques secondes
-5. L'app simule un Cmd+V pour coller le texte là où tu étais
+2. L'audio est enregistré en format M4A (16 kHz, mono) et analysé localement pour détecter la voix
+3. Si tu n'as pas parlé, l'opération est annulée sans appel réseau
+4. Sinon, l'audio est envoyé à l'endpoint de transcription OpenAI avec la langue et ton vocabulaire
+5. Le texte validé est collé à l'emplacement initial du curseur
+6. Le presse-papiers précédent est restauré, sauf si tu as copié autre chose entre-temps
 
 ## Confidentialité
 
-- **Audio** : Envoyé à OpenAI pour transcription, puis supprimé localement
+- **Audio** : Envoyé à OpenAI uniquement lorsqu'une voix est détectée, puis supprimé localement
 - **Clé API** : Stockée dans le Keychain macOS (chiffré)
 - **Historique** : Stocké localement, supprimé après 24h
-- **Aucune télémétrie** : L'app n'envoie aucune donnée ailleurs qu'à OpenAI pour la transcription
+- **Aucune télémétrie** : L'app n'envoie aucune donnée ailleurs qu'à OpenAI pour la transcription et la validation de clé
 
 ## Contribuer
 

@@ -5,6 +5,7 @@ final class AppState: ObservableObject {
     @Published var isRecording = false
     @Published var isTranscribing = false
     @Published var lastError: String?
+    @Published var lastNotice: String?
     @Published var hasAPIKey: Bool
 
     let audioRecorder = AudioRecorder()
@@ -38,6 +39,7 @@ final class AppState: ObservableObject {
     private func startRecording() {
         guard hasAPIKey else {
             lastError = "Configure ta clé API dans les préférences"
+            lastNotice = nil
             SoundService.shared.playErrorSound()
             return
         }
@@ -50,6 +52,7 @@ final class AppState: ObservableObject {
             try audioRecorder.startRecording()
             isRecording = true
             lastError = nil
+            lastNotice = nil
             SoundService.shared.playStartSound()
         } catch {
             lastError = error.localizedDescription
@@ -64,7 +67,7 @@ final class AppState: ObservableObject {
     private func stopRecordingAndTranscribe() {
         guard isRecording else { return }
 
-        guard let audioURL = audioRecorder.stopRecording() else {
+        guard let recording = audioRecorder.stopRecording() else {
             lastError = "Aucun enregistrement trouvé"
             isRecording = false
             SoundService.shared.playErrorSound()
@@ -72,45 +75,57 @@ final class AppState: ObservableObject {
         }
 
         isRecording = false
-        isTranscribing = true
         SoundService.shared.playStopSound()
 
+        guard recording.containsSpeech else {
+            lastError = nil
+            lastNotice = "Aucune parole détectée — rien n’a été collé"
+            TextInjector.shared.clearTargetApp()
+            audioRecorder.cleanup()
+            return
+        }
+
+        isTranscribing = true
+
         Task {
-            do {
-                let text = try await TranscriptionService.shared.transcribe(audioURL: audioURL)
-                await MainActor.run {
-                    // Sauvegarder dans l'historique
-                    HistoryService.shared.add(text)
-                    // Coller le texte
-                    TextInjector.shared.inject(text: text)
-                    isTranscribing = false
-                }
-            } catch {
-                await MainActor.run {
-                    lastError = error.localizedDescription
-                    isTranscribing = false
-                    SoundService.shared.playErrorSound()
-                }
+            defer {
+                audioRecorder.cleanup()
             }
 
-            // Nettoyer le fichier audio temporaire
-            audioRecorder.cleanup()
+            do {
+                let text = try await TranscriptionService.shared.transcribe(audioURL: recording.url)
+
+                HistoryService.shared.add(text)
+                TextInjector.shared.inject(text: text)
+                lastError = nil
+                lastNotice = "Transcription insérée"
+                isTranscribing = false
+            } catch {
+                lastError = error.localizedDescription
+                lastNotice = nil
+                isTranscribing = false
+                TextInjector.shared.clearTargetApp()
+                SoundService.shared.playErrorSound()
+            }
         }
     }
 
     func updateAPIKey(_ key: String) async -> Bool {
-        let isValid = await TranscriptionService.shared.validateAPIKey(key)
-        await MainActor.run {
-            if isValid {
-                _ = KeychainHelper.shared.save(apiKey: key)
-                hasAPIKey = true
-            }
+        let cleanKey = key.trimmingCharacters(in: .whitespacesAndNewlines)
+        let isValid = await TranscriptionService.shared.validateAPIKey(cleanKey)
+
+        if isValid, KeychainHelper.shared.save(apiKey: cleanKey) {
+            hasAPIKey = true
+            lastError = nil
+            return true
         }
-        return isValid
+
+        return false
     }
 
     func clearAPIKey() {
         KeychainHelper.shared.delete()
         hasAPIKey = false
+        lastNotice = nil
     }
 }

@@ -7,10 +7,12 @@ struct SettingsView: View {
     @State private var isValidating: Bool = false
     @State private var showSuccessHint: Bool = false
     @State private var showErrorHint: Bool = false
-    
+    @AppStorage(Constants.transcriptionLanguageKey)
+    private var transcriptionLanguage = Constants.defaultTranscriptionLanguage
+    @AppStorage(Constants.technicalVocabularyKey)
+    private var technicalVocabulary = Constants.defaultTechnicalVocabulary
+
     private let accentColor = Color(nsColor: .controlAccentColor)
-    private let secondaryBg = Color(white: 1).opacity(0.04)
-    private let borderColor = Color(white: 1).opacity(0.08)
     
     var body: some View {
         VStack(spacing: 0) {
@@ -64,6 +66,73 @@ struct SettingsView: View {
                                     if inside { NSCursor.pointingHand.push() } else { NSCursor.pop() }
                                 }
                             }
+
+                            if showSuccessHint {
+                                Label("Clé vérifiée et enregistrée dans le Trousseau.", systemImage: "checkmark.circle.fill")
+                                    .font(.system(size: 11))
+                                    .foregroundStyle(.green)
+                            } else if showErrorHint {
+                                Label("Impossible de valider cette clé. Vérifie sa valeur et ses droits API.", systemImage: "exclamationmark.triangle.fill")
+                                    .font(.system(size: 11))
+                                    .foregroundStyle(.orange)
+                            }
+                        }
+                    }
+
+                    // MARK: - Transcription Section
+                    SettingsSection(title: "RECONNAISSANCE", icon: "waveform.badge.magnifyingglass") {
+                        VStack(alignment: .leading, spacing: 14) {
+                            HStack {
+                                VStack(alignment: .leading, spacing: 3) {
+                                    Text("Langue principale")
+                                        .font(.system(size: 12, weight: .medium))
+                                    Text("Une langue explicite réduit la latence et les erreurs.")
+                                        .font(.system(size: 10))
+                                        .foregroundStyle(.secondary)
+                                }
+
+                                Spacer()
+
+                                Picker("", selection: $transcriptionLanguage) {
+                                    Text("Français").tag("fr")
+                                    Text("Anglais").tag("en")
+                                    Text("Détection auto").tag("")
+                                }
+                                .labelsHidden()
+                                .frame(width: 130)
+                            }
+
+                            Divider().opacity(0.5)
+
+                            VStack(alignment: .leading, spacing: 8) {
+                                HStack {
+                                    Text("Vocabulaire personnalisé")
+                                        .font(.system(size: 12, weight: .medium))
+                                    Spacer()
+                                    Button("Valeurs par défaut") {
+                                        technicalVocabulary = Constants.defaultTechnicalVocabulary
+                                    }
+                                    .font(.system(size: 10))
+                                    .buttonStyle(.plain)
+                                    .foregroundStyle(accentColor)
+                                }
+
+                                TextEditor(text: $technicalVocabulary)
+                                    .font(.system(size: 11, design: .monospaced))
+                                    .scrollContentBackground(.hidden)
+                                    .padding(8)
+                                    .frame(height: 72)
+                                    .background(Color.primary.opacity(0.04))
+                                    .clipShape(RoundedRectangle(cornerRadius: 7, style: .continuous))
+                                    .overlay(
+                                        RoundedRectangle(cornerRadius: 7, style: .continuous)
+                                            .stroke(Color.primary.opacity(0.08), lineWidth: 1)
+                                    )
+
+                                Text("Ajoute les noms propres et acronymes que tu dictes souvent. Laisse vide pour ne fournir aucun contexte.")
+                                    .font(.system(size: 10))
+                                    .foregroundStyle(.secondary)
+                            }
                         }
                     }
                     
@@ -100,7 +169,7 @@ struct SettingsView: View {
                             VStack(alignment: .leading, spacing: 4) {
                                 Text("Whisper for macOS")
                                     .font(.system(size: 12, weight: .semibold))
-                                Text("Version 1.0.0")
+                                Text("Version \(appVersion)")
                                     .font(.system(size: 11))
                                     .foregroundColor(.secondary)
                             }
@@ -120,7 +189,7 @@ struct SettingsView: View {
             // MARK: - Footer
             footerSection
         }
-        .frame(width: 440, height: 560)
+        .frame(width: 460, height: 700)
         .background(Color(nsColor: .windowBackgroundColor))
     }
     
@@ -129,16 +198,11 @@ struct SettingsView: View {
     private var headerSection: some View {
         VStack(spacing: 0) {
             HStack(spacing: 16) {
-                ZStack {
-                    RoundedRectangle(cornerRadius: 10, style: .continuous)
-                        .fill(LinearGradient(colors: [accentColor, accentColor.opacity(0.8)], startPoint: .topLeading, endPoint: .bottomTrailing))
-                        .frame(width: 40, height: 40)
-                        .shadow(color: accentColor.opacity(0.3), radius: 8, x: 0, y: 4)
-                    
-                    Image(systemName: "waveform")
-                        .font(.system(size: 20, weight: .medium))
-                        .foregroundColor(.white)
-                }
+                Image(nsImage: NSApplication.shared.applicationIconImage)
+                    .resizable()
+                    .interpolation(.high)
+                    .frame(width: 44, height: 44)
+                    .shadow(color: accentColor.opacity(0.22), radius: 8, x: 0, y: 4)
                 
                 VStack(alignment: .leading, spacing: 2) {
                     Text("Whisper")
@@ -206,13 +270,15 @@ struct SettingsView: View {
     // MARK: - Logic
     
     private func validateKey() {
-        guard !apiKeyInput.isEmpty else { return }
+        let cleanKey = apiKeyInput.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !cleanKey.isEmpty else { return }
         
         isValidating = true
         showErrorHint = false
+        showSuccessHint = false
         
         Task {
-            let success = await appState.updateAPIKey(apiKeyInput)
+            let success = await appState.updateAPIKey(cleanKey)
             await MainActor.run {
                 isValidating = false
                 if success {
@@ -224,6 +290,10 @@ struct SettingsView: View {
                 }
             }
         }
+    }
+
+    private var appVersion: String {
+        Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "1.0"
     }
 }
 
