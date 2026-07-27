@@ -1,0 +1,12 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32">
+  <defs>
+    <mask id="wave-cutout">
+      <rect width="32" height="32" fill="#fff"/>
+      <path d="M2 16h2m3-4v8m4-5v2m4-6v10m4-7v4m4-6v8m3-4h1"
+            fill="none" stroke="#000" stroke-width="2" stroke-linecap="round"/>
+    </mask>
+  </defs>
+  <path fill="#000" fill-rule="evenodd" mask="url(#wave-cutout)"
+        d="M4 28V4h11.5C23 4 28 8.2 28 15s-5.1 11-12.6 11H11v2H4Zm7-18v10h4.2c3.7 0 5.8-1.8 5.8-5s-2.1-5-5.8-5H11Z"/>
+  <path d="M2 16h2m28 0h-2" fill="none" stroke="#000" stroke-width="2" stroke-linecap="round"/>
+</svg>
