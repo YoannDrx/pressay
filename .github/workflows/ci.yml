@@ -1,0 +1,30 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: macos-15
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v6
+      - name: Tests
+        run: >-
+          xcodebuild test
+          -project Whisper.xcodeproj
+          -scheme Whisper
+          -configuration Debug
+          -destination 'platform=macOS'
+      - name: Analyse statique
+        run: >-
+          xcodebuild analyze
+          -project Whisper.xcodeproj
+          -scheme Whisper
+          -configuration Debug
+          -destination 'platform=macOS'

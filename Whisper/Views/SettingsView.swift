@@ -1,423 +1,365 @@
 import SwiftUI
 
 struct SettingsView: View {
-    @EnvironmentObject var appState: AppState
-    
-    @State private var apiKeyInput: String = ""
-    @State private var isValidating: Bool = false
-    @State private var showSuccessHint: Bool = false
-    @State private var showErrorHint: Bool = false
-    @AppStorage(Constants.transcriptionLanguageKey)
-    private var transcriptionLanguage = Constants.defaultTranscriptionLanguage
-    @AppStorage(Constants.technicalVocabularyKey)
-    private var technicalVocabulary = Constants.defaultTechnicalVocabulary
+    @EnvironmentObject private var appState: AppState
+    @ObservedObject private var metrics = PerformanceMetricsService.shared
 
-    private let accentColor = Color(nsColor: .controlAccentColor)
-    
+    @State private var apiKeyInput = ""
+    @State private var isValidating = false
+    @State private var validationMessage: ValidationMessage?
+
+    @AppStorage(Constants.transcriptionLanguageKey)
+    private var language = Constants.defaultTranscriptionLanguage
+    @AppStorage(Constants.transcriptionModelKey)
+    private var model = Constants.defaultTranscriptionModel
+    @AppStorage(Constants.vocabularyProfileKey)
+    private var vocabularyProfile = "development"
+    @AppStorage(Constants.technicalVocabularyKey)
+    private var customVocabulary = ""
+    @AppStorage(Constants.shortcutKey)
+    private var shortcut = DictationShortcut.function.rawValue
+    @AppStorage(Constants.activationModeKey)
+    private var activationMode = ActivationMode.hold.rawValue
+    @AppStorage(Constants.historyEnabledKey)
+    private var historyEnabled = true
+    @AppStorage(Constants.historyRetentionDaysKey)
+    private var historyRetentionDays = 1
+    @AppStorage(Constants.metricsEnabledKey)
+    private var metricsEnabled = false
+
     var body: some View {
         VStack(spacing: 0) {
-            // MARK: - Header
-            headerSection
-            
+            header
             ScrollView(showsIndicators: false) {
-                VStack(spacing: 20) {
-                    
-                    // MARK: - API Configuration Section
-                    SettingsSection(title: "CONFIGURATION API", icon: "key.fill") {
-                        VStack(alignment: .leading, spacing: 12) {
-                            HStack(spacing: 10) {
-                                SecureField("sk-...", text: $apiKeyInput)
-                                    .textFieldStyle(RefinedTextFieldStyle())
-                                    .frame(maxWidth: .infinity)
-                                
-                                Button(action: validateKey) {
-                                    HStack(spacing: 6) {
-                                        if isValidating {
-                                            ProgressView()
-                                                .controlSize(.small)
-                                                .scaleEffect(0.6)
-                                        } else {
-                                            Text("Valider")
-                                                .font(.system(size: 11, weight: .medium))
-                                        }
-                                    }
-                                    .frame(width: 70, height: 24)
-                                }
-                                .buttonStyle(RefinedButtonStyle(isPrimary: true))
-                                .disabled(apiKeyInput.isEmpty || isValidating)
-                            }
-                            
-                            HStack(spacing: 12) {
-                                statusIndicator
-                                
-                                Spacer()
-                                
-                                Link(destination: URL(string: "https://platform.openai.com/api-keys")!) {
-                                    HStack(spacing: 4) {
-                                        Text("Obtenir une clé")
-                                        Image(systemName: "arrow.up.right")
-                                            .font(.system(size: 9))
-                                    }
-                                    .font(.system(size: 11, weight: .medium))
-                                    .foregroundColor(accentColor.opacity(0.9))
-                                }
-                                .buttonStyle(.plain)
-                                .onHover { inside in
-                                    if inside { NSCursor.pointingHand.push() } else { NSCursor.pop() }
-                                }
-                            }
-
-                            if showSuccessHint {
-                                Label("Clé vérifiée et enregistrée dans le Trousseau.", systemImage: "checkmark.circle.fill")
-                                    .font(.system(size: 11))
-                                    .foregroundStyle(.green)
-                            } else if showErrorHint {
-                                Label("Impossible de valider cette clé. Vérifie sa valeur et ses droits API.", systemImage: "exclamationmark.triangle.fill")
-                                    .font(.system(size: 11))
-                                    .foregroundStyle(.orange)
-                            }
-                        }
-                    }
-
-                    // MARK: - Transcription Section
-                    SettingsSection(title: "RECONNAISSANCE", icon: "waveform.badge.magnifyingglass") {
-                        VStack(alignment: .leading, spacing: 14) {
-                            HStack {
-                                VStack(alignment: .leading, spacing: 3) {
-                                    Text("Langue principale")
-                                        .font(.system(size: 12, weight: .medium))
-                                    Text("Une langue explicite réduit la latence et les erreurs.")
-                                        .font(.system(size: 10))
-                                        .foregroundStyle(.secondary)
-                                }
-
-                                Spacer()
-
-                                Picker("", selection: $transcriptionLanguage) {
-                                    Text("Français").tag("fr")
-                                    Text("Anglais").tag("en")
-                                    Text("Détection auto").tag("")
-                                }
-                                .labelsHidden()
-                                .frame(width: 130)
-                            }
-
-                            Divider().opacity(0.5)
-
-                            VStack(alignment: .leading, spacing: 8) {
-                                HStack {
-                                    Text("Vocabulaire personnalisé")
-                                        .font(.system(size: 12, weight: .medium))
-                                    Spacer()
-                                    Button("Valeurs par défaut") {
-                                        technicalVocabulary = Constants.defaultTechnicalVocabulary
-                                    }
-                                    .font(.system(size: 10))
-                                    .buttonStyle(.plain)
-                                    .foregroundStyle(accentColor)
-                                }
-
-                                TextEditor(text: $technicalVocabulary)
-                                    .font(.system(size: 11, design: .monospaced))
-                                    .scrollContentBackground(.hidden)
-                                    .padding(8)
-                                    .frame(height: 72)
-                                    .background(Color.primary.opacity(0.04))
-                                    .clipShape(RoundedRectangle(cornerRadius: 7, style: .continuous))
-                                    .overlay(
-                                        RoundedRectangle(cornerRadius: 7, style: .continuous)
-                                            .stroke(Color.primary.opacity(0.08), lineWidth: 1)
-                                    )
-
-                                Text("Ajoute les noms propres et acronymes que tu dictes souvent. Laisse vide pour ne fournir aucun contexte.")
-                                    .font(.system(size: 10))
-                                    .foregroundStyle(.secondary)
-                            }
-                        }
-                    }
-                    
-                    // MARK: - Usage Section
-                    SettingsSection(title: "UTILISATION", icon: "command") {
-                        VStack(alignment: .leading, spacing: 14) {
-                            HStack(spacing: 16) {
-                                ShortcutKeyView(label: "Fn", subLabel: "Maintenir")
-
-                                Text("Maintenez la touche Fn enfoncée pour parler. Relâchez pour transcrire et coller le texte.")
-                                    .font(.system(size: 12))
-                                    .lineSpacing(3)
-                                    .foregroundColor(.secondary)
-                            }
-                            
-                            Divider().opacity(0.5)
-                            
-                            HStack(spacing: 12) {
-                                Image(systemName: "text.cursor")
-                                    .font(.system(size: 14))
-                                    .foregroundColor(accentColor)
-                                    .frame(width: 24)
-                                
-                                Text("Le texte transcrit sera inséré automatiquement à l'emplacement actuel de votre curseur.")
-                                    .font(.system(size: 12))
-                                    .foregroundColor(.secondary)
-                            }
-                        }
-                    }
-                    
-                    // MARK: - About Section
-                    SettingsSection(title: "À PROPOS", icon: "info.circle") {
-                        HStack {
-                            VStack(alignment: .leading, spacing: 4) {
-                                Text("Whisper for macOS")
-                                    .font(.system(size: 12, weight: .semibold))
-                                Text("Version \(appVersion)")
-                                    .font(.system(size: 11))
-                                    .foregroundColor(.secondary)
-                            }
-                            Spacer()
-                            Text("gpt-4o-mini-transcribe")
-                                .font(.system(size: 10, weight: .bold))
-                                .padding(.horizontal, 8)
-                                .padding(.vertical, 4)
-                                .background(Color.primary.opacity(0.05))
-                                .cornerRadius(4)
-                        }
-                    }
+                VStack(spacing: 18) {
+                    permissionsSection
+                    apiSection
+                    recognitionSection
+                    shortcutSection
+                    privacySection
+                    aboutSection
                 }
                 .padding(24)
             }
-            
-            // MARK: - Footer
-            footerSection
+            footer
         }
-        .frame(width: 460, height: 700)
+        .frame(width: 520, height: 760)
         .background(Color(nsColor: .windowBackgroundColor))
+        .onAppear { appState.refreshPermissions() }
+        .onChange(of: historyEnabled) { _, _ in HistoryService.shared.applyPreferences() }
+        .onChange(of: historyRetentionDays) { _, _ in HistoryService.shared.applyPreferences() }
     }
-    
-    // MARK: - Subviews
-    
-    private var headerSection: some View {
+
+    private var header: some View {
         VStack(spacing: 0) {
-            HStack(spacing: 16) {
+            HStack(spacing: 14) {
                 Image(nsImage: NSApplication.shared.applicationIconImage)
                     .resizable()
                     .interpolation(.high)
-                    .frame(width: 44, height: 44)
-                    .shadow(color: accentColor.opacity(0.22), radius: 8, x: 0, y: 4)
-                
-                VStack(alignment: .leading, spacing: 2) {
+                    .frame(width: 48, height: 48)
+                    .shadow(color: .accentColor.opacity(0.22), radius: 10, y: 4)
+                VStack(alignment: .leading, spacing: 3) {
                     Text("Whisper")
-                        .font(.system(size: 16, weight: .bold))
-                        .kerning(-0.2)
-                    Text("Préférences Système")
+                        .font(.system(size: 18, weight: .bold))
+                    Text("La dictée qui reste hors de ton chemin")
                         .font(.system(size: 12))
-                        .foregroundColor(.secondary)
+                        .foregroundStyle(.secondary)
                 }
-                
                 Spacer()
+                Text("v\(appVersion)")
+                    .font(.system(size: 10, weight: .semibold, design: .rounded))
+                    .foregroundStyle(.secondary)
+                    .padding(.horizontal, 8)
+                    .padding(.vertical, 4)
+                    .background(.secondary.opacity(0.08), in: Capsule())
             }
             .padding(.horizontal, 24)
-            .padding(.vertical, 20)
-            
+            .padding(.vertical, 18)
             Divider().opacity(0.5)
         }
     }
-    
-    private var statusIndicator: some View {
-        HStack(spacing: 6) {
-            Circle()
-                .fill(appState.hasAPIKey ? Color.green : Color.orange)
-                .frame(width: 6, height: 6)
-                .shadow(color: (appState.hasAPIKey ? Color.green : Color.orange).opacity(0.4), radius: 3)
-            
-            Text(appState.hasAPIKey ? "Clé API valide" : "Clé non configurée")
-                .font(.system(size: 11, weight: .medium))
-                .foregroundColor(.secondary)
-            
-            if appState.hasAPIKey {
-                Button(action: { appState.clearAPIKey() }) {
-                    Text("Réinitialiser")
-                        .font(.system(size: 10, weight: .medium))
-                        .foregroundColor(.secondary)
-                        .underline()
-                }
-                .buttonStyle(.plain)
-                .padding(.leading, 4)
+
+    private var permissionsSection: some View {
+        SettingsSection(title: "DÉMARRAGE", icon: "checkmark.shield") {
+            VStack(spacing: 12) {
+                permissionRow(
+                    title: "Microphone",
+                    detail: "Nécessaire pour enregistrer la dictée.",
+                    granted: appState.hasMicrophonePermission,
+                    action: appState.requestMicrophonePermission
+                )
+                Divider().opacity(0.45)
+                permissionRow(
+                    title: "Accessibilité",
+                    detail: "Nécessaire uniquement pour coller automatiquement.",
+                    granted: appState.hasAccessibilityPermission,
+                    action: appState.requestAccessibilityPermission
+                )
             }
         }
     }
-    
-    private var footerSection: some View {
+
+    private var apiSection: some View {
+        SettingsSection(title: "API OPENAI", icon: "key.fill") {
+            VStack(alignment: .leading, spacing: 11) {
+                HStack(spacing: 9) {
+                    SecureField("sk-…", text: $apiKeyInput)
+                        .textFieldStyle(.roundedBorder)
+                    Button(isValidating ? "Validation…" : "Valider") { validateKey() }
+                        .disabled(apiKeyInput.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || isValidating)
+                }
+                HStack {
+                    Label(
+                        appState.hasAPIKey ? "Clé vérifiée dans le Trousseau" : "Clé non configurée",
+                        systemImage: appState.hasAPIKey ? "checkmark.circle.fill" : "exclamationmark.circle.fill"
+                    )
+                    .foregroundStyle(appState.hasAPIKey ? .green : .orange)
+                    .font(.system(size: 11, weight: .medium))
+                    Spacer()
+                    if appState.hasAPIKey {
+                        Button("Réinitialiser", action: appState.clearAPIKey)
+                            .buttonStyle(.plain)
+                            .foregroundStyle(.secondary)
+                    }
+                    Link("Créer une clé ↗", destination: URL(string: "https://platform.openai.com/api-keys")!)
+                        .font(.system(size: 11))
+                }
+                if let validationMessage {
+                    Text(validationMessage.text)
+                        .font(.system(size: 10))
+                        .foregroundStyle(validationMessage.success ? .green : .orange)
+                }
+                Text("La validation utilise uniquement l’endpoint de transcription, donc les clés restreintes compatibles sont acceptées.")
+                    .font(.system(size: 10))
+                    .foregroundStyle(.secondary)
+            }
+        }
+    }
+
+    private var recognitionSection: some View {
+        SettingsSection(title: "RECONNAISSANCE", icon: "waveform.badge.magnifyingglass") {
+            VStack(alignment: .leading, spacing: 13) {
+                settingPicker(title: "Langue", detail: "Une langue explicite réduit latence et erreurs.", selection: $language) {
+                    Text("Français").tag("fr")
+                    Text("Anglais").tag("en")
+                    Text("Automatique").tag("")
+                }
+                Divider().opacity(0.45)
+                settingPicker(title: "Modèle", detail: "Même API, compromis coût / précision.", selection: $model) {
+                    ForEach(TranscriptionModel.allCases) { item in
+                        Text(item.label).tag(item.rawValue)
+                    }
+                }
+                Divider().opacity(0.45)
+                settingPicker(title: "Profil de vocabulaire", detail: "Seul le profil actif est envoyé avec l’audio.", selection: $vocabularyProfile) {
+                    Text("Développement").tag("development")
+                    Text("Général").tag("general")
+                    Text("Personnalisé").tag("custom")
+                }
+                if vocabularyProfile == "custom" {
+                    TextEditor(text: $customVocabulary)
+                        .font(.system(size: 11, design: .monospaced))
+                        .scrollContentBackground(.hidden)
+                        .padding(7)
+                        .frame(height: 70)
+                        .background(.primary.opacity(0.04), in: RoundedRectangle(cornerRadius: 8))
+                    Text("Noms propres, produits et acronymes séparés par des virgules.")
+                        .font(.system(size: 10))
+                        .foregroundStyle(.secondary)
+                }
+            }
+        }
+    }
+
+    private var shortcutSection: some View {
+        SettingsSection(title: "DÉCLENCHEMENT", icon: "keyboard") {
+            VStack(spacing: 13) {
+                settingPicker(title: "Raccourci", detail: "Choisis une touche modificatrice droite dédiée.", selection: $shortcut) {
+                    ForEach(DictationShortcut.allCases) { item in
+                        Text(item.label).tag(item.rawValue)
+                    }
+                }
+                Divider().opacity(0.45)
+                settingPicker(title: "Mode", detail: activationMode == ActivationMode.hold.rawValue
+                    ? "Maintiens pour parler, relâche pour envoyer."
+                    : "Appuie une fois pour démarrer, une fois pour envoyer.", selection: $activationMode) {
+                    ForEach(ActivationMode.allCases) { item in
+                        Text(item.label).tag(item.rawValue)
+                    }
+                }
+            }
+        }
+    }
+
+    private var privacySection: some View {
+        SettingsSection(title: "CONFIDENTIALITÉ ET MESURES", icon: "lock.shield") {
+            VStack(alignment: .leading, spacing: 13) {
+                Toggle("Conserver un historique local chiffré", isOn: $historyEnabled)
+                    .font(.system(size: 12, weight: .medium))
+                if historyEnabled {
+                    settingPicker(title: "Rétention", detail: "Suppression automatique sur ce Mac.", selection: $historyRetentionDays) {
+                        Text("24 heures").tag(1)
+                        Text("7 jours").tag(7)
+                        Text("30 jours").tag(30)
+                    }
+                }
+                Divider().opacity(0.45)
+                Toggle("Mesurer les temps de traitement localement", isOn: $metricsEnabled)
+                    .font(.system(size: 12, weight: .medium))
+                Text("Optionnel : uniquement des durées agrégées, jamais l’audio ni le texte, aucun envoi.")
+                    .font(.system(size: 10))
+                    .foregroundStyle(.secondary)
+                if metricsEnabled {
+                    HStack(spacing: 12) {
+                        ForEach(MetricStep.allCases, id: \.rawValue) { step in
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text(step.label).font(.system(size: 9)).foregroundStyle(.secondary)
+                                Text(metricText(step)).font(.system(size: 11, weight: .semibold, design: .rounded))
+                            }
+                        }
+                        Spacer()
+                        Button("Réinitialiser") { metrics.reset() }
+                            .font(.system(size: 10))
+                    }
+                    .id(metrics.revision)
+                }
+            }
+        }
+    }
+
+    private var aboutSection: some View {
+        SettingsSection(title: "À PROPOS", icon: "info.circle") {
+            HStack {
+                VStack(alignment: .leading, spacing: 3) {
+                    Text("Whisper for macOS").font(.system(size: 12, weight: .semibold))
+                    Text("Audio temporaire · Historique AES-256 · Aucune télémétrie distante")
+                        .font(.system(size: 10))
+                        .foregroundStyle(.secondary)
+                }
+                Spacer()
+                Link("Confidentialité", destination: URL(string: "https://github.com/YoannDrx/whisper/blob/main/PRIVACY.md")!)
+                    .font(.system(size: 10))
+            }
+        }
+    }
+
+    private var footer: some View {
         VStack(spacing: 0) {
             Divider().opacity(0.5)
             HStack {
-                Text("Whisper utilise l'API OpenAI pour une précision optimale.")
+                Text("Prêt pour les dictées courtes comme longues.")
                     .font(.system(size: 10))
-                    .foregroundColor(.secondary.opacity(0.7))
-                
+                    .foregroundStyle(.secondary)
                 Spacer()
-                
-                Button("Quitter") {
-                    NSApplication.shared.terminate(nil)
-                }
-                .buttonStyle(RefinedButtonStyle(isPrimary: false))
+                Button("Quitter") { NSApplication.shared.terminate(nil) }
             }
             .padding(.horizontal, 24)
-            .padding(.vertical, 16)
+            .padding(.vertical, 14)
         }
-        .background(Color(nsColor: .windowBackgroundColor).opacity(0.8))
     }
-    
-    // MARK: - Logic
-    
-    private func validateKey() {
-        let cleanKey = apiKeyInput.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !cleanKey.isEmpty else { return }
-        
-        isValidating = true
-        showErrorHint = false
-        showSuccessHint = false
-        
-        Task {
-            let success = await appState.updateAPIKey(cleanKey)
-            await MainActor.run {
-                isValidating = false
-                if success {
-                    apiKeyInput = ""
-                    showSuccessHint = true
-                    DispatchQueue.main.asyncAfter(deadline: .now() + 3) { showSuccessHint = false }
-                } else {
-                    showErrorHint = true
-                }
+
+    private func permissionRow(
+        title: String,
+        detail: String,
+        granted: Bool,
+        action: @escaping () -> Void
+    ) -> some View {
+        HStack {
+            Image(systemName: granted ? "checkmark.circle.fill" : "circle.dashed")
+                .foregroundStyle(granted ? .green : .orange)
+                .frame(width: 22)
+            VStack(alignment: .leading, spacing: 2) {
+                Text(title).font(.system(size: 12, weight: .medium))
+                Text(detail).font(.system(size: 10)).foregroundStyle(.secondary)
+            }
+            Spacer()
+            if !granted {
+                Button("Autoriser", action: action)
+            } else {
+                Text("Accordée").font(.system(size: 10, weight: .medium)).foregroundStyle(.green)
             }
         }
+    }
+
+    private func settingPicker<Value: Hashable, Content: View>(
+        title: String,
+        detail: String,
+        selection: Binding<Value>,
+        @ViewBuilder content: () -> Content
+    ) -> some View {
+        HStack {
+            VStack(alignment: .leading, spacing: 2) {
+                Text(title).font(.system(size: 12, weight: .medium))
+                Text(detail).font(.system(size: 10)).foregroundStyle(.secondary)
+            }
+            Spacer()
+            Picker("", selection: selection, content: content)
+                .labelsHidden()
+                .frame(width: 160)
+        }
+    }
+
+    private func validateKey() {
+        let key = apiKeyInput.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !key.isEmpty else { return }
+        isValidating = true
+        validationMessage = nil
+        Task {
+            let valid = await appState.updateAPIKey(key)
+            isValidating = false
+            validationMessage = ValidationMessage(
+                success: valid,
+                text: valid ? "Clé vérifiée et enregistrée." : "La clé ou son droit de transcription est invalide."
+            )
+            if valid { apiKeyInput = "" }
+        }
+    }
+
+    private func metricText(_ step: MetricStep) -> String {
+        guard let value = metrics.average(for: step) else { return "—" }
+        return value < 1 ? "\(Int(value * 1_000)) ms" : String(format: "%.1f s", value)
     }
 
     private var appVersion: String {
-        Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "1.0"
+        Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "1.2"
+    }
+
+    private struct ValidationMessage {
+        let success: Bool
+        let text: String
     }
 }
-
-// MARK: - Supporting Views
 
 struct SettingsSection<Content: View>: View {
     let title: String
     let icon: String
-    let content: Content
-    
+    @ViewBuilder let content: Content
+
     init(title: String, icon: String, @ViewBuilder content: () -> Content) {
         self.title = title
         self.icon = icon
         self.content = content()
     }
-    
+
     var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            HStack(spacing: 6) {
-                Image(systemName: icon)
-                    .font(.system(size: 10, weight: .bold))
-                    .foregroundColor(.secondary)
-                Text(title)
-                    .font(.system(size: 10, weight: .bold))
-                    .foregroundColor(.secondary)
-                    .kerning(0.5)
-            }
-            
-            VStack(alignment: .leading, spacing: 0) {
-                content
-            }
-            .padding(16)
-            .background(
-                RoundedRectangle(cornerRadius: 12, style: .continuous)
-                    .fill(Color(nsColor: .controlBackgroundColor).opacity(0.4))
-            )
-            .overlay(
-                RoundedRectangle(cornerRadius: 12, style: .continuous)
-                    .stroke(Color.primary.opacity(0.06), lineWidth: 1)
-            )
+        VStack(alignment: .leading, spacing: 10) {
+            Label(title, systemImage: icon)
+                .font(.system(size: 10, weight: .bold))
+                .foregroundStyle(.secondary)
+            content
+                .padding(15)
+                .background(
+                    Color(nsColor: .controlBackgroundColor).opacity(0.5),
+                    in: RoundedRectangle(cornerRadius: 12, style: .continuous)
+                )
+                .overlay(
+                    RoundedRectangle(cornerRadius: 12, style: .continuous)
+                        .stroke(.primary.opacity(0.06), lineWidth: 1)
+                )
         }
-    }
-}
-
-struct ShortcutKeyView: View {
-    let label: String
-    let subLabel: String
-    
-    var body: some View {
-        VStack(spacing: 4) {
-            ZStack {
-                RoundedRectangle(cornerRadius: 6, style: .continuous)
-                    .fill(LinearGradient(colors: [Color(white: 1, opacity: 0.1), Color(white: 1, opacity: 0.05)], startPoint: .top, endPoint: .bottom))
-                    .frame(width: 36, height: 36)
-                    .shadow(color: .black.opacity(0.2), radius: 2, x: 0, y: 1)
-                
-                RoundedRectangle(cornerRadius: 6, style: .continuous)
-                    .stroke(Color.white.opacity(0.1), lineWidth: 0.5)
-                    .frame(width: 36, height: 36)
-                
-                Text(label)
-                    .font(.system(size: 14, weight: .semibold, design: .rounded))
-            }
-            
-            Text(subLabel)
-                .font(.system(size: 8, weight: .bold))
-                .foregroundColor(.secondary.opacity(0.8))
-                .textCase(.uppercase)
-        }
-    }
-}
-
-// MARK: - Styles
-
-struct RefinedTextFieldStyle: TextFieldStyle {
-    func _body(configuration: TextField<Self._Label>) -> some View {
-        configuration
-            .padding(.horizontal, 10)
-            .padding(.vertical, 6)
-            .background(Color.black.opacity(0.2))
-            .cornerRadius(6)
-            .overlay(
-                RoundedRectangle(cornerRadius: 6)
-                    .stroke(Color.white.opacity(0.1), lineWidth: 1)
-            )
-            .font(.system(size: 12, design: .monospaced))
-    }
-}
-
-struct RefinedButtonStyle: ButtonStyle {
-    let isPrimary: Bool
-    @State private var isHovering = false
-    
-    func makeBody(configuration: Configuration) -> some View {
-        configuration.label
-            .font(.system(size: 12, weight: .medium))
-            .padding(.horizontal, 12)
-            .padding(.vertical, 6)
-            .background(
-                ZStack {
-                    if isPrimary {
-                        RoundedRectangle(cornerRadius: 6, style: .continuous)
-                            .fill(LinearGradient(colors: [Color.accentColor, Color.accentColor.opacity(0.8)], startPoint: .top, endPoint: .bottom))
-                    } else {
-                        RoundedRectangle(cornerRadius: 6, style: .continuous)
-                            .fill(Color.primary.opacity(isHovering ? 0.08 : 0.04))
-                    }
-                }
-            )
-            .overlay(
-                RoundedRectangle(cornerRadius: 6, style: .continuous)
-                    .stroke(isPrimary ? Color.white.opacity(0.1) : Color.primary.opacity(0.1), lineWidth: 0.5)
-            )
-            .foregroundColor(isPrimary ? .white : .primary)
-            .scaleEffect(configuration.isPressed ? 0.97 : 1.0)
-            .animation(.spring(response: 0.2, dampingFraction: 0.7), value: configuration.isPressed)
-            .onHover { inside in
-                isHovering = inside
-                if inside { NSCursor.pointingHand.push() } else { NSCursor.pop() }
-            }
     }
 }
 
 #Preview {
-    SettingsView()
-        .environmentObject(AppState())
+    SettingsView().environmentObject(AppState())
 }

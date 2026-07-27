@@ -21,6 +21,11 @@
 		BBB000002 /* HistoryService.swift in Sources */ = {isa = PBXBuildFile; fileRef = BBB000011 /* HistoryService.swift */; };
 		BBB000003 /* HistoryView.swift in Sources */ = {isa = PBXBuildFile; fileRef = BBB000012 /* HistoryView.swift */; };
 		CCC000001 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = CCC000010 /* Assets.xcassets */; };
+		DDD000001 /* SpeechDetectionPolicy.swift in Sources */ = {isa = PBXBuildFile; fileRef = DDD000010 /* SpeechDetectionPolicy.swift */; };
+		DDD000002 /* MultipartFormData.swift in Sources */ = {isa = PBXBuildFile; fileRef = DDD000011 /* MultipartFormData.swift */; };
+		DDD000003 /* PerformanceMetricsService.swift in Sources */ = {isa = PBXBuildFile; fileRef = DDD000012 /* PerformanceMetricsService.swift */; };
+		DDD000004 /* StatusHUD.swift in Sources */ = {isa = PBXBuildFile; fileRef = DDD000013 /* StatusHUD.swift */; };
+		EEE000001 /* WhisperTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = EEE000010 /* WhisperTests.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -41,10 +46,23 @@
 		BBB000011 /* HistoryService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HistoryService.swift; sourceTree = "<group>"; };
 		BBB000012 /* HistoryView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HistoryView.swift; sourceTree = "<group>"; };
 		CCC000010 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
+		DDD000010 /* SpeechDetectionPolicy.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SpeechDetectionPolicy.swift; sourceTree = "<group>"; };
+		DDD000011 /* MultipartFormData.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MultipartFormData.swift; sourceTree = "<group>"; };
+		DDD000012 /* PerformanceMetricsService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PerformanceMetricsService.swift; sourceTree = "<group>"; };
+		DDD000013 /* StatusHUD.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StatusHUD.swift; sourceTree = "<group>"; };
+		EEE000010 /* WhisperTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WhisperTests.swift; sourceTree = "<group>"; };
+		EEE000011 /* WhisperTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = WhisperTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
 		AAA00001D /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		EEE00001D /* Frameworks */ = {
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
@@ -75,6 +93,7 @@
 				AAA000012 /* MenuBarView.swift */,
 				AAA000013 /* SettingsView.swift */,
 				BBB000012 /* HistoryView.swift */,
+				DDD000013 /* StatusHUD.swift */,
 			);
 			path = Views;
 			sourceTree = "<group>";
@@ -88,6 +107,7 @@
 				AAA000017 /* TextInjector.swift */,
 				BBB000010 /* SoundService.swift */,
 				BBB000011 /* HistoryService.swift */,
+				DDD000012 /* PerformanceMetricsService.swift */,
 			);
 			path = Services;
 			sourceTree = "<group>";
@@ -97,6 +117,8 @@
 			children = (
 				AAA000018 /* KeychainHelper.swift */,
 				AAA000019 /* Constants.swift */,
+				DDD000010 /* SpeechDetectionPolicy.swift */,
+				DDD000011 /* MultipartFormData.swift */,
 			);
 			path = Helpers;
 			sourceTree = "<group>";
@@ -105,6 +127,7 @@
 			isa = PBXGroup;
 			children = (
 				AAA00001C /* Whisper.app */,
+				EEE000011 /* WhisperTests.xctest */,
 			);
 			name = Products;
 			sourceTree = "<group>";
@@ -113,11 +136,30 @@
 			isa = PBXGroup;
 			children = (
 				AAA00001E /* Whisper */,
+				EEE00001E /* WhisperTests */,
 				AAA000022 /* Products */,
 			);
 			sourceTree = "<group>";
 		};
+		EEE00001E /* WhisperTests */ = {
+			isa = PBXGroup;
+			children = (
+				EEE000010 /* WhisperTests.swift */,
+			);
+			path = WhisperTests;
+			sourceTree = "<group>";
+		};
 /* End PBXGroup section */
+
+/* Begin PBXContainerItemProxy section */
+		EEE000031 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = AAA000028 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = AAA000024;
+			remoteInfo = Whisper;
+		};
+/* End PBXContainerItemProxy section */
 
 /* Begin PBXNativeTarget section */
 		AAA000024 /* Whisper */ = {
@@ -137,6 +179,24 @@
 			productReference = AAA00001C /* Whisper.app */;
 			productType = "com.apple.product-type.application";
 		};
+		EEE000024 /* WhisperTests */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = EEE000025 /* Build configuration list for PBXNativeTarget "WhisperTests" */;
+			buildPhases = (
+				EEE000026 /* Sources */,
+				EEE00001D /* Frameworks */,
+				EEE000027 /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+				EEE000030 /* PBXTargetDependency */,
+			);
+			name = WhisperTests;
+			productName = WhisperTests;
+			productReference = EEE000011 /* WhisperTests.xctest */;
+			productType = "com.apple.product-type.bundle.unit-test";
+		};
 /* End PBXNativeTarget section */
 
 /* Begin PBXProject section */
@@ -149,6 +209,10 @@
 				TargetAttributes = {
 					AAA000024 = {
 						CreatedOnToolsVersion = 15.0;
+					};
+					EEE000024 = {
+						CreatedOnToolsVersion = 15.0;
+						TestTargetID = AAA000024;
 					};
 				};
 			};
@@ -166,6 +230,7 @@
 			projectRoot = "";
 			targets = (
 				AAA000024 /* Whisper */,
+				EEE000024 /* WhisperTests */,
 			);
 		};
 /* End PBXProject section */
@@ -176,6 +241,13 @@
 			buildActionMask = 2147483647;
 			files = (
 				CCC000001 /* Assets.xcassets in Resources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		EEE000027 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -199,10 +271,30 @@
 				BBB000001 /* SoundService.swift in Sources */,
 				BBB000002 /* HistoryService.swift in Sources */,
 				BBB000003 /* HistoryView.swift in Sources */,
+				DDD000001 /* SpeechDetectionPolicy.swift in Sources */,
+				DDD000002 /* MultipartFormData.swift in Sources */,
+				DDD000003 /* PerformanceMetricsService.swift in Sources */,
+				DDD000004 /* StatusHUD.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		EEE000026 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				EEE000001 /* WhisperTests.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
 /* End PBXSourcesBuildPhase section */
+
+/* Begin PBXTargetDependency section */
+		EEE000030 /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = AAA000024 /* Whisper */;
+			targetProxy = EEE000031 /* PBXContainerItemProxy */;
+		};
+/* End PBXTargetDependency section */
 
 /* Begin XCBuildConfiguration section */
 		AAA00002B /* Debug */ = {
@@ -326,7 +418,7 @@
 				CODE_SIGN_ENTITLEMENTS = Whisper/Whisper.entitlements;
 				CODE_SIGN_STYLE = Automatic;
 				COMBINE_HIDPI_IMAGES = YES;
-				CURRENT_PROJECT_VERSION = 2;
+				CURRENT_PROJECT_VERSION = 3;
 				DEVELOPMENT_TEAM = "";
 				ENABLE_HARDENED_RUNTIME = NO;
 				GENERATE_INFOPLIST_FILE = NO;
@@ -338,7 +430,7 @@
 					"$(inherited)",
 					"@executable_path/../Frameworks",
 				);
-				MARKETING_VERSION = 1.1.0;
+				MARKETING_VERSION = 1.2.0;
 				PRODUCT_BUNDLE_IDENTIFIER = com.hyrak.whisper;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SWIFT_EMIT_LOC_STRINGS = YES;
@@ -354,9 +446,9 @@
 				CODE_SIGN_ENTITLEMENTS = Whisper/Whisper.entitlements;
 				CODE_SIGN_STYLE = Automatic;
 				COMBINE_HIDPI_IMAGES = YES;
-				CURRENT_PROJECT_VERSION = 2;
+				CURRENT_PROJECT_VERSION = 3;
 				DEVELOPMENT_TEAM = "";
-				ENABLE_HARDENED_RUNTIME = NO;
+				ENABLE_HARDENED_RUNTIME = YES;
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = Whisper/Info.plist;
 				INFOPLIST_KEY_CFBundleDisplayName = Whisper;
@@ -366,11 +458,39 @@
 					"$(inherited)",
 					"@executable_path/../Frameworks",
 				);
-				MARKETING_VERSION = 1.1.0;
+				MARKETING_VERSION = 1.2.0;
 				PRODUCT_BUNDLE_IDENTIFIER = com.hyrak.whisper;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SWIFT_EMIT_LOC_STRINGS = YES;
 				SWIFT_VERSION = 5.0;
+			};
+			name = Release;
+		};
+		EEE00002D /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				CODE_SIGN_STYLE = Automatic;
+				GENERATE_INFOPLIST_FILE = YES;
+				MACOSX_DEPLOYMENT_TARGET = 14.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.hyrak.whisper.tests;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SWIFT_VERSION = 5.0;
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/Whisper.app/Contents/MacOS/Whisper";
+			};
+			name = Debug;
+		};
+		EEE00002E /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				CODE_SIGN_STYLE = Automatic;
+				GENERATE_INFOPLIST_FILE = YES;
+				MACOSX_DEPLOYMENT_TARGET = 14.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.hyrak.whisper.tests;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SWIFT_VERSION = 5.0;
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/Whisper.app/Contents/MacOS/Whisper";
 			};
 			name = Release;
 		};
@@ -391,6 +511,15 @@
 			buildConfigurations = (
 				AAA00002B /* Debug */,
 				AAA00002C /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		EEE000025 /* Build configuration list for PBXNativeTarget "WhisperTests" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				EEE00002D /* Debug */,
+				EEE00002E /* Release */,
 			);
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;

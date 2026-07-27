@@ -1,159 +1,232 @@
 import Foundation
 
+struct TranscriptionResult: Equatable {
+    let text: String
+    let averageLogProbability: Double?
+
+    var isLowConfidence: Bool {
+        guard let averageLogProbability else { return false }
+        return averageLogProbability < Constants.lowConfidenceLogProbability
+    }
+}
+
+enum TranscriptionResponseValidator {
+    static func validated(_ text: String, vocabulary: String) throws -> String {
+        let cleanText = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !cleanText.isEmpty else {
+            throw TranscriptionService.TranscriptionError.noSpeech
+        }
+
+        if normalized(cleanText) == normalized(vocabulary), !vocabulary.isEmpty {
+            throw TranscriptionService.TranscriptionError.noSpeech
+        }
+        return cleanText
+    }
+
+    static func normalized(_ text: String) -> String {
+        text.folding(options: [.caseInsensitive, .diacriticInsensitive], locale: .current)
+            .components(separatedBy: CharacterSet.alphanumerics.inverted)
+            .filter { !$0.isEmpty }
+            .joined(separator: " ")
+    }
+}
+
 final class TranscriptionService {
     static let shared = TranscriptionService()
 
     private let session: URLSession
 
-    private init() {
-        let configuration = URLSessionConfiguration.ephemeral
-        configuration.timeoutIntervalForRequest = 45
-        configuration.timeoutIntervalForResource = 60
-        configuration.requestCachePolicy = .reloadIgnoringLocalCacheData
-        session = URLSession(configuration: configuration)
+    init(session: URLSession? = nil) {
+        if let session {
+            self.session = session
+        } else {
+            let configuration = URLSessionConfiguration.ephemeral
+            configuration.timeoutIntervalForRequest = 45
+            configuration.timeoutIntervalForResource = 120
+            configuration.requestCachePolicy = .reloadIgnoringLocalCacheData
+            self.session = URLSession(configuration: configuration)
+        }
     }
 
-    struct TranscriptionResponse: Codable {
+    private struct TranscriptionResponse: Decodable {
+        struct LogProbability: Decodable {
+            let logprob: Double
+        }
+
         let text: String
+        let logprobs: [LogProbability]?
     }
 
-    struct ErrorResponse: Codable {
+    private struct ErrorResponse: Decodable {
         let error: ErrorDetail
     }
 
-    struct ErrorDetail: Codable {
+    private struct ErrorDetail: Decodable {
         let message: String
-        let type: String?
     }
 
-    func transcribe(audioURL: URL) async throws -> String {
+    func transcribe(audioURL: URL) async throws -> TranscriptionResult {
         guard let apiKey = KeychainHelper.shared.getAPIKey() else {
             throw TranscriptionError.noAPIKey
         }
 
-        guard let url = URL(string: Constants.openAITranscriptionURL) else {
-            throw TranscriptionError.invalidURL
-        }
-
-        let audioData = try Data(contentsOf: audioURL)
-        let boundary = UUID().uuidString
         let preferences = UserDefaults.standard
         let language = preferences.string(forKey: Constants.transcriptionLanguageKey)
             ?? Constants.defaultTranscriptionLanguage
-        let vocabulary = preferences.string(forKey: Constants.technicalVocabularyKey)
-            ?? Constants.defaultTechnicalVocabulary
+        let vocabulary = selectedVocabulary(preferences: preferences)
+        let model = preferences.string(forKey: Constants.transcriptionModelKey)
+            ?? Constants.defaultTranscriptionModel
+        let bodyURL = try makeBodyFile(
+            audioURL: audioURL,
+            model: model,
+            language: language,
+            vocabulary: vocabulary
+        )
+        defer { try? FileManager.default.removeItem(at: bodyURL.url) }
 
-        var request = URLRequest(url: url)
-        request.httpMethod = "POST"
-        request.setValue("Bearer \(apiKey)", forHTTPHeaderField: "Authorization")
-        request.setValue("multipart/form-data; boundary=\(boundary)", forHTTPHeaderField: "Content-Type")
-
-        var body = Data()
-
-        append("--\(boundary)\r\n", to: &body)
-        append("Content-Disposition: form-data; name=\"file\"; filename=\"audio.m4a\"\r\n", to: &body)
-        append("Content-Type: audio/m4a\r\n\r\n", to: &body)
-        body.append(audioData)
-        append("\r\n", to: &body)
-
-        appendFormField(name: "model", value: Constants.openAIModel, boundary: boundary, to: &body)
-
-        // Fournir la langue améliore à la fois la précision et la latence. Une valeur
-        // vide laisse le modèle la détecter pour les usages multilingues.
-        if !language.isEmpty {
-            appendFormField(name: "language", value: language, boundary: boundary, to: &body)
+        let request = try makeRequest(
+            apiKey: apiKey,
+            boundary: bodyURL.boundary
+        )
+        let (data, response) = try await session.upload(for: request, fromFile: bodyURL.url)
+        try Task.checkCancellation()
+        let decoded = try decodeResponse(data: data, response: response)
+        let cleanText = try TranscriptionResponseValidator.validated(decoded.text, vocabulary: vocabulary)
+        let average = decoded.logprobs.flatMap { probabilities -> Double? in
+            guard !probabilities.isEmpty else { return nil }
+            return probabilities.map(\.logprob).reduce(0, +) / Double(probabilities.count)
         }
-
-        let cleanVocabulary = vocabulary.trimmingCharacters(in: .whitespacesAndNewlines)
-        if !cleanVocabulary.isEmpty {
-            let prompt = transcriptionPrompt(vocabulary: cleanVocabulary, language: language)
-            appendFormField(name: "prompt", value: prompt, boundary: boundary, to: &body)
-        }
-
-        // Une température basse rend la dictée plus déterministe.
-        appendFormField(name: "temperature", value: "0", boundary: boundary, to: &body)
-        append("--\(boundary)--\r\n", to: &body)
-
-        request.httpBody = body
-
-        let (data, response) = try await session.data(for: request)
-
-        guard let httpResponse = response as? HTTPURLResponse else {
-            throw TranscriptionError.invalidResponse
-        }
-
-        if httpResponse.statusCode == 200 {
-            let transcriptionResponse = try JSONDecoder().decode(TranscriptionResponse.self, from: data)
-            return try validatedText(transcriptionResponse.text, vocabulary: cleanVocabulary)
-        } else {
-            if let errorResponse = try? JSONDecoder().decode(ErrorResponse.self, from: data) {
-                throw TranscriptionError.apiError(errorResponse.error.message)
-            }
-            throw TranscriptionError.httpError(httpResponse.statusCode)
-        }
+        return TranscriptionResult(text: cleanText, averageLogProbability: average)
     }
 
     func validateAPIKey(_ apiKey: String) async -> Bool {
         guard apiKey.hasPrefix("sk-") else { return false }
 
-        guard let url = URL(string: "https://api.openai.com/v1/models") else {
+        do {
+            let body = try makeValidationBody()
+            defer { try? FileManager.default.removeItem(at: body.url) }
+            let request = try makeRequest(apiKey: apiKey, boundary: body.boundary)
+            let (_, response) = try await session.upload(for: request, fromFile: body.url)
+            guard let http = response as? HTTPURLResponse else { return false }
+
+            // Un audio silencieux minimal peut être accepté ou rejeté comme illisible.
+            // Dans les deux cas l'authentification et le droit sur l'endpoint ont été testés.
+            return http.statusCode != 401 && http.statusCode != 403 && http.statusCode < 500
+        } catch {
             return false
         }
+    }
 
+    private func makeBodyFile(
+        audioURL: URL,
+        model: String,
+        language: String,
+        vocabulary: String
+    ) throws -> (url: URL, boundary: String) {
+        var body = MultipartFormData()
+        try body.appendFile(name: "file", filename: "audio.m4a", mimeType: "audio/m4a", url: audioURL)
+        body.appendField(name: "model", value: model)
+        body.appendField(name: "response_format", value: "json")
+        body.appendField(name: "include[]", value: "logprobs")
+        body.appendField(name: "temperature", value: "0")
+
+        if !language.isEmpty {
+            body.appendField(name: "language", value: language)
+        }
+        if !vocabulary.isEmpty {
+            body.appendField(
+                name: "prompt",
+                value: transcriptionPrompt(vocabulary: vocabulary, language: language)
+            )
+        }
+        return (try body.writeToTemporaryFile(), body.boundary)
+    }
+
+    private func makeValidationBody() throws -> (url: URL, boundary: String) {
+        var body = MultipartFormData()
+        body.appendFile(
+            name: "file",
+            filename: "validation.wav",
+            mimeType: "audio/wav",
+            data: Self.silentWAV
+        )
+        body.appendField(name: "model", value: Constants.defaultTranscriptionModel)
+        body.appendField(name: "language", value: "fr")
+        return (try body.writeToTemporaryFile(), body.boundary)
+    }
+
+    private func makeRequest(apiKey: String, boundary: String) throws -> URLRequest {
+        guard let url = URL(string: Constants.openAITranscriptionURL) else {
+            throw TranscriptionError.invalidURL
+        }
         var request = URLRequest(url: url)
+        request.httpMethod = "POST"
         request.setValue("Bearer \(apiKey)", forHTTPHeaderField: "Authorization")
+        request.setValue("multipart/form-data; boundary=\(boundary)", forHTTPHeaderField: "Content-Type")
+        return request
+    }
 
-        do {
-            let (_, response) = try await session.data(for: request)
-            if let httpResponse = response as? HTTPURLResponse {
-                return httpResponse.statusCode == 200
+    private func decodeResponse(data: Data, response: URLResponse) throws -> TranscriptionResponse {
+        guard let http = response as? HTTPURLResponse else {
+            throw TranscriptionError.invalidResponse
+        }
+        guard http.statusCode == 200 else {
+            if let error = try? JSONDecoder().decode(ErrorResponse.self, from: data) {
+                throw TranscriptionError.apiError(error.error.message)
             }
-        } catch {}
-
-        return false
+            throw TranscriptionError.httpError(http.statusCode)
+        }
+        return try JSONDecoder().decode(TranscriptionResponse.self, from: data)
     }
 
-    private func appendFormField(name: String, value: String, boundary: String, to body: inout Data) {
-        append("--\(boundary)\r\n", to: &body)
-        append("Content-Disposition: form-data; name=\"\(name)\"\r\n\r\n", to: &body)
-        append("\(value)\r\n", to: &body)
-    }
-
-    private func append(_ string: String, to data: inout Data) {
-        data.append(Data(string.utf8))
+    private func selectedVocabulary(preferences: UserDefaults) -> String {
+        let explicitProfile = preferences.string(forKey: Constants.vocabularyProfileKey)
+        let existingCustomVocabulary = preferences.string(forKey: Constants.technicalVocabularyKey)
+        let profile = explicitProfile ?? (existingCustomVocabulary == nil ? "development" : "custom")
+        switch profile {
+        case "general":
+            return Constants.generalVocabulary
+        case "custom":
+            return (existingCustomVocabulary ?? "")
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+        default:
+            return Constants.defaultTechnicalVocabulary
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+        }
     }
 
     private func transcriptionPrompt(vocabulary: String, language: String) -> String {
         if language == "en" {
             return "Natural dictation with accurate punctuation. Technical vocabulary may include: \(vocabulary)."
         }
-
         return "Dictée naturelle avec une ponctuation fidèle. Le vocabulaire technique peut inclure : \(vocabulary)."
     }
 
-    private func validatedText(_ text: String, vocabulary: String) throws -> String {
-        let cleanText = text.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !cleanText.isEmpty else {
-            throw TranscriptionError.noSpeech
+    private static let silentWAV: Data = {
+        let sampleRate: UInt32 = 16_000
+        let samples = Data(repeating: 0, count: 1_600 * 2)
+        var data = Data()
+        func append<T>(_ value: T) {
+            var littleEndian = value
+            withUnsafeBytes(of: &littleEndian) { data.append(contentsOf: $0) }
         }
+        data.append(Data("RIFF".utf8))
+        append(UInt32(36 + samples.count).littleEndian)
+        data.append(Data("WAVEfmt ".utf8))
+        append(UInt32(16).littleEndian)
+        append(UInt16(1).littleEndian)
+        append(UInt16(1).littleEndian)
+        append(sampleRate.littleEndian)
+        append(UInt32(sampleRate * 2).littleEndian)
+        append(UInt16(2).littleEndian)
+        append(UInt16(16).littleEndian)
+        data.append(Data("data".utf8))
+        append(UInt32(samples.count).littleEndian)
+        data.append(samples)
+        return data
+    }()
 
-        // Dernière protection si le service renvoie le vocabulaire de contexte à la
-        // place d'une transcription (le bug historique observé sur un audio silencieux).
-        if normalized(cleanText) == normalized(vocabulary), !vocabulary.isEmpty {
-            throw TranscriptionError.noSpeech
-        }
-
-        return cleanText
-    }
-
-    private func normalized(_ text: String) -> String {
-        text.folding(options: [.caseInsensitive, .diacriticInsensitive], locale: .current)
-            .components(separatedBy: CharacterSet.alphanumerics.inverted)
-            .filter { !$0.isEmpty }
-            .joined(separator: " ")
-    }
-
-    enum TranscriptionError: LocalizedError {
+    enum TranscriptionError: LocalizedError, Equatable {
         case noAPIKey
         case invalidURL
         case invalidResponse
@@ -172,9 +245,9 @@ final class TranscriptionService {
             case .noSpeech:
                 return "Aucune parole détectée — rien n’a été collé"
             case .apiError(let message):
-                return "Erreur API: \(message)"
+                return "Erreur API : \(message)"
             case .httpError(let code):
-                return "Erreur HTTP: \(code)"
+                return "Erreur HTTP : \(code)"
             }
         }
     }

@@ -5,12 +5,9 @@ final class AudioRecorder: NSObject, ObservableObject {
     struct RecordingResult {
         let url: URL
         let duration: TimeInterval
-        let voicedDuration: TimeInterval
+        let detection: SpeechDetectionResult
 
-        var containsSpeech: Bool {
-            duration >= Constants.minimumRecordingDuration &&
-            voicedDuration >= Constants.minimumVoicedDuration
-        }
+        var containsSpeech: Bool { detection.containsSpeech }
     }
 
     @Published private(set) var isRecording = false
@@ -19,27 +16,32 @@ final class AudioRecorder: NSObject, ObservableObject {
     private var audioRecorder: AVAudioRecorder?
     private var recordingURL: URL?
     private var meteringTimer: Timer?
-    private var voicedDuration: TimeInterval = 0
+    private var powerSamples: [Float] = []
 
     override init() {
         super.init()
-        checkPermission()
+        refreshPermission()
     }
 
-    private func checkPermission() {
+    func refreshPermission() {
         switch AVCaptureDevice.authorizationStatus(for: .audio) {
         case .authorized:
             hasPermission = true
         case .notDetermined:
-            AVCaptureDevice.requestAccess(for: .audio) { [weak self] granted in
-                DispatchQueue.main.async {
-                    self?.hasPermission = granted
-                }
-            }
+            hasPermission = false
         case .denied, .restricted:
             hasPermission = false
         @unknown default:
             hasPermission = false
+        }
+    }
+
+    func requestPermission(completion: ((Bool) -> Void)? = nil) {
+        AVCaptureDevice.requestAccess(for: .audio) { [weak self] granted in
+            DispatchQueue.main.async {
+                self?.hasPermission = granted
+                completion?(granted)
+            }
         }
     }
 
@@ -53,7 +55,7 @@ final class AudioRecorder: NSObject, ObservableObject {
             throw RecordingError.noPermission
         }
 
-        cleanup()
+        cleanupCurrentRecording()
 
         let url = getRecordingURL()
         recordingURL = url
@@ -70,11 +72,11 @@ final class AudioRecorder: NSObject, ObservableObject {
         audioRecorder?.isMeteringEnabled = true
 
         guard audioRecorder?.record() == true else {
-            cleanup()
+            cleanupCurrentRecording()
             throw RecordingError.recordingFailed
         }
 
-        voicedDuration = 0
+        powerSamples = []
         startMetering()
         isRecording = true
     }
@@ -90,15 +92,18 @@ final class AudioRecorder: NSObject, ObservableObject {
         stopMetering()
         isRecording = false
         audioRecorder = nil
+        self.recordingURL = nil
+        let detection = SpeechDetectionPolicy.analyze(powers: powerSamples, duration: duration)
+        powerSamples = []
 
         return RecordingResult(
             url: recordingURL,
             duration: duration,
-            voicedDuration: voicedDuration
+            detection: detection
         )
     }
 
-    func cleanup() {
+    func cleanupCurrentRecording() {
         stopMetering()
         audioRecorder?.stop()
         audioRecorder = nil
@@ -109,7 +114,11 @@ final class AudioRecorder: NSObject, ObservableObject {
             recordingURL = nil
         }
 
-        voicedDuration = 0
+        powerSamples = []
+    }
+
+    func cleanup(url: URL) {
+        try? FileManager.default.removeItem(at: url)
     }
 
     private func startMetering() {
@@ -131,9 +140,7 @@ final class AudioRecorder: NSObject, ObservableObject {
         recorder.updateMeters()
         guard recorder.currentTime >= Constants.ignoredLeadingAudioDuration else { return }
 
-        if recorder.averagePower(forChannel: 0) >= Constants.speechPowerThreshold {
-            voicedDuration += Constants.audioMeteringInterval
-        }
+        powerSamples.append(recorder.averagePower(forChannel: 0))
     }
 
     enum RecordingError: LocalizedError {

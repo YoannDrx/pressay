@@ -6,7 +6,9 @@ Date : 27 juillet 2026
 
 Le produit a une bonne base : peu de dépendances, une architecture lisible, une clé API dans le Trousseau et un flux push-to-talk très direct. La version 1.1 corrige le défaut le plus visible — l'envoi et le collage d'une hallucination sur un enregistrement silencieux — et renforce les points fragiles du chemin critique.
 
-Le risque principal restant n'est pas le modèle de transcription, mais l'industrialisation de l'app : absence de tests automatisés, signature et distribution non configurées, permissions peu guidées et injection de texte dépendante de l'accessibilité.
+La version 1.2 industrialise le chemin critique : tests automatisés, détection
+adaptative, permissions guidées, historique chiffré, mesures locales, file
+d'attente, annulation, CI et préparation de la notarisation.
 
 ## Flux applicatif
 
@@ -66,10 +68,28 @@ Le risque principal restant n'est pas le modèle de transcription, mais l'indust
 - Pour les longues dictées, écrire le multipart en flux plutôt que de charger deux copies du fichier en mémoire.
 - Ajouter des profils de vocabulaire par contexte (développement, noms de clients, médical, juridique) sans envoyer plus de contexte que nécessaire.
 
-## Limites connues de la version 1.1
+## Recommandations intégrées en version 1.2
 
-- Le seuil de voix est conservateur et doit être validé avec plusieurs microphones et niveaux d'entrée.
+- 8 tests unitaires et une matrice de validation manuelle.
+- VAD énergétique adaptatif au bruit de chaque dictée.
+- HUD non activant, raccourcis alternatifs et mode bascule.
+- Annulation et file de dictées conservant leur application cible.
+- Historique AES-256-GCM optionnel et rétention configurable.
+- Mesures de latence locales, anonymes et opt-in.
+- Choix mini/précision, profils de vocabulaire et indicateur de faible confiance.
+- Multipart audio écrit par blocs sur disque.
+- Validation des clés restreintes sur l'endpoint audio, sans `/v1/models`.
+- Hardened Runtime Release, CI, politique de confidentialité et script de notarisation.
+
+## Limites connues de la version 1.2
+
+- Le VAD adaptatif est énergétique : il réduit fortement les faux positifs mais
+  ne distingue pas sémantiquement une voix d'un bruit soudain.
 - Les 350 premières millisecondes sont ignorées pour ne pas classer le son de démarrage comme de la parole ; l'utilisateur doit parler après le signal.
 - Le collage dépend de l'autorisation Accessibilité et d'AppleScript/System Events.
-- Aucun test automatisé n'est encore rattaché au projet Xcode.
-- L'historique est local mais non chiffré.
+- La qualité et le seuil de faible confiance doivent être calibrés sur un corpus
+  réel et plusieurs microphones.
+- La notarisation finale nécessite le certificat et le compte Apple Developer du
+  propriétaire ; le dépôt contient toute la préparation mais aucun secret.
+- Le streaming de fichier n'est pas activé : les métriques ajoutées doivent d'abord
+  démontrer un gain, conformément à la recommandation d'audit.
