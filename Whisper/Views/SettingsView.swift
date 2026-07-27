@@ -46,6 +46,11 @@ struct SettingsView: View {
         .frame(width: 520, height: 760)
         .background(Color(nsColor: .windowBackgroundColor))
         .onAppear { appState.refreshPermissions() }
+        .onReceive(
+            NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)
+        ) { _ in
+            appState.refreshPermissions()
+        }
         .onChange(of: historyEnabled) { _, _ in HistoryService.shared.applyPreferences() }
         .onChange(of: historyRetentionDays) { _, _ in HistoryService.shared.applyPreferences() }
     }

@@ -9,9 +9,9 @@
     <key>CFBundleIdentifier</key>
     <string>com.hyrak.whisper</string>
     <key>CFBundleVersion</key>
-    <string>3</string>
+    <string>4</string>
     <key>CFBundleShortVersionString</key>
-    <string>1.2.0</string>
+    <string>1.2.1</string>
     <key>CFBundlePackageType</key>
     <string>APPL</string>
     <key>CFBundleExecutable</key>
@@ -22,7 +22,5 @@
     <true/>
     <key>NSMicrophoneUsageDescription</key>
     <string>Whisper a besoin d'accéder au microphone pour enregistrer ta voix et la transcrire en texte.</string>
-    <key>NSAppleEventsUsageDescription</key>
-    <string>Whisper a besoin d'envoyer des commandes clavier pour coller le texte transcrit.</string>
 </dict>
 </plist>
