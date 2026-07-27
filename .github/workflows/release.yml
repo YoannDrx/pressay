@@ -79,13 +79,12 @@ jobs:
         env:
           BUILD_CERTIFICATE_BASE64: ${{ secrets.BUILD_CERTIFICATE_BASE64 }}
           P12_PASSWORD: ${{ secrets.P12_PASSWORD }}
-          KEYCHAIN_PASSWORD: ${{ secrets.KEYCHAIN_PASSWORD }}
         run: |
           missing=()
           for name in \
             DEVELOPER_ID_APPLICATION APPLE_TEAM_ID APPLE_ID \
             APPLE_APP_SPECIFIC_PASSWORD SPARKLE_PRIVATE_KEY \
-            BUILD_CERTIFICATE_BASE64 P12_PASSWORD KEYCHAIN_PASSWORD
+            BUILD_CERTIFICATE_BASE64 P12_PASSWORD
           do
             if [[ -z "${!name:-}" ]]; then
               missing+=("$name")
@@ -100,14 +99,15 @@ jobs:
         env:
           BUILD_CERTIFICATE_BASE64: ${{ secrets.BUILD_CERTIFICATE_BASE64 }}
           P12_PASSWORD: ${{ secrets.P12_PASSWORD }}
-          KEYCHAIN_PASSWORD: ${{ secrets.KEYCHAIN_PASSWORD }}
         run: |
           certificate_path="$RUNNER_TEMP/developer-id.p12"
           keychain_path="$RUNNER_TEMP/pressay-signing.keychain-db"
+          keychain_password="$(openssl rand -base64 32)"
+          echo "::add-mask::$keychain_password"
           printf '%s' "$BUILD_CERTIFICATE_BASE64" | base64 --decode --output "$certificate_path"
-          security create-keychain -p "$KEYCHAIN_PASSWORD" "$keychain_path"
+          security create-keychain -p "$keychain_password" "$keychain_path"
           security set-keychain-settings -lut 21600 "$keychain_path"
-          security unlock-keychain -p "$KEYCHAIN_PASSWORD" "$keychain_path"
+          security unlock-keychain -p "$keychain_password" "$keychain_path"
           security import "$certificate_path" \
             -P "$P12_PASSWORD" \
             -A \
@@ -116,7 +116,7 @@ jobs:
             -k "$keychain_path"
           security set-key-partition-list \
             -S apple-tool:,apple:,codesign: \
-            -k "$KEYCHAIN_PASSWORD" \
+            -k "$keychain_password" \
             "$keychain_path"
           security list-keychain -d user -s "$keychain_path"
 
