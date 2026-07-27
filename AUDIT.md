@@ -1,4 +1,4 @@
-# Audit technique — Pressay 1.0.0
+# Audit technique — socle Pressay 1.0.0
 
 Date : 27 juillet 2026
 
@@ -9,7 +9,7 @@ anciennement distribuée en développement sous le nom Whisper. Le produit cible
 macOS 14+, Apple Silicon et Intel, avec un bundle public
 `fr.yodev.pressay`.
 
-Le cœur actuellement livré est volontairement limité :
+Le cœur de la version publique 1.0 est volontairement limité :
 
 1. maintenir Fn/Globe — ou un modificateur droit configurable — pour enregistrer ;
 2. relâcher pour terminer ;
@@ -19,9 +19,11 @@ Le cœur actuellement livré est volontairement limité :
 6. restituer le texte dans l’application initialement ciblée ;
 7. conserver facultativement un historique local chiffré.
 
-Les transformations, commandes, moteurs locaux, comptes Pro, intégrations et
-réunions appartiennent à la roadmap. Aucun bouton ne doit les présenter comme
-disponibles avant leur livraison de bout en bout.
+La branche de développement ajoute désormais la fondation 1.1 et la première
+tranche 1.2 : coordinateur de sessions, capture AX sûre, modes contextuels et
+transformation de sélection avec aperçu. Les commandes, moteurs locaux, comptes
+Pro, intégrations et réunions appartiennent toujours à la roadmap. Aucun bouton
+ne doit les présenter comme disponibles avant leur livraison de bout en bout.
 
 ## Risque corrigé : transcription fantôme
 
@@ -74,7 +76,7 @@ La release ne doit pas être taguée tant que les modifications Pressay ne sont 
 relues, poussées et que le test d’installation sur une session propre n’est pas
 prêt. Aucun ancien tag ou DMG Whisper ne doit être publié.
 
-## Vérifications effectuées
+## Vérifications de la baseline 1.0 effectuées
 
 - 19 tests Xcode réussis ;
 - `xcodebuild analyze` en Release réussi ;
@@ -84,6 +86,13 @@ prêt. Aucun ancien tag ou DMG Whisper ne doit être publié.
 - secrets GitHub `release`, règle de tag `v*` et approbateur vérifiés sans
   exposer leurs valeurs.
 
+La branche 1.1/1.2 porte la suite automatisée à 54 tests Swift et 2 tests
+Python. L’archive Release build 12001 signée Developer ID a été validée en
+`arm64 + x86_64`, Hardened Runtime est actif, et la fixture AX est elle aussi
+universelle. Le feed GitHub Pages est actif et les anciens feeds du portfolio
+redirigent vers lui. La notarisation du DMG et surtout la matrice
+interapplications restent des gates séparés documentés dans `TESTING.md`.
+
 ## Gates encore externes
 
 - recherche formelle de marque INPI/EUIPO ;
@@ -92,4 +101,4 @@ prêt. Aucun ancien tag ou DMG Whisper ne doit être publié.
 - installation du DMG et dictée sur session macOS propre ;
 - mise à jour Sparkle entre deux builds signés ;
 - capture réelle de l’interface Pressay pour le portfolio ;
-- activation du CTA uniquement après disponibilité effective de `v1.0.0`.
+- activation du CTA uniquement après disponibilité effective de `v1.2.0`.

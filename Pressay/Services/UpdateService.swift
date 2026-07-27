@@ -3,17 +3,37 @@ import Combine
 import Sparkle
 
 @MainActor
-final class UpdateService: NSObject, ObservableObject, @preconcurrency SPUStandardUserDriverDelegate {
+final class UpdateService: NSObject,
+    ObservableObject,
+    @preconcurrency SPUStandardUserDriverDelegate,
+    SPUUpdaterDelegate {
     @Published private(set) var canCheckForUpdates = false
+    @Published var includeBetaUpdates: Bool {
+        didSet {
+            defaults.set(
+                includeBetaUpdates,
+                forKey: Constants.includeBetaUpdatesKey
+            )
+        }
+    }
 
     private var controller: SPUStandardUpdaterController?
     private var checkForUpdatesAction: (() -> Void)?
+    private let defaults: UserDefaults
 
-    override init() {
+    override convenience init() {
+        self.init(defaults: .standard)
+    }
+
+    init(defaults: UserDefaults) {
+        self.defaults = defaults
+        self.includeBetaUpdates = defaults.bool(
+            forKey: Constants.includeBetaUpdatesKey
+        )
         super.init()
         let controller = SPUStandardUpdaterController(
             startingUpdater: true,
-            updaterDelegate: nil,
+            updaterDelegate: self,
             userDriverDelegate: self
         )
         self.controller = controller
@@ -29,6 +49,8 @@ final class UpdateService: NSObject, ObservableObject, @preconcurrency SPUStanda
         canCheckForUpdates: Bool,
         checkForUpdatesAction: @escaping () -> Void
     ) {
+        self.defaults = .standard
+        self.includeBetaUpdates = false
         self.canCheckForUpdates = canCheckForUpdates
         self.checkForUpdatesAction = checkForUpdatesAction
         super.init()
@@ -36,6 +58,10 @@ final class UpdateService: NSObject, ObservableObject, @preconcurrency SPUStanda
 
     func checkForUpdates() {
         checkForUpdatesAction?()
+    }
+
+    func allowedChannels(for updater: SPUUpdater) -> Set<String> {
+        includeBetaUpdates ? ["beta"] : []
     }
 
     var supportsGentleScheduledUpdateReminders: Bool {

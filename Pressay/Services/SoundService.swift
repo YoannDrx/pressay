@@ -1,6 +1,6 @@
 import AppKit
 
-final class SoundService {
+final class SoundService: SoundFeedback {
     static let shared = SoundService()
     private init() {}
 

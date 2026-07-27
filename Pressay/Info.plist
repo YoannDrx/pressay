@@ -27,7 +27,7 @@
     <key>SUEnableSystemProfiling</key>
     <false/>
     <key>SUFeedURL</key>
-    <string>https://www.yoann-andrieux.fr/download/pressay/appcast.xml</string>
+    <string>https://yoanndrx.github.io/pressay/appcast.xml</string>
     <key>SUPublicEDKey</key>
     <string>$(SPARKLE_PUBLIC_ED_KEY)</string>
     <key>SUVerifyUpdateBeforeExtraction</key>

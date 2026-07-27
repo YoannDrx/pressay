@@ -30,3 +30,5 @@ Carthage/Build/
 *.swo
 *~
 .grepai/
+__pycache__/
+*.pyc

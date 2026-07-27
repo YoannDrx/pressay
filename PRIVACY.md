@@ -1,9 +1,9 @@
 # Politique de confidentialité
 
-Dernière mise à jour : 27 juillet 2026
+Dernière mise à jour : 28 juillet 2026
 
-Pressay est une application macOS locale de dictée vocale. Elle ne contient aucun
-outil publicitaire, traqueur ou service de télémétrie distant.
+Pressay est une application macOS de dictée et de transformation vocale. Elle ne
+contient aucun outil publicitaire, traqueur ou service de télémétrie distant.
 
 ## Données traitées
 
@@ -12,10 +12,25 @@ outil publicitaire, traqueur ou service de télémétrie distant.
   puis il est supprimé après la réponse ou l'annulation.
 - **Texte transcrit** : il est reçu depuis l'API OpenAI, inséré dans l'application
   choisie et, si l'historique est activé, conservé uniquement sur le Mac.
+- **Transformations** : pour tout mode autre que Fidèle, la dictée et les seules
+  sources de contexte autorisées par ce mode sont envoyées à la Responses API
+  OpenAI. Une transformation de sélection peut inclure le texte sélectionné,
+  explicitement séparé de l'instruction vocale et traité comme une donnée non
+  fiable. La requête utilise `store: false`. Avant un envoi soumis à
+  confirmation, Pressay montre le fournisseur, le modèle, les sources, leur
+  taille et leur contenu exact ; cet aperçu n'est pas persisté.
+- **Contexte applicatif** : l'application, le titre de fenêtre, la sélection ou
+  le contexte adjacent ne sont capturés qu'au déclenchement. Pressay n'effectue
+  aucune surveillance permanente de l'écran, du presse-papiers ou des fichiers.
+  Le HUD affiche le manifeste des sources avant leur envoi cloud.
 - **Clé API** : elle est stockée dans le Trousseau macOS et transmise uniquement
-  à l'API OpenAI pour authentifier les requêtes de transcription.
+  à l'API OpenAI pour authentifier les requêtes de transcription et de
+  transformation.
 - **Historique** : il est optionnel, chiffré localement avec AES-256-GCM et
   automatiquement supprimé selon la durée choisie (24 heures, 7 jours ou 30 jours).
+- **Modes et règles d'application** : ils sont conservés localement dans un
+  fichier accessible uniquement au compte utilisateur. Ce fichier n'est pas
+  annoncé comme chiffré.
 - **Mesures de performance** : si l'option est activée, seules des moyennes de
   durées par étape sont conservées dans les préférences locales. Aucun audio,
   texte, identifiant personnel ou contenu de presse-papiers n'est enregistré.
@@ -25,10 +40,14 @@ outil publicitaire, traqueur ou service de télémétrie distant.
 
 ## Destinataires
 
-L'audio et le contexte de vocabulaire actif sont envoyés exclusivement à
-l'endpoint de transcription OpenAI sélectionné par l'utilisateur. Leur traitement
-est alors soumis aux conditions et politiques d'OpenAI. Pressay n'envoie aucune
-donnée à l'auteur du projet.
+L'audio et le contexte de vocabulaire actif sont envoyés à l'endpoint de
+transcription OpenAI sélectionné par l'utilisateur. Pour un mode de
+transformation, le texte et le contexte explicitement autorisé sont envoyés à la
+Responses API OpenAI. Leur traitement est alors soumis aux conditions et
+politiques d'OpenAI. `store: false` désactive la conservation de la réponse comme
+état applicatif ; ce paramètre ne constitue pas à lui seul une garantie générale
+d'absence de rétention par le fournisseur. Pressay n'envoie aucune donnée à
+l'auteur du projet.
 
 Le téléchargement de l'application est gratuit. L'utilisation de la clé API
 personnelle peut être facturée directement par OpenAI selon ses tarifs. Yodev ne
@@ -37,14 +56,16 @@ reçoit ni paiement, ni contenu de dictée, ni métrique d'utilisation.
 ## Permissions macOS
 
 - Le microphone sert uniquement à capturer la dictée.
-- L'accessibilité sert uniquement à simuler le collage dans l'application cible.
+- L'accessibilité sert à identifier la cible, détecter les champs sécurisés,
+  capturer la sélection demandée et simuler le collage dans l'application cible.
 - Les événements clavier globaux servent uniquement à détecter le raccourci choisi.
 
 ## Contrôle par l'utilisateur
 
 L'utilisateur peut désactiver et effacer l'historique, réinitialiser les mesures
-locales et supprimer sa clé API depuis les réglages. Désactiver l'historique
-supprime immédiatement son fichier local.
+locales, modifier ou supprimer ses modes et règles, et supprimer sa clé API
+depuis les réglages. Désactiver l'historique supprime immédiatement son fichier
+local. Les champs sécurisés sont exclus avant le démarrage de l'enregistrement.
 
 Pour toute question, utiliser les issues du dépôt
 [YoannDrx/pressay](https://github.com/YoannDrx/pressay/issues).

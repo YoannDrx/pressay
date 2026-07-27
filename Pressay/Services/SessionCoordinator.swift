@@ -1,0 +1,919 @@
+import Foundation
+
+@MainActor
+final class SessionCoordinator: ObservableObject {
+    @Published private(set) var captureSession: VoiceSession?
+    @Published private(set) var processingSession: VoiceSession?
+    @Published private(set) var lastSession: VoiceSession?
+    @Published private(set) var pendingPreview: TextPreview?
+    @Published private(set) var preparingIntent: VoiceIntent?
+    @Published private(set) var pendingCount = 0
+    @Published private(set) var lastError: String?
+    @Published private(set) var lastNotice: String?
+    @Published private(set) var lastDeliveryReceipt: DeliveryReceipt?
+
+    var isRecording: Bool { captureSession?.state == .capturing }
+    var isPreparingCapture: Bool { preparingIntent != nil }
+    var isTranscribing: Bool {
+        guard let processingSession else { return false }
+        return processingSession.state == .transcribing
+            || processingSession.state == .processing
+            || processingSession.state == .delivering
+    }
+
+    private struct PendingSession {
+        var session: VoiceSession
+        let audio: CapturedAudio
+        let target: TextInjectionTarget?
+        let mode: ModeDefinition
+        let replayOriginalText: String?
+    }
+
+    private struct ReplayDescriptor {
+        let target: TextInjectionTarget?
+        let mode: ModeDefinition
+        let context: ContextSnapshot
+        let duration: TimeInterval
+        let fileExtension: String
+    }
+
+    private struct PreviewDelivery {
+        var session: VoiceSession
+        let target: TextInjectionTarget?
+        let rawText: String
+        let providerIdentifier: String
+        let transcriptionProviderIdentifier: String
+        let contextManifest: [String]
+        let audioDuration: TimeInterval
+    }
+
+    private let audioCapturer: AudioCapturing
+    private let transcriber: SpeechTranscribing
+    private let textProcessor: TextProcessing
+    private let transcriptionRouter: TranscriptionRouting?
+    private let processingRouter: ProcessingRouting?
+    private let capabilities: CapabilityMatrix
+    private let cloudConsent: CloudConsentRequesting
+    private let contextCapturer: ContextCapturing
+    private let modeResolver: ModeResolving
+    private let textDeliverer: TextDelivering
+    private let previewPresenter: TextPreviewPresenting
+    private let history: HistoryRepository
+    private let sounds: SoundFeedback
+    private let metrics: MetricsRecording
+    private let hud: HUDPresenting
+    private let replayBuffer: ReplayBuffer
+
+    private var pendingSessions: [PendingSession] = []
+    private var processingTask: Task<Void, Never>?
+    private var captureTarget: TextInjectionTarget?
+    private var captureMode: ModeDefinition?
+    private var previewDelivery: PreviewDelivery?
+    private var capturePreparationTask: Task<Void, Never>?
+    private var replayDescriptors: [UUID: ReplayDescriptor] = [:]
+
+    init(
+        audioCapturer: AudioCapturing,
+        transcriber: SpeechTranscribing,
+        textProcessor: TextProcessing,
+        cloudConsent: CloudConsentRequesting = AllowingCloudConsentService(),
+        transcriptionRouter: TranscriptionRouting? = nil,
+        processingRouter: ProcessingRouting? = nil,
+        capabilities: CapabilityMatrix = .current,
+        contextCapturer: ContextCapturing,
+        modeResolver: ModeResolving,
+        textDeliverer: TextDelivering,
+        previewPresenter: TextPreviewPresenting,
+        history: HistoryRepository,
+        sounds: SoundFeedback,
+        metrics: MetricsRecording,
+        hud: HUDPresenting,
+        replayBuffer: ReplayBuffer? = nil
+    ) {
+        self.audioCapturer = audioCapturer
+        self.transcriber = transcriber
+        self.textProcessor = textProcessor
+        self.transcriptionRouter = transcriptionRouter
+        self.processingRouter = processingRouter
+        self.capabilities = capabilities
+        self.cloudConsent = cloudConsent
+        self.contextCapturer = contextCapturer
+        self.modeResolver = modeResolver
+        self.textDeliverer = textDeliverer
+        self.previewPresenter = previewPresenter
+        self.history = history
+        self.sounds = sounds
+        self.metrics = metrics
+        self.hud = hud
+        self.replayBuffer = replayBuffer ?? InMemoryReplayBuffer.shared
+
+        audioCapturer.onLevelUpdate = { [weak hud] level in
+            Task { @MainActor in
+                hud?.updateAudioLevel(level)
+            }
+        }
+        hud.onUndo = { [weak self] in
+            self?.undoLastInsertion()
+        }
+    }
+
+    func startCapture(
+        intent: VoiceIntent = .dictate,
+        explicitModeID: UUID? = nil
+    ) {
+        guard captureSession == nil else { return }
+        guard audioCapturer.hasPermission else {
+            fail("Autorise le microphone dans les préférences")
+            return
+        }
+
+        guard capturePreparationTask == nil else { return }
+        let capturedContext = contextCapturer.capture()
+        let mode = modeResolver.resolveMode(
+            explicitModeID: explicitModeID,
+            applicationBundleIdentifier: capturedContext.context.applicationBundleIdentifier,
+            intent: intent
+        )
+        do {
+            let activeTranscriber = try transcriptionRouter?
+                .provider(for: mode, capabilities: capabilities)
+                ?? transcriber
+            guard activeTranscriber.isReady else {
+                fail(
+                    activeTranscriber.locality == .cloud
+                        ? "Configure ta clé API dans les préférences"
+                        : "Le moteur de transcription choisi n’est pas prêt"
+                )
+                return
+            }
+        } catch {
+            fail(error.localizedDescription)
+            return
+        }
+        guard capturedContext.target?.snapshot.isSecure != true else {
+            fail("Pressay est désactivé dans les champs sécurisés")
+            return
+        }
+        if intent == .transformSelection,
+           capturedContext.context.selectedText?.isEmpty != false {
+            preparingIntent = intent
+            hud.show(
+                .transcribing,
+                detail: "Lecture de la sélection…",
+                autoHide: false
+            )
+            capturePreparationTask = Task { [weak self] in
+                guard let self else { return }
+                let fallback = await self.contextCapturer.captureSelectionFallback(
+                    from: capturedContext
+                )
+                guard !Task.isCancelled else { return }
+                self.capturePreparationTask = nil
+                self.preparingIntent = nil
+                guard fallback.context.selectedText?.isEmpty == false else {
+                    self.fail("Sélectionne d’abord le texte à transformer")
+                    return
+                }
+                self.beginCapture(
+                    capturedContext: fallback,
+                    mode: mode,
+                    intent: intent
+                )
+            }
+            return
+        }
+        beginCapture(capturedContext: capturedContext, mode: mode, intent: intent)
+    }
+
+    private func beginCapture(
+        capturedContext: ContextCaptureResult,
+        mode: ModeDefinition,
+        intent: VoiceIntent
+    ) {
+        do {
+            try audioCapturer.startRecording()
+
+            var timings = SessionTimings()
+            timings.captureStartedAt = Date()
+            var session = VoiceSession(
+                intent: intent,
+                target: capturedContext.target?.snapshot,
+                context: capturedContext.context,
+                modeIdentifier: mode.id,
+                timings: timings
+            )
+            _ = session.transition(to: .capturing)
+            captureTarget = capturedContext.target
+            captureMode = mode
+            captureSession = session
+            lastError = nil
+            lastNotice = nil
+            sounds.playStartSound()
+            hud.show(
+                .listening,
+                detail: listeningDetail(modeName: mode.name),
+                autoHide: false
+            )
+        } catch {
+            fail(error.localizedDescription)
+        }
+    }
+
+    func stopCaptureAndQueue() {
+        guard var session = captureSession,
+              let mode = captureMode else {
+            return
+        }
+        captureSession = nil
+        captureMode = nil
+        let target = captureTarget
+        captureTarget = nil
+
+        guard let audio = audioCapturer.stopRecording() else {
+            session.transition(to: .failed("Aucun enregistrement trouvé"))
+            lastSession = session
+            fail("Aucun enregistrement trouvé")
+            return
+        }
+
+        sounds.playStopSound()
+        session.timings.captureEndedAt = Date()
+        session.audioURL = audio.url
+        session.audioDuration = audio.duration
+        _ = session.transition(to: .captured)
+        metrics.record(.capture, duration: audio.duration)
+
+        guard audio.containsSpeech else {
+            audioCapturer.cleanup(url: audio.url)
+            _ = session.transition(to: .cancelled)
+            lastSession = session
+            lastError = nil
+            lastNotice = "Aucune parole détectée — rien n’a été collé"
+            hud.show(.cancelled, detail: lastNotice, autoHide: true)
+            return
+        }
+
+        pendingSessions.append(
+            PendingSession(
+                session: session,
+                audio: audio,
+                target: target ?? textTarget(for: session),
+                mode: mode,
+                replayOriginalText: nil
+            )
+        )
+        if let data = try? Data(contentsOf: audio.url) {
+            replayBuffer.retain(data, for: session.id)
+            replayDescriptors[session.id] = ReplayDescriptor(
+                target: target ?? textTarget(for: session),
+                mode: mode,
+                context: session.context,
+                duration: audio.duration,
+                fileExtension: audio.url.pathExtension
+            )
+            trimReplayDescriptors()
+        }
+        pendingCount = pendingSessions.count
+        processNextSession()
+    }
+
+    func cancelCurrentSession() {
+        if capturePreparationTask != nil {
+            capturePreparationTask?.cancel()
+            capturePreparationTask = nil
+            preparingIntent = nil
+            lastError = nil
+            lastNotice = "Capture annulée"
+            hud.show(.cancelled, detail: lastNotice, autoHide: true)
+            return
+        }
+        if var session = captureSession {
+            audioCapturer.cleanupCurrentRecording()
+            captureSession = nil
+            captureTarget = nil
+            captureMode = nil
+            _ = session.transition(to: .cancelled)
+            lastSession = session
+            lastError = nil
+            lastNotice = "Dictée annulée"
+            hud.show(.cancelled, detail: lastNotice, autoHide: true)
+            return
+        }
+        if pendingPreview != nil {
+            cancelPreview()
+            return
+        }
+        cancelProcessing()
+    }
+
+    func cancelProcessing() {
+        guard processingTask != nil else { return }
+        processingTask?.cancel()
+        lastNotice = "Traitement annulé"
+        lastError = nil
+        hud.show(.cancelled, detail: lastNotice, autoHide: true)
+    }
+
+    func clearMessages() {
+        lastError = nil
+        lastNotice = nil
+    }
+
+    func undoLastInsertion() {
+        guard textDeliverer.undoLastInsertion() else {
+            lastNotice = "L’insertion ne peut plus être annulée"
+            hud.isUndoAvailable = false
+            hud.show(.cancelled, detail: lastNotice, autoHide: true)
+            return
+        }
+        lastError = nil
+        lastNotice = "Insertion annulée"
+        hud.isUndoAvailable = false
+        hud.show(.cancelled, detail: lastNotice, autoHide: true)
+    }
+
+    func copyLastResult() {
+        guard let text = lastSession?.finalText ?? lastSession?.rawText else {
+            return
+        }
+        textDeliverer.copyToPasteboard(text)
+        lastNotice = "Texte copié"
+    }
+
+    func retranscribeLastResult() {
+        guard let previous = lastSession,
+              let data = replayBuffer.audio(for: previous.id),
+              let descriptor = replayDescriptors[previous.id] else {
+            lastNotice = "L’audio de cette dictée a expiré"
+            return
+        }
+        let suffix = descriptor.fileExtension.isEmpty
+            ? "m4a"
+            : descriptor.fileExtension
+        let url = FileManager.default.temporaryDirectory
+            .appendingPathComponent("pressay-replay-\(UUID().uuidString)")
+            .appendingPathExtension(suffix)
+        do {
+            try data.write(to: url, options: [.atomic])
+        } catch {
+            fail("Impossible de préparer la retranscription")
+            return
+        }
+
+        var session = VoiceSession(
+            intent: previous.intent,
+            state: .captured,
+            target: descriptor.target?.snapshot,
+            context: descriptor.context,
+            modeIdentifier: descriptor.mode.id
+        )
+        session.audioURL = url
+        session.audioDuration = descriptor.duration
+        let audio = CapturedAudio(
+            url: url,
+            duration: descriptor.duration,
+            detection: SpeechDetectionResult(
+                containsSpeech: true,
+                threshold: 0,
+                voicedDuration: descriptor.duration
+            )
+        )
+        replayBuffer.retain(data, for: session.id)
+        replayDescriptors[session.id] = descriptor
+        pendingSessions.append(
+            PendingSession(
+                session: session,
+                audio: audio,
+                target: descriptor.target,
+                mode: descriptor.mode,
+                replayOriginalText: previous.finalText ?? previous.rawText
+            )
+        )
+        pendingCount = pendingSessions.count
+        processNextSession()
+    }
+
+    func compareRawAndFinalResult() {
+        guard let session = lastSession,
+              let rawText = session.rawText,
+              let finalText = session.finalText,
+              rawText != finalText else {
+            return
+        }
+        let preview = TextPreview(
+            sessionID: session.id,
+            originalText: rawText,
+            proposedText: finalText,
+            modeName: "Brut / Final",
+            providerIdentifier: "Pressay",
+            contextManifest: [],
+            isReadOnly: true
+        )
+        hud.hide()
+        previewPresenter.show(
+            preview,
+            onApply: { _ in },
+            onCancel: {}
+        )
+    }
+
+    private func processNextSession() {
+        guard processingTask == nil,
+              pendingPreview == nil,
+              !pendingSessions.isEmpty else {
+            return
+        }
+        var item = pendingSessions.removeFirst()
+        pendingCount = pendingSessions.count
+        item.session.timings.transcriptionStartedAt = Date()
+        _ = item.session.transition(to: .transcribing)
+        processingSession = item.session
+        hud.show(.transcribing, detail: queueDetail, autoHide: false)
+
+        processingTask = Task { [weak self] in
+            guard let self else { return }
+            defer {
+                self.audioCapturer.cleanup(url: item.audio.url)
+                self.processingTask = nil
+                if self.pendingPreview?.sessionID != item.session.id {
+                    self.processingSession = nil
+                    self.processNextSession()
+                }
+            }
+
+            do {
+                let activeTranscriber = try self.transcriptionRouter?
+                    .provider(for: item.mode, capabilities: self.capabilities)
+                    ?? self.transcriber
+                let transcriptionStartedAt = Date()
+                let transcription = try await activeTranscriber.transcribe(
+                    audioURL: item.audio.url
+                )
+                self.metrics.record(
+                    .transcription,
+                    duration: Date().timeIntervalSince(transcriptionStartedAt)
+                )
+                try Task.checkCancellation()
+
+                item.session.timings.transcriptionEndedAt = Date()
+                item.session.rawText = transcription.text
+                _ = item.session.transition(to: .processing)
+                self.processingSession = item.session
+
+                let processed = try await self.processText(
+                    transcription.text,
+                    item: item
+                )
+                try Task.checkCancellation()
+                item.session.finalText = processed.text
+                item.session.timings.processingEndedAt = Date()
+
+                if item.session.intent == .transformSelection
+                    || item.replayOriginalText != nil {
+                    self.presentPreview(
+                        item: item,
+                        rawText: transcription.text,
+                        processed: processed,
+                        transcriptionProviderIdentifier: activeTranscriber.identifier
+                    )
+                    return
+                }
+
+                _ = item.session.transition(to: .delivering)
+                self.processingSession = item.session
+                await self.deliver(
+                    text: processed.text,
+                    item: item,
+                    rawText: transcription.text,
+                    providerIdentifier: processed.providerIdentifier,
+                    transcriptionProviderIdentifier: activeTranscriber.identifier,
+                    contextManifest: processed.contextManifest,
+                    lowConfidence: transcription.isLowConfidence
+                )
+            } catch {
+                self.finish(item: &item, with: error)
+            }
+        }
+    }
+
+    private func processText(
+        _ transcription: String,
+        item: PendingSession
+    ) async throws -> (
+        text: String,
+        providerIdentifier: String?,
+        contextManifest: [String]
+    ) {
+        guard item.mode.cleaningLevel != .faithful
+                || item.session.intent == .transformSelection else {
+            return (transcription, nil, [])
+        }
+        if item.mode.providerPolicy == .localOnly, processingRouter == nil {
+            throw CoordinatorError.localProcessorUnavailable
+        }
+        let activeProcessor = try processingRouter?
+            .provider(for: item.mode, capabilities: capabilities)
+            ?? textProcessor
+
+        let restrictedContext = item.session.context.restricted(
+            to: item.mode.allowedContextSources
+        )
+        let manifest = restrictedContext.cloudManifest
+        let isCloudProcessing = activeProcessor.locality == .cloud
+        if item.mode.providerPolicy == .localOnly, isCloudProcessing {
+            throw CoordinatorError.localProcessorUnavailable
+        }
+        if isCloudProcessing {
+            let preflight = cloudPreflight(
+                transcription: transcription,
+                sessionID: item.session.id,
+                mode: item.mode,
+                context: restrictedContext,
+                processor: activeProcessor
+            )
+            var confirmationSession = item.session
+            _ = confirmationSession.transition(to: .awaitingConfirmation)
+            processingSession = confirmationSession
+            hud.show(
+                .transcribing,
+                detail: "Confirmation cloud · \(item.mode.name)",
+                autoHide: false
+            )
+            let decision = await cloudConsent.requestConsent(
+                for: preflight,
+                allowsRawTranscription: item.session.intent != .transformSelection,
+                requiresExplicitChoice: item.mode.providerPolicy == .askBeforeCloud
+                    || item.mode.providerPolicy == .preferLocal
+            )
+            try Task.checkCancellation()
+            switch decision {
+            case .sendOnce, .alwaysAllowMode:
+                _ = confirmationSession.transition(to: .processing)
+                processingSession = confirmationSession
+            case .useRawTranscription:
+                guard item.session.intent != .transformSelection else {
+                    throw CoordinatorError.rawUnavailableForSelection
+                }
+                return (transcription, nil, [])
+            case .cancel:
+                throw CancellationError()
+            }
+        }
+
+        let sourceLabel = manifest.isEmpty ? "sans contexte" : manifest.joined(separator: ", ")
+        hud.show(
+            .transcribing,
+            detail: "\(isCloudProcessing ? "Cloud" : "Local") · \(item.mode.name) · \(sourceLabel)",
+            autoHide: false
+        )
+        let startedAt = Date()
+        let result = try await activeProcessor.process(
+            TextProcessingRequest(
+                text: transcription,
+                mode: item.mode,
+                context: restrictedContext
+            )
+        )
+        metrics.record(.processing, duration: Date().timeIntervalSince(startedAt))
+        return (result.text, result.providerIdentifier, manifest)
+    }
+
+    private func cloudPreflight(
+        transcription: String,
+        sessionID: UUID,
+        mode: ModeDefinition,
+        context: ContextSnapshot,
+        processor: TextProcessing
+    ) -> CloudPreflight {
+        var payload: [ContextSource: String] = [:]
+        if context.sources.contains(.application) {
+            let application = [
+                context.applicationName,
+                context.applicationBundleIdentifier
+            ].compactMap { $0 }.joined(separator: " · ")
+            if !application.isEmpty { payload[.application] = application }
+        }
+        if context.sources.contains(.windowTitle),
+           let title = context.windowTitle,
+           !title.isEmpty {
+            payload[.windowTitle] = title
+        }
+        if context.sources.contains(.selection),
+           let selection = context.selectedText,
+           !selection.isEmpty {
+            payload[.selection] = selection
+        }
+        if context.sources.contains(.surroundingText) {
+            let surrounding = [
+                context.textBeforeSelection.map { "AVANT : \($0)" },
+                context.textAfterSelection.map { "APRÈS : \($0)" }
+            ].compactMap { $0 }.joined(separator: "\n")
+            if !surrounding.isEmpty {
+                payload[.surroundingText] = surrounding
+            }
+        }
+        if context.sources.contains(.project),
+           let project = context.projectIdentifier {
+            payload[.project] = project.uuidString
+        }
+        let orderedSources = mode.contextSources.filter {
+            payload[$0]?.isEmpty == false
+        }
+        return CloudPreflight(
+            sessionID: sessionID,
+            modeID: mode.id,
+            providerID: processor.identifier,
+            modelID: processor.modelIdentifier,
+            spokenText: transcription,
+            sources: orderedSources,
+            characterCounts: Dictionary(
+                uniqueKeysWithValues: orderedSources.map {
+                    ($0, payload[$0]?.count ?? 0)
+                }
+            ),
+            exactPayloadPreview: payload
+        )
+    }
+
+    private func presentPreview(
+        item: PendingSession,
+        rawText: String,
+        processed: (
+            text: String,
+            providerIdentifier: String?,
+            contextManifest: [String]
+        ),
+        transcriptionProviderIdentifier: String
+    ) {
+        var session = item.session
+        _ = session.transition(to: .awaitingPreview)
+        processingSession = session
+        let original = item.replayOriginalText
+            ?? session.context.selectedText
+            ?? ""
+        let providerIdentifier = processed.providerIdentifier ?? textProcessor.identifier
+        let preview = TextPreview(
+            sessionID: session.id,
+            originalText: original,
+            proposedText: processed.text,
+            modeName: item.mode.name,
+            providerIdentifier: providerIdentifier,
+            contextManifest: processed.contextManifest
+        )
+        previewDelivery = PreviewDelivery(
+            session: session,
+            target: item.target,
+            rawText: rawText,
+            providerIdentifier: providerIdentifier,
+            transcriptionProviderIdentifier: transcriptionProviderIdentifier,
+            contextManifest: processed.contextManifest,
+            audioDuration: item.audio.duration
+        )
+        pendingPreview = preview
+        hud.hide()
+        previewPresenter.show(
+            preview,
+            onApply: { [weak self] editedText in
+                self?.applyPreview(editedText)
+            },
+            onCancel: { [weak self] in
+                self?.cancelPreview()
+            }
+        )
+    }
+
+    private func applyPreview(_ text: String) {
+        guard pendingPreview != nil,
+              var delivery = previewDelivery else {
+            return
+        }
+        pendingPreview = nil
+        previewDelivery = nil
+        _ = delivery.session.transition(to: .delivering)
+        processingSession = delivery.session
+
+        processingTask = Task { [weak self] in
+            guard let self else { return }
+            defer {
+                self.processingTask = nil
+                self.processingSession = nil
+                self.processNextSession()
+            }
+            let insertionStartedAt = Date()
+            let inserted = await self.textDeliverer.inject(
+                text: text,
+                target: delivery.target
+            )
+            self.metrics.record(
+                .insertion,
+                duration: Date().timeIntervalSince(insertionStartedAt)
+            )
+            delivery.session.finalText = text
+            delivery.session.timings.deliveryEndedAt = Date()
+            _ = delivery.session.transition(to: .completed)
+            self.complete(
+                session: delivery.session,
+                rawText: delivery.rawText,
+                finalText: text,
+                processingProvider: delivery.providerIdentifier,
+                transcriptionProviderIdentifier: delivery.transcriptionProviderIdentifier,
+                contextManifest: delivery.contextManifest,
+                audioDuration: delivery.audioDuration,
+                inserted: inserted,
+                lowConfidence: false
+            )
+        }
+    }
+
+    private func cancelPreview() {
+        previewPresenter.hide()
+        pendingPreview = nil
+        guard var delivery = previewDelivery else { return }
+        previewDelivery = nil
+        _ = delivery.session.transition(to: .cancelled)
+        processingSession = nil
+        lastSession = delivery.session
+        lastError = nil
+        lastNotice = "Transformation annulée"
+        hud.show(.cancelled, detail: lastNotice, autoHide: true)
+        processNextSession()
+    }
+
+    private func deliver(
+        text: String,
+        item: PendingSession,
+        rawText: String,
+        providerIdentifier: String?,
+        transcriptionProviderIdentifier: String,
+        contextManifest: [String],
+        lowConfidence: Bool
+    ) async {
+        let insertionStartedAt = Date()
+        let inserted = await textDeliverer.inject(text: text, target: item.target)
+        metrics.record(
+            .insertion,
+            duration: Date().timeIntervalSince(insertionStartedAt)
+        )
+        var session = item.session
+        session.finalText = text
+        session.timings.deliveryEndedAt = Date()
+        _ = session.transition(to: .completed)
+        complete(
+            session: session,
+            rawText: rawText,
+            finalText: text,
+            processingProvider: providerIdentifier,
+            transcriptionProviderIdentifier: transcriptionProviderIdentifier,
+            contextManifest: contextManifest,
+            audioDuration: item.audio.duration,
+            inserted: inserted,
+            lowConfidence: lowConfidence
+        )
+    }
+
+    private func complete(
+        session: VoiceSession,
+        rawText: String,
+        finalText: String,
+        processingProvider: String?,
+        transcriptionProviderIdentifier: String? = nil,
+        contextManifest: [String],
+        audioDuration: TimeInterval,
+        inserted: Bool,
+        lowConfidence: Bool
+    ) {
+        metrics.record(
+            .total,
+            duration: Date().timeIntervalSince(session.timings.createdAt)
+        )
+        lastSession = session
+        let undoDeadline = inserted && textDeliverer.canUndoLastInsertion
+            ? Date().addingTimeInterval(8)
+            : nil
+        lastDeliveryReceipt = DeliveryReceipt(
+            sessionID: session.id,
+            strategy: inserted ? textDeliverer.lastDeliveryStrategy : .copied,
+            originalText: session.context.selectedText,
+            rawText: rawText,
+            finalText: finalText,
+            undoDeadline: undoDeadline
+        )
+        history.append(
+            HistoryRecord(
+                sessionID: session.id,
+                rawText: rawText,
+                finalText: finalText,
+                applicationBundleIdentifier: session.target?.bundleIdentifier,
+                modeIdentifier: session.modeIdentifier,
+                transcriptionProvider: transcriptionProviderIdentifier
+                    ?? transcriber.identifier,
+                processingProvider: processingProvider,
+                language: UserDefaults.standard.string(
+                    forKey: Constants.transcriptionLanguageKey
+                ),
+                audioDuration: audioDuration,
+                contextManifest: contextManifest,
+                deliveryStatus: inserted ? .inserted : .copied
+            )
+        )
+
+        lastError = nil
+        if inserted {
+            lastNotice = lowConfidence
+                ? "Texte inséré — vérifie cette transcription incertaine"
+                : "Texte inséré"
+        } else {
+            textDeliverer.copyToPasteboard(finalText)
+            lastNotice = "Texte copié — la cible initiale n’est plus disponible"
+        }
+        hud.isUndoAvailable = inserted && textDeliverer.canUndoLastInsertion
+        hud.configureResultActions(
+            canRetranscribe: replayBuffer.audio(for: session.id) != nil,
+            canCompareRawAndFinal: rawText != finalText,
+            onCopy: { [weak self] in self?.copyLastResult() },
+            onRetranscribe: { [weak self] in self?.retranscribeLastResult() },
+            onCompareRawAndFinal: {
+                [weak self] in self?.compareRawAndFinalResult()
+            }
+        )
+        hud.show(.success, detail: lastNotice, autoHide: true)
+    }
+
+    private func trimReplayDescriptors() {
+        let retainedIDs = Set(
+            [captureSession?.id, processingSession?.id, lastSession?.id]
+                .compactMap { $0 }
+        )
+        if replayDescriptors.count > 6 {
+            replayDescriptors = replayDescriptors.filter {
+                retainedIDs.contains($0.key)
+                    || replayBuffer.audio(for: $0.key) != nil
+            }
+        }
+    }
+
+    private func finish(item: inout PendingSession, with error: Error) {
+        if Task.isCancelled
+            || error is CancellationError
+            || (error as? URLError)?.code == .cancelled {
+            _ = item.session.transition(to: .cancelled)
+            lastError = nil
+            lastNotice = "Traitement annulé"
+        } else {
+            let message = error.localizedDescription
+            _ = item.session.transition(to: .failed(message))
+            lastError = message
+            lastNotice = nil
+            sounds.playErrorSound()
+        }
+        lastSession = item.session
+        hud.show(
+            .cancelled,
+            detail: lastError ?? lastNotice,
+            autoHide: true
+        )
+    }
+
+    private func textTarget(for session: VoiceSession) -> TextInjectionTarget? {
+        guard let snapshot = session.target else { return nil }
+        return TextInjectionTarget(snapshot: snapshot, focusedElement: nil)
+    }
+
+    private func fail(_ message: String) {
+        lastError = message
+        lastNotice = nil
+        sounds.playErrorSound()
+        hud.show(.cancelled, detail: message, autoHide: true)
+    }
+
+    private func listeningDetail(modeName: String) -> String {
+        let language = UserDefaults.standard.string(
+            forKey: Constants.transcriptionLanguageKey
+        ) ?? Constants.defaultTranscriptionLanguage
+        let languageLabel: String
+        switch language {
+        case "fr": languageLabel = "Français"
+        case "en": languageLabel = "English"
+        default: languageLabel = "Auto"
+        }
+        return "\(languageLabel) · \(modeName)"
+    }
+
+    private var queueDetail: String? {
+        pendingCount > 0 ? "\(pendingCount) en attente" : nil
+    }
+
+    private enum CoordinatorError: LocalizedError {
+        case localProcessorUnavailable
+        case rawUnavailableForSelection
+
+        var errorDescription: String? {
+            switch self {
+            case .localProcessorUnavailable:
+                return "Ce mode exige un moteur local qui n’est pas encore installé"
+            case .rawUnavailableForSelection:
+                return "Le texte brut ne peut pas remplacer une sélection"
+            }
+        }
+    }
+}

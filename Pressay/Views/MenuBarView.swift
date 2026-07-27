@@ -5,7 +5,7 @@ struct MenuBarView: View {
     @EnvironmentObject private var updateService: UpdateService
     @Environment(\.openSettings) private var openSettings
     @ObservedObject private var history = HistoryService.shared
-    @AppStorage(Constants.shortcutKey) private var shortcut = DictationShortcut.function.rawValue
+    @ObservedObject private var modes = ModeStore.shared
     @AppStorage(Constants.activationModeKey) private var activationMode = ActivationMode.hold.rawValue
 
     var body: some View {
@@ -38,6 +38,39 @@ struct MenuBarView: View {
                 .font(.system(size: 11))
                 .foregroundStyle(.secondary)
                 .padding(.horizontal)
+
+            HStack(spacing: 8) {
+                Label("Mode", systemImage: selectedMode.symbolName)
+                    .font(.system(size: 11, weight: .medium))
+                Spacer()
+                Picker("", selection: selectedModeBinding) {
+                    ForEach(modes.visibleModes) { mode in
+                        Text(mode.name).tag(mode.id)
+                    }
+                }
+                .labelsHidden()
+                .frame(width: 150)
+            }
+            .padding(.horizontal)
+
+            if appState.keyboardService.transformationShortcutAvailable {
+                Label(
+                    "Transformer la sélection : \(transformationShortcutName)",
+                    systemImage: "wand.and.stars"
+                )
+                .font(.system(size: 10))
+                .foregroundStyle(.secondary)
+                .padding(.horizontal)
+            }
+
+            Button {
+                ModesWindowController.shared.show(
+                    shortcutRouter: appState.keyboardService
+                )
+            } label: {
+                Label("Gérer les modes et profils…", systemImage: "slider.horizontal.3")
+            }
+            .padding(.horizontal, 4)
 
             if let message = appState.lastError ?? appState.lastNotice {
                 Label(
@@ -114,10 +147,31 @@ struct MenuBarView: View {
     }
 
     private var shortcutInstruction: String {
-        let key = DictationShortcut(rawValue: shortcut)?.label ?? "Fn / Globe"
-        return activationMode == ActivationMode.toggle.rawValue
+        let definition = appState.keyboardService.currentShortcut(for: .dictate)
+        let key = definition?.displayName ?? "Fn / Globe"
+        let isModifierOnly = definition?.side != nil
+            || definition?.modifiers.contains(.function) == true
+        return activationMode == ActivationMode.toggle.rawValue || !isModifierOnly
             ? "Appuie sur \(key) pour démarrer ou terminer."
             : "Maintiens \(key) pour parler, puis relâche."
+    }
+
+    private var transformationShortcutName: String {
+        appState.keyboardService
+            .currentShortcut(for: .transformSelection)?
+            .displayName ?? "non défini"
+    }
+
+    private var selectedMode: ModeDefinition {
+        modes.mode(withID: modes.selectedModeID)
+            ?? NativeModeCatalog.visibleModes[0]
+    }
+
+    private var selectedModeBinding: Binding<UUID> {
+        Binding(
+            get: { modes.selectedModeID },
+            set: { modes.selectedModeID = $0 }
+        )
     }
 
     private func preview(_ text: String) -> String {

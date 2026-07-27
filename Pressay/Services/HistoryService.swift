@@ -24,7 +24,7 @@ enum HistoryRetentionPolicy {
     }
 }
 
-final class HistoryService: ObservableObject {
+final class HistoryService: ObservableObject, HistoryRepository {
     static let shared = HistoryService()
 
     @Published private(set) var entries: [TranscriptionEntry] = []
@@ -65,6 +65,10 @@ final class HistoryService: ObservableObject {
         entries.insert(entry, at: 0)
         cleanup(saveAfterCleanup: false)
         save()
+    }
+
+    func append(_ record: HistoryRecord) {
+        add(record.finalText)
     }
 
     func delete(_ entry: TranscriptionEntry) {

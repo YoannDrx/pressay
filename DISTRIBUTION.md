@@ -7,7 +7,8 @@ publier un événement clavier pour y coller le texte.
 
 Le bundle public est `fr.yodev.pressay`. La version visible et le numéro de build
 proviennent uniquement de `MARKETING_VERSION` et `CURRENT_PROJECT_VERSION` dans
-le projet Xcode. La première release publique prévue est `1.0.0` (build `1`).
+le projet Xcode. La prochaine série publique est `1.2.0` : builds `12001–12089`
+pour les bêtas, `12090–12098` pour les RC et `12099` pour la stable.
 
 ## Préparer la signature Apple
 
@@ -24,7 +25,7 @@ export APPLE_ID="adresse@example.com"
 export APPLE_APP_SPECIFIC_PASSWORD="mot-de-passe-spécifique-à-l-app"
 export SPARKLE_PRIVATE_KEY="clé-privée-exportée-par-generate_keys"
 export SPARKLE_GENERATE_APPCAST="/chemin/vers/Sparkle/bin/generate_appcast"
-export RELEASE_TAG="v1.0.0"
+export RELEASE_TAG="v1.2.0-beta.1"
 ```
 
 La clé privée Sparkle ne doit jamais être ajoutée au dépôt. La clé publique
@@ -96,18 +97,24 @@ interdit deux publications simultanées.
 Chaque appcast référence l'asset immuable du tag, par exemple :
 
 ```text
-https://github.com/YoannDrx/pressay/releases/download/v1.0.0/Pressay.dmg
+https://github.com/YoannDrx/pressay/releases/download/v1.2.0-beta.1/Pressay.dmg
 ```
 
-Le portfolio expose deux redirections stables :
+L’app utilise le feed canonique GitHub Pages :
+
+```text
+https://yoanndrx.github.io/pressay/appcast.xml
+```
+
+Le portfolio doit conserver deux redirections stables :
 
 ```text
 https://www.yoann-andrieux.fr/download/pressay
 https://www.yoann-andrieux.fr/download/pressay/appcast.xml
 ```
 
-La première pointe vers le dernier `Pressay.dmg`, la seconde vers le dernier
-`appcast.xml`. L'appcast est utilisé pour découvrir une version stable ; le DMG
+La première pointe vers le dernier `Pressay.dmg`, la seconde vers le feed Pages
+canonique. L'appcast est utilisé pour découvrir une version stable ; le DMG
 d'une version reste toujours téléchargé depuis l'URL de son tag.
 
 ## Validation avant activation du CTA
@@ -123,4 +130,4 @@ Sur une session macOS propre :
 7. tester une mise à jour Sparkle entre deux builds signés.
 
 Le CTA du portfolio doit rester désactivé jusqu'à la publication effective de
-`v1.0.0`.
+`v1.2.0`.

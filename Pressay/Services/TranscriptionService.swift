@@ -39,10 +39,13 @@ enum TranscriptionResponseValidator {
     }
 }
 
-final class TranscriptionService {
+final class TranscriptionService: SpeechTranscribing {
     static let shared = TranscriptionService()
 
     private let session: URLSession
+
+    var identifier: String { "openai" }
+    var isReady: Bool { KeychainHelper.shared.hasAPIKey }
 
     init(session: URLSession? = nil) {
         if let session {
