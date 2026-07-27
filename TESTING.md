@@ -28,6 +28,7 @@ La cible `WhisperTests` couvre :
 | Annuler pendant l'appel API | Fichier temporaire supprimé, aucun collage |
 | Refuser le microphone | Aucun prompt au lancement, explication dans les réglages |
 | Refuser l'accessibilité | Résultat copié dans le presse-papiers, aucun texte perdu |
+| Autoriser l'accessibilité puis relancer | Collage natif Cmd+V sans permission Automatisation |
 | Copier autre chose pendant l'insertion | Le nouveau presse-papiers utilisateur n'est pas écrasé |
 | Mode bascule | Premier appui démarre, second appui envoie |
 | Historique désactivé | Fichier local supprimé et aucune nouvelle entrée |

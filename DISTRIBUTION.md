@@ -2,9 +2,14 @@
 
 La configuration Release active le **Hardened Runtime**. Le sandbox reste
 désactivé volontairement : l'application doit observer un raccourci global,
-réactiver une autre application et piloter `System Events` pour y coller du texte.
+réactiver une autre application et publier un événement clavier pour y coller du texte.
 Ces capacités ne sont pas compatibles avec le périmètre attendu d'une app
 sandboxée sans revoir entièrement le mécanisme d'insertion.
+
+Pour que les autorisations TCC (microphone et accessibilité) survivent aux mises à
+jour, la build distribuée doit être signée avec un certificat Apple Development
+ou Developer ID stable. Une signature ad hoc « Sign to Run Locally » est liée au
+hash exact du binaire et nécessite une nouvelle autorisation après chaque build.
 
 ## Préparer le Mac de publication
 

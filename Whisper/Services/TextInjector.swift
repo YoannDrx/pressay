@@ -1,4 +1,5 @@
 import AppKit
+import Carbon.HIToolbox
 
 struct TextInjectionTarget {
     let processIdentifier: pid_t
@@ -41,7 +42,7 @@ final class TextInjector {
         }
 
         try? await Task.sleep(for: .milliseconds(250))
-        let didPaste = TextInjector.hasAccessibilityPermission() && pasteViaAppleScript()
+        let didPaste = TextInjector.hasAccessibilityPermission() && pasteViaCGEvent()
         try? await Task.sleep(for: .milliseconds(300))
 
         if pasteboard.changeCount == transcriptionChangeCount {
@@ -80,15 +81,29 @@ final class TextInjector {
         pasteboard.writeObjects(items)
     }
 
-    private func pasteViaAppleScript() -> Bool {
-        let source = """
-        tell application "System Events"
-            keystroke "v" using command down
-        end tell
-        """
-        var error: NSDictionary?
-        NSAppleScript(source: source)?.executeAndReturnError(&error)
-        return error == nil
+    private func pasteViaCGEvent() -> Bool {
+        guard let source = CGEventSource(stateID: .hidSystemState),
+              let keyDown = CGEvent(
+                keyboardEventSource: source,
+                virtualKey: CGKeyCode(kVK_ANSI_V),
+                keyDown: true
+              ),
+              let keyUp = CGEvent(
+                keyboardEventSource: source,
+                virtualKey: CGKeyCode(kVK_ANSI_V),
+                keyDown: false
+              ) else {
+            return false
+        }
+
+        // Publier Cmd+V directement évite AppleScript/System Events et sa
+        // permission Automatisation supplémentaire. L'autorisation Accessibilité
+        // déjà contrôlée ci-dessus est la seule permission nécessaire.
+        keyDown.flags = .maskCommand
+        keyUp.flags = .maskCommand
+        keyDown.post(tap: .cghidEventTap)
+        keyUp.post(tap: .cghidEventTap)
+        return true
     }
 
     nonisolated static func hasAccessibilityPermission() -> Bool {
