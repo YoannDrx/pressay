@@ -71,7 +71,8 @@ Tier B — au moins quatre applications, avec un testeur par application :
   fusionnée et déployée.
 - [ ] Valider les secrets de publication. `APPLE_TEAM_ID` et
   `SPARKLE_PRIVATE_KEY` sont configurés ; le P12 CI, `APPLE_ID`, le mot de passe
-  spécifique et les mots de passe du Keychain temporaire restent à fournir.
+  spécifique Apple et le mot de passe du P12 restent à fournir. Le mot de passe
+  du Keychain temporaire est généré et masqué à chaque workflow.
 - [ ] Produire `v1.2.0-beta.1` build 12001, DMG, checksum et appcast signés.
 - [ ] Tester stable → bêta, bêta → bêta et bêta → stable.
 - [ ] Couvrir au moins un Mac Apple Silicon et un Mac Intel.
