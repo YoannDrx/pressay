@@ -21,6 +21,14 @@ jobs:
           -scheme Pressay
           -configuration Debug
           -destination 'platform=macOS'
+      - name: Construire la fixture AX universelle
+        run: >-
+          xcodebuild build
+          -project Pressay.xcodeproj
+          -target PressayAXFixture
+          -configuration Debug
+          CODE_SIGNING_ALLOWED=NO
+          ONLY_ACTIVE_ARCH=NO
       - name: Analyse statique
         run: >-
           xcodebuild analyze
@@ -28,3 +36,5 @@ jobs:
           -scheme Pressay
           -configuration Debug
           -destination 'platform=macOS'
+      - name: Valider la fusion des appcasts
+        run: python3 scripts/test-merge-appcast.py

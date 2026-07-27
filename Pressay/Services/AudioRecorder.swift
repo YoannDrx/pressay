@@ -2,16 +2,11 @@ import AVFoundation
 import Foundation
 
 final class AudioRecorder: NSObject, ObservableObject {
-    struct RecordingResult {
-        let url: URL
-        let duration: TimeInterval
-        let detection: SpeechDetectionResult
-
-        var containsSpeech: Bool { detection.containsSpeech }
-    }
+    typealias RecordingResult = CapturedAudio
 
     @Published private(set) var isRecording = false
     @Published private(set) var hasPermission = false
+    var onLevelUpdate: ((Float) -> Void)?
 
     private var audioRecorder: AVAudioRecorder?
     private var recordingURL: URL?
@@ -77,11 +72,12 @@ final class AudioRecorder: NSObject, ObservableObject {
         }
 
         powerSamples = []
+        onLevelUpdate?(0)
         startMetering()
         isRecording = true
     }
 
-    func stopRecording() -> RecordingResult? {
+    func stopRecording() -> CapturedAudio? {
         guard let recorder = audioRecorder, let recordingURL else {
             return nil
         }
@@ -95,8 +91,9 @@ final class AudioRecorder: NSObject, ObservableObject {
         self.recordingURL = nil
         let detection = SpeechDetectionPolicy.analyze(powers: powerSamples, duration: duration)
         powerSamples = []
+        onLevelUpdate?(0)
 
-        return RecordingResult(
+        return CapturedAudio(
             url: recordingURL,
             duration: duration,
             detection: detection
@@ -115,6 +112,7 @@ final class AudioRecorder: NSObject, ObservableObject {
         }
 
         powerSamples = []
+        onLevelUpdate?(0)
     }
 
     func cleanup(url: URL) {
@@ -140,7 +138,10 @@ final class AudioRecorder: NSObject, ObservableObject {
         recorder.updateMeters()
         guard recorder.currentTime >= Constants.ignoredLeadingAudioDuration else { return }
 
-        powerSamples.append(recorder.averagePower(forChannel: 0))
+        let power = recorder.averagePower(forChannel: 0)
+        powerSamples.append(power)
+        let normalized = max(0, min(1, (power + 60) / 60))
+        onLevelUpdate?(normalized)
     }
 
     enum RecordingError: LocalizedError {
@@ -157,6 +158,8 @@ final class AudioRecorder: NSObject, ObservableObject {
         }
     }
 }
+
+extension AudioRecorder: AudioCapturing {}
 
 extension AudioRecorder: AVAudioRecorderDelegate {
     func audioRecorderDidFinishRecording(_ recorder: AVAudioRecorder, successfully flag: Bool) {

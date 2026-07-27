@@ -1,23 +1,27 @@
+import AppKit
 import SwiftUI
 
 struct SettingsView: View {
     @EnvironmentObject private var appState: AppState
+    @EnvironmentObject private var updateService: UpdateService
     @ObservedObject private var metrics = PerformanceMetricsService.shared
+    @ObservedObject private var modes = ModeStore.shared
 
     @State private var apiKeyInput = ""
     @State private var isValidating = false
     @State private var validationMessage: ValidationMessage?
+    @State private var diagnosticsMessage: String?
 
     @AppStorage(Constants.transcriptionLanguageKey)
     private var language = Constants.defaultTranscriptionLanguage
     @AppStorage(Constants.transcriptionModelKey)
     private var model = Constants.defaultTranscriptionModel
+    @AppStorage(Constants.processingModelKey)
+    private var processingModel = Constants.defaultProcessingModel
     @AppStorage(Constants.vocabularyProfileKey)
     private var vocabularyProfile = "development"
     @AppStorage(Constants.technicalVocabularyKey)
     private var customVocabulary = ""
-    @AppStorage(Constants.shortcutKey)
-    private var shortcut = DictationShortcut.function.rawValue
     @AppStorage(Constants.activationModeKey)
     private var activationMode = ActivationMode.hold.rawValue
     @AppStorage(Constants.historyEnabledKey)
@@ -35,15 +39,17 @@ struct SettingsView: View {
                     permissionsSection
                     apiSection
                     recognitionSection
+                    modesSection
                     shortcutSection
                     privacySection
+                    updatesSection
                     aboutSection
                 }
                 .padding(24)
             }
             footer
         }
-        .frame(width: 520, height: 760)
+        .frame(width: 520, height: 820)
         .background(Color(nsColor: .windowBackgroundColor))
         .onAppear { appState.refreshPermissions() }
         .onReceive(
@@ -66,7 +72,7 @@ struct SettingsView: View {
                 VStack(alignment: .leading, spacing: 3) {
                     Text("Pressay")
                         .font(.system(size: 18, weight: .bold))
-                    Text("La dictée qui reste hors de ton chemin")
+                    Text("Ta barre de commande vocale sur macOS")
                         .font(.system(size: 12))
                         .foregroundStyle(.secondary)
                 }
@@ -96,7 +102,7 @@ struct SettingsView: View {
                 Divider().opacity(0.45)
                 permissionRow(
                     title: "Accessibilité",
-                    detail: "Nécessaire uniquement pour coller automatiquement.",
+                    detail: "Identifie la cible, protège les champs sensibles et remplace une sélection.",
                     granted: appState.hasAccessibilityPermission,
                     action: appState.requestAccessibilityPermission
                 )
@@ -134,7 +140,7 @@ struct SettingsView: View {
                         .font(.system(size: 10))
                         .foregroundStyle(validationMessage.success ? .green : .orange)
                 }
-                Text("La validation utilise uniquement l’endpoint de transcription, donc les clés restreintes compatibles sont acceptées.")
+                Text("La validation teste la transcription. Les modes de transformation exigent aussi l’accès à la Responses API.")
                     .font(.system(size: 10))
                     .foregroundStyle(.secondary)
             }
@@ -178,19 +184,80 @@ struct SettingsView: View {
 
     private var shortcutSection: some View {
         SettingsSection(title: "DÉCLENCHEMENT", icon: "keyboard") {
-            VStack(spacing: 13) {
-                settingPicker(title: "Raccourci", detail: "Choisis une touche modificatrice droite dédiée.", selection: $shortcut) {
-                    ForEach(DictationShortcut.allCases) { item in
-                        Text(item.label).tag(item.rawValue)
+            VStack(alignment: .leading, spacing: 13) {
+                LabeledContent {
+                    ShortcutRecorderField(
+                        router: appState.keyboardService,
+                        action: .dictate
+                    )
+                } label: {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("Dictée")
+                            .font(.system(size: 12, weight: .medium))
+                        Text("Un modificateur seul ou une combinaison globale.")
+                            .font(.system(size: 10))
+                            .foregroundStyle(.secondary)
+                    }
+                }
+                Divider().opacity(0.45)
+                LabeledContent {
+                    ShortcutRecorderField(
+                        router: appState.keyboardService,
+                        action: .transformSelection
+                    )
+                } label: {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("Transformation")
+                            .font(.system(size: 12, weight: .medium))
+                        Text("Parle pour transformer la sélection courante.")
+                            .font(.system(size: 10))
+                            .foregroundStyle(.secondary)
                     }
                 }
                 Divider().opacity(0.45)
                 settingPicker(title: "Mode", detail: activationMode == ActivationMode.hold.rawValue
-                    ? "Maintiens pour parler, relâche pour envoyer."
+                    ? "Maintiens le modificateur pour parler, relâche pour envoyer. Une combinaison classique bascule début/fin."
                     : "Appuie une fois pour démarrer, une fois pour envoyer.", selection: $activationMode) {
                     ForEach(ActivationMode.allCases) { item in
                         Text(item.label).tag(item.rawValue)
                     }
+                }
+            }
+        }
+    }
+
+    private var modesSection: some View {
+        SettingsSection(title: "MODES", icon: "wand.and.stars") {
+            VStack(alignment: .leading, spacing: 13) {
+                settingPicker(
+                    title: "Mode par défaut",
+                    detail: "Fidèle reste local au pipeline ; les autres transforment le texte après transcription.",
+                    selection: selectedModeBinding
+                ) {
+                    ForEach(modes.visibleModes) { mode in
+                        Text(mode.name).tag(mode.id)
+                    }
+                }
+                Divider().opacity(0.45)
+                settingPicker(
+                    title: "Traitement cloud",
+                    detail: "Modèle rapide pour nettoyage, structure et transformation.",
+                    selection: $processingModel
+                ) {
+                    Text("GPT-5.6 Luna").tag("gpt-5.6-luna")
+                    Text("GPT-5.6 Terra").tag("gpt-5.6-terra")
+                    Text("GPT-5.6 Sol").tag("gpt-5.6-sol")
+                }
+                Label(
+                    "Seules les sources autorisées par le mode sont envoyées. store: false désactive la conservation des réponses comme état applicatif.",
+                    systemImage: "lock.shield"
+                )
+                .font(.system(size: 10))
+                .foregroundStyle(.secondary)
+                Button("Gérer les modes et profils d’app…") {
+                    ModesWindowController.shared.show(
+                        shortcutRouter: appState.keyboardService
+                    )
                 }
             }
         }
@@ -228,6 +295,27 @@ struct SettingsView: View {
                     }
                     .id(metrics.revision)
                 }
+                Divider().opacity(0.45)
+                HStack {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("Diagnostics exportables")
+                            .font(.system(size: 12, weight: .medium))
+                        Text("Versions, configuration non sensible et durées agrégées uniquement.")
+                            .font(.system(size: 10))
+                            .foregroundStyle(.secondary)
+                    }
+                    Spacer()
+                    Button("Exporter…", action: exportDiagnostics)
+                        .accessibilityHint(
+                            "Crée un fichier JSON sans audio, texte, sélection ni clé API"
+                        )
+                }
+                if let diagnosticsMessage {
+                    Text(diagnosticsMessage)
+                        .font(.system(size: 10))
+                        .foregroundStyle(.secondary)
+                        .accessibilityLabel(diagnosticsMessage)
+                }
             }
         }
     }
@@ -244,6 +332,29 @@ struct SettingsView: View {
                 Spacer()
                 Link("Confidentialité", destination: URL(string: "https://github.com/YoannDrx/pressay/blob/main/PRIVACY.md")!)
                     .font(.system(size: 10))
+            }
+        }
+    }
+
+    private var updatesSection: some View {
+        SettingsSection(title: "MISES À JOUR", icon: "arrow.triangle.2.circlepath") {
+            VStack(alignment: .leading, spacing: 12) {
+                Toggle(
+                    "Inclure les versions bêta",
+                    isOn: $updateService.includeBetaUpdates
+                )
+                .font(.system(size: 12, weight: .medium))
+                Text(
+                    updateService.includeBetaUpdates
+                        ? "Les bêtas peuvent être instables. Les versions stables restent toujours proposées."
+                        : "Seules les versions stables sont proposées."
+                )
+                .font(.system(size: 10))
+                .foregroundStyle(.secondary)
+                Button("Rechercher une mise à jour") {
+                    updateService.checkForUpdates()
+                }
+                .disabled(!updateService.canCheckForUpdates)
             }
         }
     }
@@ -304,6 +415,13 @@ struct SettingsView: View {
         }
     }
 
+    private var selectedModeBinding: Binding<UUID> {
+        Binding(
+            get: { modes.selectedModeID },
+            set: { modes.selectedModeID = $0 }
+        )
+    }
+
     private func validateKey() {
         let key = apiKeyInput.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !key.isEmpty else { return }
@@ -323,6 +441,33 @@ struct SettingsView: View {
     private func metricText(_ step: MetricStep) -> String {
         guard let value = metrics.average(for: step) else { return "—" }
         return value < 1 ? "\(Int(value * 1_000)) ms" : String(format: "%.1f s", value)
+    }
+
+    private func exportDiagnostics() {
+        let panel = NSSavePanel()
+        panel.allowedContentTypes = [.json]
+        panel.canCreateDirectories = true
+        panel.nameFieldStringValue = "pressay-diagnostics.json"
+        panel.title = "Exporter les diagnostics Pressay"
+        panel.message = "Le fichier ne contient ni audio, ni texte dicté, ni sélection, ni clé API."
+
+        guard panel.runModal() == .OK, let url = panel.url else { return }
+        do {
+            let report = DiagnosticReport.make(
+                metricsService: metrics,
+                permissions: DiagnosticPermissions(
+                    microphone: appState.hasMicrophonePermission,
+                    accessibility: appState.hasAccessibilityPermission
+                ),
+                customModeCount: modes.customModes.count,
+                applicationProfileCount: modes.applicationProfiles.count,
+                betaUpdatesEnabled: updateService.includeBetaUpdates
+            )
+            try report.encoded().write(to: url, options: [.atomic])
+            diagnosticsMessage = "Diagnostics exportés : \(url.lastPathComponent)"
+        } catch {
+            diagnosticsMessage = "Échec de l’export : \(error.localizedDescription)"
+        }
     }
 
     private var appVersion: String {
@@ -366,5 +511,12 @@ struct SettingsSection<Content: View>: View {
 }
 
 #Preview {
-    SettingsView().environmentObject(AppState())
+    SettingsView()
+        .environmentObject(AppState())
+        .environmentObject(
+            UpdateService(
+                canCheckForUpdates: true,
+                checkForUpdatesAction: {}
+            )
+        )
 }

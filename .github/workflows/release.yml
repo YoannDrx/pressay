@@ -19,6 +19,16 @@ jobs:
     timeout-minutes: 25
     steps:
       - uses: actions/checkout@v6
+      - name: Lire le dernier build publié
+        run: |
+          current_appcast="$RUNNER_TEMP/appcast.xml"
+          curl --fail --silent --show-error \
+            https://yoanndrx.github.io/pressay/appcast.xml \
+            --output "$current_appcast" || : > "$current_appcast"
+          last_build="$(
+            python3 scripts/latest-appcast-build.py "$current_appcast"
+          )"
+          echo "LAST_PUBLISHED_BUILD=$last_build" >> "$GITHUB_ENV"
       - name: Valider le tag, la version et le build
         run: scripts/validate-release.sh
       - name: Tests
@@ -28,6 +38,16 @@ jobs:
           -scheme Pressay
           -configuration Debug
           -destination 'platform=macOS'
+      - name: Construire la fixture AX universelle
+        run: >-
+          xcodebuild build
+          -project Pressay.xcodeproj
+          -target PressayAXFixture
+          -configuration Debug
+          CODE_SIGNING_ALLOWED=NO
+          ONLY_ACTIVE_ARCH=NO
+      - name: Valider la fusion des appcasts
+        run: python3 scripts/test-merge-appcast.py
       - name: Analyse statique
         run: >-
           xcodebuild analyze
@@ -54,6 +74,27 @@ jobs:
       GH_TOKEN: ${{ github.token }}
     steps:
       - uses: actions/checkout@v6
+
+      - name: Vérifier la configuration de publication
+        env:
+          BUILD_CERTIFICATE_BASE64: ${{ secrets.BUILD_CERTIFICATE_BASE64 }}
+          P12_PASSWORD: ${{ secrets.P12_PASSWORD }}
+          KEYCHAIN_PASSWORD: ${{ secrets.KEYCHAIN_PASSWORD }}
+        run: |
+          missing=()
+          for name in \
+            DEVELOPER_ID_APPLICATION APPLE_TEAM_ID APPLE_ID \
+            APPLE_APP_SPECIFIC_PASSWORD SPARKLE_PRIVATE_KEY \
+            BUILD_CERTIFICATE_BASE64 P12_PASSWORD KEYCHAIN_PASSWORD
+          do
+            if [[ -z "${!name:-}" ]]; then
+              missing+=("$name")
+            fi
+          done
+          if (( ${#missing[@]} )); then
+            echo "Configuration de release incomplète: ${missing[*]}" >&2
+            exit 1
+          fi
 
       - name: Importer le certificat Developer ID
         env:
@@ -94,13 +135,39 @@ jobs:
 
       - name: Publier la GitHub Release
         run: |
+          prerelease_args=()
+          if [[ "$GITHUB_REF_NAME" == *"-beta."* || "$GITHUB_REF_NAME" == *"-rc."* ]]; then
+            prerelease_args+=(--prerelease)
+          fi
           gh release create "$GITHUB_REF_NAME" \
             build/release/Pressay.dmg \
             build/release/Pressay.dmg.sha256 \
             build/release/appcast.xml \
             --verify-tag \
             --generate-notes \
-            --title "Pressay $GITHUB_REF_NAME"
+            --title "Pressay $GITHUB_REF_NAME" \
+            "${prerelease_args[@]}"
+
+      - name: Publier l’appcast sur GitHub Pages
+        run: |
+          appcast_path="appcast.xml"
+          encoded="$(base64 < build/release/appcast.xml | tr -d '\n')"
+          existing_sha="$(
+            gh api \
+              "repos/$GITHUB_REPOSITORY/contents/$appcast_path?ref=gh-pages" \
+              --jq '.sha' 2>/dev/null || true
+          )"
+          args=(
+            --method PUT
+            "repos/$GITHUB_REPOSITORY/contents/$appcast_path"
+            -f message="Publier l’appcast $GITHUB_REF_NAME"
+            -f content="$encoded"
+            -f branch="gh-pages"
+          )
+          if [[ -n "$existing_sha" ]]; then
+            args+=(-f sha="$existing_sha")
+          fi
+          gh api "${args[@]}"
 
       - name: Supprimer le Keychain temporaire
         if: always()

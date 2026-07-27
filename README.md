@@ -4,25 +4,33 @@
 
 # Pressay
 
-Une commande vocale universelle pour écrire depuis n’importe quelle application
-macOS. La version 1.0 se concentre sur une dictée fiable, privée par défaut et
-distribuée comme une vraie app Mac.
+Une barre de commande vocale contrôlable pour écrire et transformer du texte
+depuis n’importe quelle application macOS. Pressay conserve une dictée
+universelle rapide, puis ajoute des modes contextuels et des transformations
+réversibles sans perdre la cible initiale.
 
-Maintiens la touche **Fn** enfoncée, parle, relâche, et le texte apparaît là où se trouve ton curseur. C'est tout.
+Maintiens **Fn**, parle, relâche : le texte apparaît là où se trouve ton
+curseur. Pour transformer du texte, sélectionne-le, appuie sur **⌥⇧Espace**,
+dicte l’instruction et valide l’aperçu.
 
 ## Comment ça marche ?
 
 1. L'app vit dans ta barre de menu (en haut à droite de ton écran)
-2. Tu maintiens la touche **Fn** enfoncée
-3. Tu parles
-4. Tu relâches **Fn**
-5. Le texte transcrit est automatiquement collé là où tu étais en train d'écrire
+2. Tu choisis un mode : Fidèle, Propre, Message, Email, Prompt IA ou un mode
+   personnalisé
+3. Tu maintiens la touche **Fn**, tu parles, puis tu relâches
+4. Pressay transcrit et, si le mode le demande, transforme le texte
+5. Le résultat est inséré dans la cible capturée au début de la session
 
-La version 1.0 utilise l’endpoint de transcription audio OpenAI avec la clé
-personnelle de l’utilisateur, un mode rapide (`gpt-4o-mini-transcribe`) et un
-mode précision (`gpt-4o-transcribe`). Le vocabulaire et la langue sont
-personnalisables. Des moteurs locaux et les modes de transformation seront
-livrés progressivement, sans faux boutons.
+La transformation de sélection suit un parcours plus prudent : Pressay capture
+la sélection initiale, affiche Original/Proposition, puis revérifie la cible et
+la sélection avant le remplacement. Si elles ont changé, le résultat est copié
+au lieu d’être collé au mauvais endroit.
+
+Le socle actuel utilise la clé OpenAI personnelle de l’utilisateur : l’endpoint
+audio pour la transcription et la Responses API pour les modes de
+transformation. Les moteurs locaux restent planifiés et aucun mode ne prétend
+fonctionner hors ligne avant leur intégration.
 
 ## Télécharger et installer
 
@@ -48,7 +56,7 @@ DMG.
 
 La page de téléchargement publique sera également disponible sur
 [yoann-andrieux.fr](https://www.yoann-andrieux.fr/fr/projects/pressay). Tant que
-la release `v1.0.0` n'est pas publiée, utilise la compilation depuis les sources
+la release `v1.2.0` n'est pas publiée, utilise la compilation depuis les sources
 ci-dessous.
 
 ### Compiler depuis les sources
@@ -89,9 +97,10 @@ automatique au second lancement, et le menu contient l'action
 **Rechercher les mises à jour…**. Chaque mise à jour est une application complète
 dans un DMG notarialisé et signé avec une clé Ed25519 dédiée.
 
-Pressay n'envoie ni profil système ni télémétrie à Yodev. Le flux stable est
-publié sur
-`https://www.yoann-andrieux.fr/download/pressay/appcast.xml`.
+Pressay n'envoie ni profil système ni télémétrie à Yodev. Le flux stable et les
+items bêta optionnels partagent l’appcast canonique
+`https://yoanndrx.github.io/pressay/appcast.xml`. Les versions bêta sont
+désactivées par défaut.
 
 ## Lancer Pressay au démarrage du Mac
 
@@ -132,12 +141,38 @@ Dans les préférences, tu peux choisir le français, l'anglais ou la détection
 ### Dictée flexible
 Le raccourci peut être Fn/Globe, Option droite ou Commande droite. Le mode
 « Maintenir » convient aux messages courts ; le mode « Bascule » permet les longues
-dictées. Un HUD discret indique l'écoute, la transcription et le résultat.
+dictées. Une double pression active la capture mains libres. Un HUD discret
+indique le niveau micro, la durée, la langue, le mode et la file.
 
 ### File d'attente et annulation
 Tu peux commencer une nouvelle dictée pendant que la précédente est transcrite.
 Chaque résultat conserve l'application cible d'origine, et l'appel en cours peut
-être annulé depuis la barre de menu.
+être annulé avec Échap ou depuis le HUD. Après une insertion compatible, le HUD
+propose une annulation locale pendant quelques secondes.
+
+### Modes contextuels
+
+Pressay inclut douze modes natifs : Fidèle, Propre, Message, Email, Prompt IA,
+Note, Compte rendu, Ticket, Commit, Traduction, Résumé et Tâches. L’éditeur de
+modes permet de définir un prompt, un format, un niveau de nettoyage et les
+sources de contexte autorisées. Une règle par bundle ID peut choisir
+automatiquement un mode pour chaque application.
+
+### Transformation de sélection
+
+Le raccourci **⌥⇧Espace** capture la sélection par l’API Accessibilité ou, si
+nécessaire, par un `Cmd+C` temporaire dont le presse-papiers est restauré. La
+parole est traitée comme l’instruction ; la sélection et le contexte restent des
+données passives non fiables. Le remplacement n’a lieu qu’après validation de
+l’aperçu et nouvelle vérification de l’élément ciblé.
+
+### Contexte et cloud visibles
+
+Chaque mode autorise explicitement ses sources de contexte. Avant un traitement
+cloud, le HUD affiche le mode et le manifeste des sources réellement
+transmises. Les champs sécurisés sont bloqués avant le démarrage du micro. La
+politique `askBeforeCloud` refuse actuellement l’envoi tant que le parcours de
+consentement interactif n’est pas livré.
 
 ## Permissions requises
 
@@ -166,20 +201,35 @@ Ta clé API est stockée de façon sécurisée dans le Keychain de macOS (le mê
 
 ## Comment ça fonctionne techniquement ?
 
-1. Quand tu appuies sur **Fn**, l'app commence à enregistrer ton micro
-2. L'audio est enregistré en format M4A (16 kHz, mono) et analysé localement pour détecter la voix
-3. Si tu n'as pas parlé, l'opération est annulée sans appel réseau
-4. Sinon, un multipart écrit en flux sur disque envoie l'audio, la langue et le
-   seul profil de vocabulaire actif à l'endpoint OpenAI
-5. Une réponse vide, incertaine ou égale au vocabulaire est signalée ou rejetée
-6. Le texte validé est collé à l'emplacement initial du curseur
-7. Le presse-papiers précédent est restauré, sauf si tu as copié autre chose entre-temps
+1. `ShortcutRouter` demande au `SessionCoordinator` de créer une `VoiceSession`.
+2. La cible AX, la sélection et les seules sources de contexte autorisées sont
+   capturées avant l’enregistrement.
+3. L’audio M4A 16 kHz mono est analysé localement ; le silence n’est pas envoyé.
+4. `TranscriptionService` produit le texte brut via l’endpoint audio OpenAI.
+5. Le mode résolu choisit entre restitution fidèle et transformation via la
+   Responses API avec `store: false`.
+6. Une transformation de sélection attend un aperçu éditable.
+7. `TextInjector` revérifie l’application, l’élément et le hash de sélection ;
+   il insère ou copie le résultat si la cible n’est plus sûre.
+8. Le presse-papiers précédent est restauré sauf modification concurrente, et
+   une insertion AX compatible reçoit un jeton d’annulation temporaire.
+
+Les types de domaine et les frontières de services sont détaillés dans
+[ARCHITECTURE.md](ARCHITECTURE.md).
 
 ## Confidentialité
 
-- **Audio** : Envoyé à OpenAI uniquement lorsqu'une voix est détectée, puis supprimé localement
+- **Audio** : envoyé à OpenAI uniquement lorsqu'une voix est détectée, puis supprimé localement
+- **Transformation** : le texte et les sources autorisées sont envoyés à OpenAI
+  uniquement pour un mode non fidèle ; la requête désactive le stockage de
+  réponse avec `store: false`
+- **Contexte** : capturé à la demande, limité, jamais surveillé en continu ; les
+  sources utilisées sont affichées par Pressay
+- **Champs sécurisés** : capture refusée avant l’enregistrement
 - **Clé API** : Stockée dans le Keychain macOS (chiffré)
 - **Historique** : Optionnel, chiffré localement, rétention configurable
+- **Modes** : enregistrés localement avec des permissions de fichier limitées à
+  l’utilisateur
 - **Métriques** : Optionnelles et locales, durées agrégées uniquement
 - **Aucune télémétrie distante** : aucune donnée n'est envoyée à l'auteur du projet
 - **Mises à jour** : aucun profil système n'est joint aux requêtes Sparkle
@@ -192,11 +242,11 @@ n'est ni éditée ni approuvée par OpenAI.
 
 ## Roadmap
 
-La vision produit — transformations, moteurs locaux, Voice Inbox, vocabulaire,
-mode développeur, actions contrôlées, synchronisation Pro, intégrations,
-réunions et App Intents — est détaillée dans [ROADMAP.md](ROADMAP.md). Chaque
-version possède son propre gate de tests, sécurité, accessibilité,
-confidentialité et mise à jour depuis la version publique précédente.
+L’état exact du code et la vision produit — moteurs locaux, wedge développeur,
+Voice Inbox, mémoire, actions contrôlées, intégrations, Pressay Pro, réunions et
+App Intents — sont détaillés dans [ROADMAP.md](ROADMAP.md). Chaque version
+possède son propre gate de tests, sécurité, accessibilité, confidentialité et
+mise à jour depuis la version publique précédente.
 
 ## Contribuer
 

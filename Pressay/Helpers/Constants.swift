@@ -13,13 +13,19 @@ enum Constants {
     static let applicationSupportDirectoryName = "Pressay"
     static let legacyApplicationSupportDirectoryName = "Whisper"
     static let openAITranscriptionURL = "https://api.openai.com/v1/audio/transcriptions"
+    static let openAIResponsesURL = "https://api.openai.com/v1/responses"
 
     static let transcriptionLanguageKey = "transcription-language"
     static let transcriptionModelKey = "transcription-model"
     static let technicalVocabularyKey = "technical-vocabulary"
     static let vocabularyProfileKey = "vocabulary-profile"
     static let shortcutKey = "dictation-shortcut"
+    static let dictationShortcutDefinitionKey = "dictation-shortcut-definition-v1"
     static let activationModeKey = "dictation-activation-mode"
+    static let processingModelKey = "processing-model"
+    static let selectedModeIDKey = "selected-mode-id"
+    static let cloudDisclosureSignaturesKey = "cloud-disclosure-signatures-v1"
+    static let includeBetaUpdatesKey = "include-beta-updates"
     static let historyEnabledKey = "history-enabled"
     static let historyRetentionDaysKey = "history-retention-days"
     static let metricsEnabledKey = "local-metrics-enabled"
@@ -29,13 +35,18 @@ enum Constants {
         technicalVocabularyKey,
         vocabularyProfileKey,
         shortcutKey,
+        dictationShortcutDefinitionKey,
         activationModeKey,
+        processingModelKey,
+        selectedModeIDKey,
+        includeBetaUpdatesKey,
         historyEnabledKey,
         historyRetentionDaysKey,
         metricsEnabledKey
     ]
     static let defaultTranscriptionLanguage = "fr"
     static let defaultTranscriptionModel = "gpt-4o-mini-transcribe"
+    static let defaultProcessingModel = "gpt-5.6-luna"
     static let defaultTechnicalVocabulary = """
     API, SDK, GitHub, TypeScript, JavaScript, React, Node.js, Python, Claude, GPT, LLM, MCP, STT, TTS, Whisper, Pressay, OpenAI, Anthropic, Convex, Vercel, Next.js, SwiftUI, Xcode, iOS, macOS
     """
@@ -51,6 +62,7 @@ enum Constants {
     static let maximumAdaptiveThreshold: Float = -32
     static let noiseMargin: Float = 10
     static let lowConfidenceLogProbability = -0.85
+    static let handsFreeDoublePressInterval: TimeInterval = 0.28
 }
 
 enum TranscriptionModel: String, CaseIterable, Identifiable {

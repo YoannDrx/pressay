@@ -29,6 +29,21 @@
 		FFF000001 /* AppMigrationService.swift in Sources */ = {isa = PBXBuildFile; fileRef = FFF000010 /* AppMigrationService.swift */; };
 		FFF000002 /* UpdateService.swift in Sources */ = {isa = PBXBuildFile; fileRef = FFF000011 /* UpdateService.swift */; };
 		FFF000003 /* Sparkle in Frameworks */ = {isa = PBXBuildFile; productRef = FFF000012 /* Sparkle */; };
+		GGG000001 /* VoiceSession.swift in Sources */ = {isa = PBXBuildFile; fileRef = GGG000010 /* VoiceSession.swift */; };
+		GGG000002 /* ServiceProtocols.swift in Sources */ = {isa = PBXBuildFile; fileRef = GGG000011 /* ServiceProtocols.swift */; };
+		GGG000003 /* AccessibilityContextService.swift in Sources */ = {isa = PBXBuildFile; fileRef = GGG000012 /* AccessibilityContextService.swift */; };
+		GGG000004 /* SessionCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = GGG000013 /* SessionCoordinator.swift */; };
+		HHH000001 /* ModeStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = HHH000010 /* ModeStore.swift */; };
+		HHH000002 /* OpenAITextProcessingService.swift in Sources */ = {isa = PBXBuildFile; fileRef = HHH000011 /* OpenAITextProcessingService.swift */; };
+		HHH000003 /* TextPreview.swift in Sources */ = {isa = PBXBuildFile; fileRef = HHH000012 /* TextPreview.swift */; };
+		HHH000004 /* ModesView.swift in Sources */ = {isa = PBXBuildFile; fileRef = HHH000013 /* ModesView.swift */; };
+		III000001 /* ClipboardTransactionCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = III000010 /* ClipboardTransactionCoordinator.swift */; };
+		III000002 /* CloudConsentService.swift in Sources */ = {isa = PBXBuildFile; fileRef = III000011 /* CloudConsentService.swift */; };
+		III000003 /* InMemoryReplayBuffer.swift in Sources */ = {isa = PBXBuildFile; fileRef = III000012 /* InMemoryReplayBuffer.swift */; };
+		JJJ000001 /* ProviderRoutingService.swift in Sources */ = {isa = PBXBuildFile; fileRef = JJJ000010 /* ProviderRoutingService.swift */; };
+		JJJ000002 /* ModelCatalogService.swift in Sources */ = {isa = PBXBuildFile; fileRef = JJJ000011 /* ModelCatalogService.swift */; };
+		KKK000001 /* ShortcutRecorderView.swift in Sources */ = {isa = PBXBuildFile; fileRef = KKK000010 /* ShortcutRecorderView.swift */; };
+		ZZZ000001 /* PressayAXFixtureApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = ZZZ000010 /* PressayAXFixtureApp.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -57,6 +72,22 @@
 		EEE000011 /* PressayTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = PressayTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		FFF000010 /* AppMigrationService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppMigrationService.swift; sourceTree = "<group>"; };
 		FFF000011 /* UpdateService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UpdateService.swift; sourceTree = "<group>"; };
+		GGG000010 /* VoiceSession.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VoiceSession.swift; sourceTree = "<group>"; };
+		GGG000011 /* ServiceProtocols.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ServiceProtocols.swift; sourceTree = "<group>"; };
+		GGG000012 /* AccessibilityContextService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AccessibilityContextService.swift; sourceTree = "<group>"; };
+		GGG000013 /* SessionCoordinator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SessionCoordinator.swift; sourceTree = "<group>"; };
+		HHH000010 /* ModeStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ModeStore.swift; sourceTree = "<group>"; };
+		HHH000011 /* OpenAITextProcessingService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OpenAITextProcessingService.swift; sourceTree = "<group>"; };
+		HHH000012 /* TextPreview.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TextPreview.swift; sourceTree = "<group>"; };
+		HHH000013 /* ModesView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ModesView.swift; sourceTree = "<group>"; };
+		III000010 /* ClipboardTransactionCoordinator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ClipboardTransactionCoordinator.swift; sourceTree = "<group>"; };
+		III000011 /* CloudConsentService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CloudConsentService.swift; sourceTree = "<group>"; };
+		III000012 /* InMemoryReplayBuffer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = InMemoryReplayBuffer.swift; sourceTree = "<group>"; };
+		JJJ000010 /* ProviderRoutingService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProviderRoutingService.swift; sourceTree = "<group>"; };
+		JJJ000011 /* ModelCatalogService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ModelCatalogService.swift; sourceTree = "<group>"; };
+		KKK000010 /* ShortcutRecorderView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ShortcutRecorderView.swift; sourceTree = "<group>"; };
+		ZZZ000010 /* PressayAXFixtureApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PressayAXFixtureApp.swift; sourceTree = "<group>"; };
+		ZZZ000011 /* PressayAXFixture.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = PressayAXFixture.app; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -75,6 +106,13 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		ZZZ00001D /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 /* End PBXFrameworksBuildPhase section */
 
 /* Begin PBXGroup section */
@@ -83,6 +121,7 @@
 			children = (
 				AAA000010 /* PressayApp.swift */,
 				AAA000011 /* AppState.swift */,
+				GGG000020 /* Domain */,
 				AAA00001F /* Views */,
 				AAA000020 /* Services */,
 				AAA000021 /* Helpers */,
@@ -100,6 +139,9 @@
 				AAA000013 /* SettingsView.swift */,
 				BBB000012 /* HistoryView.swift */,
 				DDD000013 /* StatusHUD.swift */,
+				HHH000012 /* TextPreview.swift */,
+				HHH000013 /* ModesView.swift */,
+				KKK000010 /* ShortcutRecorderView.swift */,
 			);
 			path = Views;
 			sourceTree = "<group>";
@@ -116,6 +158,16 @@
 				DDD000012 /* PerformanceMetricsService.swift */,
 				FFF000010 /* AppMigrationService.swift */,
 				FFF000011 /* UpdateService.swift */,
+				GGG000011 /* ServiceProtocols.swift */,
+				GGG000012 /* AccessibilityContextService.swift */,
+				GGG000013 /* SessionCoordinator.swift */,
+				HHH000010 /* ModeStore.swift */,
+				HHH000011 /* OpenAITextProcessingService.swift */,
+				III000010 /* ClipboardTransactionCoordinator.swift */,
+				III000011 /* CloudConsentService.swift */,
+				III000012 /* InMemoryReplayBuffer.swift */,
+				JJJ000010 /* ProviderRoutingService.swift */,
+				JJJ000011 /* ModelCatalogService.swift */,
 			);
 			path = Services;
 			sourceTree = "<group>";
@@ -136,8 +188,17 @@
 			children = (
 				AAA00001C /* Pressay.app */,
 				EEE000011 /* PressayTests.xctest */,
+				ZZZ000011 /* PressayAXFixture.app */,
 			);
 			name = Products;
+			sourceTree = "<group>";
+		};
+		GGG000020 /* Domain */ = {
+			isa = PBXGroup;
+			children = (
+				GGG000010 /* VoiceSession.swift */,
+			);
+			path = Domain;
 			sourceTree = "<group>";
 		};
 		AAA000023 /* Root */ = {
@@ -145,6 +206,7 @@
 			children = (
 				AAA00001E /* Pressay */,
 				EEE00001E /* PressayTests */,
+				ZZZ00001E /* PressayAXFixture */,
 				AAA000022 /* Products */,
 			);
 			sourceTree = "<group>";
@@ -155,6 +217,14 @@
 				EEE000010 /* PressayTests.swift */,
 			);
 			path = PressayTests;
+			sourceTree = "<group>";
+		};
+		ZZZ00001E /* PressayAXFixture */ = {
+			isa = PBXGroup;
+			children = (
+				ZZZ000010 /* PressayAXFixtureApp.swift */,
+			);
+			path = PressayAXFixture;
 			sourceTree = "<group>";
 		};
 /* End PBXGroup section */
@@ -208,6 +278,23 @@
 			productReference = EEE000011 /* PressayTests.xctest */;
 			productType = "com.apple.product-type.bundle.unit-test";
 		};
+		ZZZ000024 /* PressayAXFixture */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = ZZZ000025 /* Build configuration list for PBXNativeTarget "PressayAXFixture" */;
+			buildPhases = (
+				ZZZ000026 /* Sources */,
+				ZZZ00001D /* Frameworks */,
+				ZZZ000027 /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			name = PressayAXFixture;
+			productName = PressayAXFixture;
+			productReference = ZZZ000011 /* PressayAXFixture.app */;
+			productType = "com.apple.product-type.application";
+		};
 /* End PBXNativeTarget section */
 
 /* Begin PBXProject section */
@@ -224,6 +311,9 @@
 					EEE000024 = {
 						CreatedOnToolsVersion = 15.0;
 						TestTargetID = AAA000024;
+					};
+					ZZZ000024 = {
+						CreatedOnToolsVersion = 15.0;
 					};
 				};
 			};
@@ -245,6 +335,7 @@
 			targets = (
 				AAA000024 /* Pressay */,
 				EEE000024 /* PressayTests */,
+				ZZZ000024 /* PressayAXFixture */,
 			);
 		};
 /* End PBXProject section */
@@ -259,6 +350,13 @@
 			runOnlyForDeploymentPostprocessing = 0;
 		};
 		EEE000027 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		ZZZ000027 /* Resources */ = {
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
@@ -291,6 +389,20 @@
 				DDD000004 /* StatusHUD.swift in Sources */,
 				FFF000001 /* AppMigrationService.swift in Sources */,
 				FFF000002 /* UpdateService.swift in Sources */,
+				GGG000001 /* VoiceSession.swift in Sources */,
+				GGG000002 /* ServiceProtocols.swift in Sources */,
+				GGG000003 /* AccessibilityContextService.swift in Sources */,
+				GGG000004 /* SessionCoordinator.swift in Sources */,
+				HHH000001 /* ModeStore.swift in Sources */,
+				HHH000002 /* OpenAITextProcessingService.swift in Sources */,
+				HHH000003 /* TextPreview.swift in Sources */,
+				HHH000004 /* ModesView.swift in Sources */,
+				III000001 /* ClipboardTransactionCoordinator.swift in Sources */,
+				III000002 /* CloudConsentService.swift in Sources */,
+				III000003 /* InMemoryReplayBuffer.swift in Sources */,
+				JJJ000001 /* ProviderRoutingService.swift in Sources */,
+				JJJ000002 /* ModelCatalogService.swift in Sources */,
+				KKK000001 /* ShortcutRecorderView.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -299,6 +411,14 @@
 			buildActionMask = 2147483647;
 			files = (
 				EEE000001 /* PressayTests.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		ZZZ000026 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				ZZZ000001 /* PressayAXFixtureApp.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -453,7 +573,7 @@
 				CODE_SIGN_ENTITLEMENTS = Pressay/Pressay.entitlements;
 				CODE_SIGN_STYLE = Automatic;
 				COMBINE_HIDPI_IMAGES = YES;
-				CURRENT_PROJECT_VERSION = 1;
+				CURRENT_PROJECT_VERSION = 12001;
 				DEVELOPMENT_TEAM = "";
 				ENABLE_HARDENED_RUNTIME = NO;
 				GENERATE_INFOPLIST_FILE = NO;
@@ -465,7 +585,7 @@
 					"$(inherited)",
 					"@executable_path/../Frameworks",
 				);
-				MARKETING_VERSION = 1.0.0;
+				MARKETING_VERSION = 1.2.0;
 				PRODUCT_BUNDLE_IDENTIFIER = fr.yodev.pressay;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SPARKLE_PUBLIC_ED_KEY = "UZhQqKvJ2hCq/tcAznz/tbwCMF0N5Jx01IjEltwQ/Y4=";
@@ -482,7 +602,7 @@
 				CODE_SIGN_ENTITLEMENTS = Pressay/Pressay.entitlements;
 				CODE_SIGN_STYLE = Automatic;
 				COMBINE_HIDPI_IMAGES = YES;
-				CURRENT_PROJECT_VERSION = 1;
+				CURRENT_PROJECT_VERSION = 12001;
 				DEVELOPMENT_TEAM = "";
 				ENABLE_HARDENED_RUNTIME = YES;
 				GENERATE_INFOPLIST_FILE = NO;
@@ -494,7 +614,7 @@
 					"$(inherited)",
 					"@executable_path/../Frameworks",
 				);
-				MARKETING_VERSION = 1.0.0;
+				MARKETING_VERSION = 1.2.0;
 				PRODUCT_BUNDLE_IDENTIFIER = fr.yodev.pressay;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SPARKLE_PUBLIC_ED_KEY = "UZhQqKvJ2hCq/tcAznz/tbwCMF0N5Jx01IjEltwQ/Y4=";
@@ -531,6 +651,40 @@
 			};
 			name = Release;
 		};
+		ZZZ00002D /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_KEY_CFBundleDisplayName = "Pressay AX Fixture";
+				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.developer-tools";
+				MACOSX_DEPLOYMENT_TARGET = 14.0;
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = fr.yodev.pressay.axfixture;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_VERSION = 5.0;
+			};
+			name = Debug;
+		};
+		ZZZ00002E /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_KEY_CFBundleDisplayName = "Pressay AX Fixture";
+				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.developer-tools";
+				MACOSX_DEPLOYMENT_TARGET = 14.0;
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = fr.yodev.pressay.axfixture;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_VERSION = 5.0;
+			};
+			name = Release;
+		};
 /* End XCBuildConfiguration section */
 
 /* Begin XCConfigurationList section */
@@ -557,6 +711,15 @@
 			buildConfigurations = (
 				EEE00002D /* Debug */,
 				EEE00002E /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		ZZZ000025 /* Build configuration list for PBXNativeTarget "PressayAXFixture" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				ZZZ00002D /* Debug */,
+				ZZZ00002E /* Release */,
 			);
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;

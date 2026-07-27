@@ -9,6 +9,8 @@ export_path="$release_dir/export"
 dmg_path="$release_dir/Pressay.dmg"
 checksum_path="$release_dir/Pressay.dmg.sha256"
 appcast_path="$release_dir/appcast.xml"
+new_appcast_path="$release_dir/appcast-new.xml"
+current_appcast_path="$release_dir/appcast-current.xml"
 
 : "${DEVELOPER_ID_APPLICATION:?Définis DEVELOPER_ID_APPLICATION (Developer ID Application: …)}"
 : "${APPLE_TEAM_ID:?Définis APPLE_TEAM_ID}"
@@ -49,7 +51,8 @@ cleanup() {
 trap cleanup EXIT
 
 rm -rf "$archive_path" "$export_path"
-rm -f "$dmg_path" "$checksum_path" "$appcast_path" "$notary_result" "$notary_log"
+rm -f "$dmg_path" "$checksum_path" "$appcast_path" "$new_appcast_path" \
+  "$current_appcast_path" "$notary_result" "$notary_log"
 
 /usr/bin/plutil -create xml1 "$export_options"
 /usr/bin/plutil -insert method -string developer-id "$export_options"
@@ -170,14 +173,32 @@ chmod 600 "$private_key_file"
 "$SPARKLE_GENERATE_APPCAST" \
   --ed-key-file "$private_key_file" \
   --download-url-prefix "$download_url" \
-  --link "https://www.yoann-andrieux.fr/fr/projects/pressay" \
-  --maximum-versions 1 \
+  --link "https://github.com/YoannDrx/pressay" \
+  --maximum-versions 8 \
   --maximum-deltas 0 \
-  -o "$appcast_path" \
+  -o "$new_appcast_path" \
   "$appcast_dir"
+
+appcast_channel="stable"
+if [[ "$release_tag" == *"-beta."* || "$release_tag" == *"-rc."* ]]; then
+  appcast_channel="beta"
+fi
+curl --fail --silent --show-error \
+  "https://yoanndrx.github.io/pressay/appcast.xml" \
+  --output "$current_appcast_path" || : >"$current_appcast_path"
+"$project_root/scripts/merge-appcast.py" \
+  --current "$current_appcast_path" \
+  --new "$new_appcast_path" \
+  --output "$appcast_path" \
+  --channel "$appcast_channel"
 
 if ! grep -Fq "${download_url}Pressay.dmg" "$appcast_path"; then
   echo "L’appcast ne référence pas l’URL immuable attendue." >&2
+  exit 1
+fi
+if [[ "$appcast_channel" == "beta" ]] \
+  && ! grep -Fq '<sparkle:channel>beta</sparkle:channel>' "$appcast_path"; then
+  echo "Le canal beta est absent de l’item prérelease." >&2
   exit 1
 fi
 if ! grep -Fq 'sparkle:edSignature=' "$appcast_path"; then

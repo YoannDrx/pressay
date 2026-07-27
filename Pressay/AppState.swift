@@ -1,33 +1,89 @@
+import Combine
 import SwiftUI
 
 @MainActor
 final class AppState: ObservableObject {
-    @Published var isRecording = false
-    @Published var isTranscribing = false
-    @Published var pendingCount = 0
-    @Published var lastError: String?
-    @Published var lastNotice: String?
     @Published var hasAPIKey: Bool
     @Published var hasMicrophonePermission = false
     @Published var hasAccessibilityPermission = TextInjector.hasAccessibilityPermission()
 
-    let audioRecorder = AudioRecorder()
-    let keyboardService = KeyboardService()
+    let audioRecorder: AudioRecorder
+    let keyboardService: ShortcutRouter
+    let sessionCoordinator: SessionCoordinator
 
-    private struct PendingRecording {
-        let recording: AudioRecorder.RecordingResult
-        let target: TextInjectionTarget?
-        let startedAt: Date
+    private var observations = Set<AnyCancellable>()
+
+    var isRecording: Bool { sessionCoordinator.isRecording }
+    var isTranscribing: Bool { sessionCoordinator.isTranscribing }
+    var pendingCount: Int { sessionCoordinator.pendingCount }
+    var lastError: String? { sessionCoordinator.lastError }
+    var lastNotice: String? { sessionCoordinator.lastNotice }
+
+    convenience init() {
+        self.init(
+            audioRecorder: AudioRecorder(),
+            keyboardService: ShortcutRouter(),
+            transcriber: TranscriptionService.shared,
+            textProcessor: OpenAITextProcessingService.shared,
+            cloudConsent: CloudConsentController.shared,
+            transcriptionRouter: TranscriptionRouter(
+                openAI: TranscriptionService.shared
+            ),
+            processingRouter: ProcessingRouter(
+                openAI: OpenAITextProcessingService.shared
+            ),
+            contextCapturer: AccessibilityContextService.shared,
+            modeResolver: ModeResolverService.shared,
+            textDeliverer: TextInjector.shared,
+            previewPresenter: TextPreviewController.shared,
+            history: HistoryService.shared,
+            sounds: SoundService.shared,
+            metrics: PerformanceMetricsService.shared,
+            hud: StatusHUDController.shared
+        )
     }
 
-    private var currentTarget: TextInjectionTarget?
-    private var recordingStartedAt: Date?
-    private var pendingRecordings: [PendingRecording] = []
-    private var transcriptionTask: Task<Void, Never>?
+    init(
+        audioRecorder: AudioRecorder,
+        keyboardService: ShortcutRouter,
+        transcriber: SpeechTranscribing,
+        textProcessor: TextProcessing,
+        cloudConsent: CloudConsentRequesting = AllowingCloudConsentService(),
+        transcriptionRouter: TranscriptionRouting? = nil,
+        processingRouter: ProcessingRouting? = nil,
+        contextCapturer: ContextCapturing,
+        modeResolver: ModeResolving,
+        textDeliverer: TextDelivering,
+        previewPresenter: TextPreviewPresenting,
+        history: HistoryRepository,
+        sounds: SoundFeedback,
+        metrics: MetricsRecording,
+        hud: HUDPresenting
+    ) {
+        self.audioRecorder = audioRecorder
+        self.keyboardService = keyboardService
+        self.hasAPIKey = transcriber.isReady
+        self.hasMicrophonePermission = audioRecorder.hasPermission
+        self.sessionCoordinator = SessionCoordinator(
+            audioCapturer: audioRecorder,
+            transcriber: transcriber,
+            textProcessor: textProcessor,
+            cloudConsent: cloudConsent,
+            transcriptionRouter: transcriptionRouter,
+            processingRouter: processingRouter,
+            contextCapturer: contextCapturer,
+            modeResolver: modeResolver,
+            textDeliverer: textDeliverer,
+            previewPresenter: previewPresenter,
+            history: history,
+            sounds: sounds,
+            metrics: metrics,
+            hud: hud
+        )
 
-    init() {
-        hasAPIKey = KeychainHelper.shared.hasAPIKey
-        hasMicrophonePermission = audioRecorder.hasPermission
+        sessionCoordinator.objectWillChange
+            .sink { [weak self] in self?.objectWillChange.send() }
+            .store(in: &observations)
 
         keyboardService.onShortcutPressed = { [weak self] in
             Task { @MainActor in
@@ -36,8 +92,55 @@ final class AppState: ObservableObject {
         }
         keyboardService.onShortcutReleased = { [weak self] in
             Task { @MainActor in
-                self?.stopRecordingAndQueue()
+                self?.sessionCoordinator.stopCaptureAndQueue()
             }
+        }
+        keyboardService.onCancel = { [weak self] in
+            Task { @MainActor in
+                self?.sessionCoordinator.cancelCurrentSession()
+            }
+        }
+        keyboardService.onTransformationShortcut = { [weak self] in
+            Task { @MainActor in
+                guard let self else { return }
+                if self.sessionCoordinator.preparingIntent == .transformSelection {
+                    self.sessionCoordinator.cancelCurrentSession()
+                } else if self.sessionCoordinator.captureSession?.intent == .transformSelection {
+                    self.sessionCoordinator.stopCaptureAndQueue()
+                } else if self.sessionCoordinator.captureSession == nil {
+                    self.sessionCoordinator.startCapture(intent: .transformSelection)
+                }
+            }
+        }
+        keyboardService.onModeShortcut = { [weak self] modeID in
+            Task { @MainActor in
+                guard let self else { return }
+                if self.sessionCoordinator.captureSession == nil {
+                    self.sessionCoordinator.startCapture(
+                        intent: .dictate,
+                        explicitModeID: modeID
+                    )
+                }
+            }
+        }
+        keyboardService.onDictationHotKey = { [weak self] in
+            Task { @MainActor in
+                guard let self else { return }
+                if self.sessionCoordinator.captureSession == nil {
+                    self.sessionCoordinator.startCapture()
+                } else {
+                    self.sessionCoordinator.stopCaptureAndQueue()
+                }
+            }
+        }
+        keyboardService.onHandsFreeChanged = { [weak self] active in
+            guard active else { return }
+            Task { @MainActor in
+                self?.objectWillChange.send()
+            }
+        }
+        hud.onCancel = { [weak self] in
+            self?.sessionCoordinator.cancelCurrentSession()
         }
         keyboardService.startMonitoring()
     }
@@ -62,156 +165,12 @@ final class AppState: ObservableObject {
     }
 
     func cancelTranscription() {
-        guard transcriptionTask != nil else { return }
-        transcriptionTask?.cancel()
-        lastNotice = "Transcription annulée"
-        lastError = nil
-        StatusHUDController.shared.show(.cancelled, autoHide: true)
+        sessionCoordinator.cancelProcessing()
     }
 
     func copyLastTranscription() {
         guard let text = HistoryService.shared.entries.first?.text else { return }
         TextInjector.shared.copyToPasteboard(text)
-        lastNotice = "Dernière transcription copiée"
-    }
-
-    private func shortcutPressed() {
-        let mode = ActivationMode(
-            rawValue: UserDefaults.standard.string(forKey: Constants.activationModeKey) ?? ""
-        ) ?? .hold
-        if mode == .toggle, isRecording {
-            stopRecordingAndQueue()
-        } else {
-            startRecording()
-        }
-    }
-
-    private func startRecording() {
-        guard hasAPIKey else {
-            fail("Configure ta clé API dans les préférences")
-            return
-        }
-        guard !isRecording else { return }
-        guard audioRecorder.hasPermission else {
-            fail("Autorise le microphone dans les préférences")
-            return
-        }
-
-        do {
-            try audioRecorder.startRecording()
-            isRecording = true
-            recordingStartedAt = Date()
-            currentTarget = TextInjector.shared.captureTargetApp()
-            lastError = nil
-            lastNotice = nil
-            SoundService.shared.playStartSound()
-            StatusHUDController.shared.show(.listening)
-        } catch {
-            fail(error.localizedDescription)
-        }
-    }
-
-    private func stopRecordingAndQueue() {
-        guard isRecording else { return }
-        isRecording = false
-
-        guard let recording = audioRecorder.stopRecording() else {
-            fail("Aucun enregistrement trouvé")
-            return
-        }
-        // Le son de fin ne doit jamais faire partie de l'enregistrement :
-        // il pourrait être pris pour de la parole et provoquer une hallucination.
-        SoundService.shared.playStopSound()
-
-        let startedAt = recordingStartedAt ?? Date()
-        PerformanceMetricsService.shared.record(.capture, duration: recording.duration)
-        recordingStartedAt = nil
-
-        guard recording.containsSpeech else {
-            audioRecorder.cleanup(url: recording.url)
-            currentTarget = nil
-            lastError = nil
-            lastNotice = "Aucune parole détectée — rien n’a été collé"
-            StatusHUDController.shared.show(.cancelled, autoHide: true)
-            return
-        }
-
-        pendingRecordings.append(
-            PendingRecording(recording: recording, target: currentTarget, startedAt: startedAt)
-        )
-        currentTarget = nil
-        pendingCount = pendingRecordings.count
-        processNextRecording()
-    }
-
-    private func processNextRecording() {
-        guard transcriptionTask == nil, !pendingRecordings.isEmpty else { return }
-        let item = pendingRecordings.removeFirst()
-        pendingCount = pendingRecordings.count
-        isTranscribing = true
-        StatusHUDController.shared.show(.transcribing)
-
-        transcriptionTask = Task { [weak self] in
-            guard let self else { return }
-            defer {
-                self.audioRecorder.cleanup(url: item.recording.url)
-                self.transcriptionTask = nil
-                self.isTranscribing = false
-                self.processNextRecording()
-            }
-
-            do {
-                let apiStartedAt = Date()
-                let result = try await TranscriptionService.shared.transcribe(
-                    audioURL: item.recording.url
-                )
-                PerformanceMetricsService.shared.record(
-                    .transcription,
-                    duration: Date().timeIntervalSince(apiStartedAt)
-                )
-                try Task.checkCancellation()
-
-                HistoryService.shared.add(result.text)
-                let insertionStartedAt = Date()
-                let inserted = await TextInjector.shared.inject(text: result.text, target: item.target)
-                PerformanceMetricsService.shared.record(
-                    .insertion,
-                    duration: Date().timeIntervalSince(insertionStartedAt)
-                )
-                PerformanceMetricsService.shared.record(
-                    .total,
-                    duration: Date().timeIntervalSince(item.startedAt)
-                )
-
-                lastError = nil
-                if inserted {
-                    lastNotice = result.isLowConfidence
-                        ? "Texte inséré — vérifie cette transcription incertaine"
-                        : "Transcription insérée"
-                } else {
-                    TextInjector.shared.copyToPasteboard(result.text)
-                    lastNotice = "Transcription copiée — autorise l’accessibilité pour la coller automatiquement"
-                }
-                StatusHUDController.shared.show(.success, autoHide: true)
-            } catch {
-                if Task.isCancelled || (error as? URLError)?.code == .cancelled {
-                    lastError = nil
-                    lastNotice = "Transcription annulée"
-                } else {
-                    lastError = error.localizedDescription
-                    lastNotice = nil
-                    SoundService.shared.playErrorSound()
-                }
-                StatusHUDController.shared.show(.cancelled, autoHide: true)
-            }
-        }
-    }
-
-    private func fail(_ message: String) {
-        lastError = message
-        lastNotice = nil
-        SoundService.shared.playErrorSound()
-        StatusHUDController.shared.show(.cancelled, autoHide: true)
     }
 
     func updateAPIKey(_ key: String) async -> Bool {
@@ -219,7 +178,7 @@ final class AppState: ObservableObject {
         let isValid = await TranscriptionService.shared.validateAPIKey(cleanKey)
         if isValid, KeychainHelper.shared.save(apiKey: cleanKey) {
             hasAPIKey = true
-            lastError = nil
+            sessionCoordinator.clearMessages()
             return true
         }
         return false
@@ -228,6 +187,17 @@ final class AppState: ObservableObject {
     func clearAPIKey() {
         KeychainHelper.shared.delete()
         hasAPIKey = false
-        lastNotice = nil
+        sessionCoordinator.clearMessages()
+    }
+
+    private func shortcutPressed() {
+        let mode = ActivationMode(
+            rawValue: UserDefaults.standard.string(forKey: Constants.activationModeKey) ?? ""
+        ) ?? .hold
+        if mode == .toggle, isRecording {
+            sessionCoordinator.stopCaptureAndQueue()
+        } else {
+            sessionCoordinator.startCapture()
+        }
     }
 }
