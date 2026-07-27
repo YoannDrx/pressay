@@ -2,6 +2,7 @@ import SwiftUI
 
 struct HistoryView: View {
     @ObservedObject var historyService = HistoryService.shared
+    @AppStorage(Constants.historyRetentionDaysKey) private var retentionDays = 1
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -29,7 +30,7 @@ struct HistoryView: View {
                         .foregroundStyle(.secondary)
                     Text("Aucune transcription")
                         .foregroundStyle(.secondary)
-                    Text("Les transcriptions s'effacent après 24h")
+                    Text("Les transcriptions s'effacent après \(retentionLabel)")
                         .font(.caption)
                         .foregroundStyle(.tertiary)
                 }
@@ -49,6 +50,10 @@ struct HistoryView: View {
             }
         }
         .frame(width: 350, height: 400)
+    }
+
+    private var retentionLabel: String {
+        retentionDays == 1 ? "24 h" : "\(retentionDays) jours"
     }
 }
 
