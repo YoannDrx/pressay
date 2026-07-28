@@ -8,18 +8,13 @@ final class CloudConsentController: NSObject, ObservableObject, CloudConsentRequ
     @Published private(set) var preflight: CloudPreflight?
     @Published private(set) var allowsRawTranscription = false
 
-    private let defaults: UserDefaults
     private let modeStore: ModeStore
     private var panel: NSPanel?
     private var continuation: CheckedContinuation<CloudConsentDecision, Never>?
     private var timeoutTask: Task<Void, Never>?
-    private var persistsDisclosureOnSend = false
-
     init(
-        defaults: UserDefaults = .standard,
         modeStore: ModeStore? = nil
     ) {
-        self.defaults = defaults
         self.modeStore = modeStore ?? .shared
     }
 
@@ -28,7 +23,7 @@ final class CloudConsentController: NSObject, ObservableObject, CloudConsentRequ
         allowsRawTranscription: Bool,
         requiresExplicitChoice: Bool
     ) async -> CloudConsentDecision {
-        if !requiresExplicitChoice, hasDisclosure(for: preflight) {
+        guard requiresExplicitChoice else {
             return .sendOnce
         }
         if continuation != nil {
@@ -40,7 +35,6 @@ final class CloudConsentController: NSObject, ObservableObject, CloudConsentRequ
                 self.continuation = continuation
                 self.preflight = preflight
                 self.allowsRawTranscription = allowsRawTranscription
-                self.persistsDisclosureOnSend = !requiresExplicitChoice
 
                 let panel = self.panel ?? self.makePanel()
                 self.panel = panel
@@ -65,13 +59,10 @@ final class CloudConsentController: NSObject, ObservableObject, CloudConsentRequ
         guard let continuation else { return }
         if let preflight {
             if decision == .alwaysAllowMode {
-                rememberDisclosure(for: preflight)
                 modeStore.setProviderPolicyOverride(
                     modeID: preflight.modeID,
                     policy: .cloudAllowed
                 )
-            } else if decision == .sendOnce, persistsDisclosureOnSend {
-                rememberDisclosure(for: preflight)
             }
         }
         self.continuation = nil
@@ -80,29 +71,7 @@ final class CloudConsentController: NSObject, ObservableObject, CloudConsentRequ
         panel?.orderOut(nil)
         preflight = nil
         allowsRawTranscription = false
-        persistsDisclosureOnSend = false
         continuation.resume(returning: decision)
-    }
-
-    private func hasDisclosure(for preflight: CloudPreflight) -> Bool {
-        disclosedSignatures.contains(preflight.consentSignature)
-    }
-
-    private func rememberDisclosure(for preflight: CloudPreflight) {
-        var values = disclosedSignatures
-        values.insert(preflight.consentSignature)
-        defaults.set(
-            Array(values).sorted(),
-            forKey: Constants.cloudDisclosureSignaturesKey
-        )
-    }
-
-    private var disclosedSignatures: Set<String> {
-        Set(
-            defaults.stringArray(
-                forKey: Constants.cloudDisclosureSignaturesKey
-            ) ?? []
-        )
     }
 
     private func makePanel() -> NSPanel {

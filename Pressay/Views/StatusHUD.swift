@@ -5,6 +5,7 @@ enum HUDState: Equatable {
     case listening
     case transcribing
     case success
+    case copied
     case cancelled
 
     var title: String {
@@ -12,6 +13,7 @@ enum HUDState: Equatable {
         case .listening: return "J’écoute…"
         case .transcribing: return "Transcription…"
         case .success: return "Texte inséré"
+        case .copied: return "Texte copié"
         case .cancelled: return "Annulé"
         }
     }
@@ -21,6 +23,7 @@ enum HUDState: Equatable {
         case .listening: return "waveform"
         case .transcribing: return "ellipsis"
         case .success: return "checkmark"
+        case .copied: return "doc.on.clipboard"
         case .cancelled: return "xmark"
         }
     }
@@ -30,6 +33,7 @@ enum HUDState: Equatable {
         case .listening: return .red
         case .transcribing: return .blue
         case .success: return .green
+        case .copied: return .orange
         case .cancelled: return .secondary
         }
     }
@@ -53,6 +57,8 @@ final class StatusHUDController: ObservableObject {
     private var onCompareRawAndFinal: (() -> Void)?
     private var panel: NSPanel?
     private var hideTask: Task<Void, Never>?
+    private var autoHideRequested = false
+    private var pointerIsInside = false
 
     func show(
         _ state: HUDState,
@@ -60,12 +66,13 @@ final class StatusHUDController: ObservableObject {
         autoHide: Bool = false
     ) {
         hideTask?.cancel()
+        autoHideRequested = autoHide
         self.state = state
         self.detail = detail
         if state == .listening {
             listeningStartedAt = Date()
             isUndoAvailable = false
-        } else if state == .success || state == .cancelled {
+        } else if state == .success || state == .copied || state == .cancelled {
             listeningStartedAt = nil
         }
 
@@ -74,16 +81,7 @@ final class StatusHUDController: ObservableObject {
         position(panel)
         panel.orderFrontRegardless()
 
-        if autoHide {
-            hideTask = Task { [weak self] in
-                let delay: Duration = self?.state == .success
-                    ? .seconds(5)
-                    : .milliseconds(900)
-                try? await Task.sleep(for: delay)
-                guard !Task.isCancelled else { return }
-                self?.hide()
-            }
-        }
+        scheduleAutoHideIfNeeded()
     }
 
     func updateAudioLevel(_ level: Float) {
@@ -93,7 +91,19 @@ final class StatusHUDController: ObservableObject {
     func hide() {
         hideTask?.cancel()
         hideTask = nil
+        autoHideRequested = false
+        pointerIsInside = false
         panel?.orderOut(nil)
+    }
+
+    func setPointerInside(_ isInside: Bool) {
+        pointerIsInside = isInside
+        if isInside {
+            hideTask?.cancel()
+            hideTask = nil
+        } else {
+            scheduleAutoHideIfNeeded()
+        }
     }
 
     func configureResultActions(
@@ -124,7 +134,7 @@ final class StatusHUDController: ObservableObject {
 
     private func makePanel() -> NSPanel {
         let panel = NSPanel(
-            contentRect: NSRect(x: 0, y: 0, width: 430, height: 60),
+            contentRect: NSRect(x: 0, y: 0, width: 380, height: 52),
             styleMask: [.borderless, .nonactivatingPanel],
             backing: .buffered,
             defer: false
@@ -137,6 +147,20 @@ final class StatusHUDController: ObservableObject {
         panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
         panel.contentView = NSHostingView(rootView: StatusHUDView(controller: self))
         return panel
+    }
+
+    private func scheduleAutoHideIfNeeded() {
+        guard autoHideRequested, !pointerIsInside else { return }
+        hideTask?.cancel()
+        hideTask = Task { [weak self] in
+            let delay: Duration = self?.state == .success
+                || self?.state == .copied
+                ? .milliseconds(1_500)
+                : .milliseconds(700)
+            try? await Task.sleep(for: delay)
+            guard !Task.isCancelled else { return }
+            self?.hide()
+        }
     }
 
     private func position(_ panel: NSPanel) {
@@ -166,13 +190,13 @@ private struct StatusHUDView: View {
     private var differentiateWithoutColor
 
     var body: some View {
-        HStack(spacing: 10) {
+        HStack(spacing: 8) {
             ZStack {
                 Circle()
                     .fill(controller.state.color.opacity(0.16))
-                    .frame(width: 30, height: 30)
+                    .frame(width: 26, height: 26)
                 Image(systemName: controller.state.icon)
-                    .font(.system(size: 13, weight: .bold))
+                    .font(.system(size: 11, weight: .bold))
                     .foregroundStyle(controller.state.color)
                     .symbolEffect(
                         .pulse,
@@ -189,7 +213,7 @@ private struct StatusHUDView: View {
 
             VStack(alignment: .leading, spacing: 2) {
                 Text(controller.state.title)
-                    .font(.system(size: 12, weight: .semibold))
+                    .font(.system(size: 11, weight: .semibold))
                     .lineLimit(1)
                 HStack(spacing: 5) {
                     if controller.state == .listening {
@@ -202,7 +226,7 @@ private struct StatusHUDView: View {
                             .lineLimit(1)
                     }
                 }
-                .font(.system(size: 9, design: .rounded))
+                .font(.system(size: 8, design: .rounded))
                 .foregroundStyle(.secondary)
 
                 if controller.state == .listening {
@@ -229,7 +253,7 @@ private struct StatusHUDView: View {
                 }
             }
             Spacer(minLength: 0)
-            if controller.state == .success {
+            if controller.state == .success || controller.state == .copied {
                 HStack(spacing: 7) {
                     Button("Copier", action: controller.copyResult)
                         .accessibilityHint(
@@ -254,15 +278,15 @@ private struct StatusHUDView: View {
                         .accessibilityLabel("Annuler la dernière insertion")
                     }
                 }
-                .font(.system(size: 9, weight: .semibold))
+                .font(.system(size: 8, weight: .semibold))
                 .buttonStyle(.plain)
             } else if controller.state == .listening || controller.state == .transcribing {
                 Button {
                     controller.onCancel?()
                 } label: {
                     Image(systemName: "xmark")
-                        .font(.system(size: 9, weight: .bold))
-                        .frame(width: 22, height: 22)
+                        .font(.system(size: 8, weight: .bold))
+                        .frame(width: 20, height: 20)
                         .background(.primary.opacity(0.07), in: Circle())
                 }
                 .buttonStyle(.plain)
@@ -274,11 +298,11 @@ private struct StatusHUDView: View {
                 )
             }
         }
-        .padding(.horizontal, 12)
-        .frame(width: 430, height: 60)
-        .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 15, style: .continuous))
+        .padding(.horizontal, 10)
+        .frame(width: 380, height: 52)
+        .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 13, style: .continuous))
         .overlay(
-            RoundedRectangle(cornerRadius: 15, style: .continuous)
+            RoundedRectangle(cornerRadius: 13, style: .continuous)
                 .stroke(
                     differentiateWithoutColor
                         ? Color.primary.opacity(0.5)
@@ -286,6 +310,7 @@ private struct StatusHUDView: View {
                     lineWidth: differentiateWithoutColor ? 1.5 : 0.5
                 )
         )
+        .onHover(perform: controller.setPointerInside)
         .accessibilityElement(children: .contain)
         .accessibilityLabel("Pressay. \(controller.state.title)")
     }

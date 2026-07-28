@@ -31,22 +31,23 @@ struct PressayApp: App {
     @ViewBuilder
     private var menuBarIcon: some View {
         if appState.isTranscribing {
-            Image(systemName: "ellipsis.circle")
-                .symbolRenderingMode(.monochrome)
-                .font(.system(size: 16, weight: .regular))
-                .symbolEffect(.pulse)
+            Image("PressayMenuProcessing")
+                .resizable()
+                .renderingMode(.template)
+                .frame(width: 20, height: 20)
                 .accessibilityLabel("Pressay, transcription en cours")
         } else if appState.isRecording {
-            Image(systemName: "waveform.circle.fill")
-                .symbolRenderingMode(.monochrome)
-                .font(.system(size: 16, weight: .regular))
-                .symbolEffect(.variableColor.iterative)
+            Image("PressayMenuListening")
+                .resizable()
+                .renderingMode(.template)
+                .frame(width: 20, height: 20)
                 .foregroundStyle(.red)
                 .accessibilityLabel("Pressay, enregistrement en cours")
         } else {
-            Image(systemName: "waveform.circle")
-                .symbolRenderingMode(.monochrome)
-                .font(.system(size: 16, weight: .regular))
+            Image("PressayMenuRest")
+                .resizable()
+                .renderingMode(.template)
+                .frame(width: 20, height: 20)
                 .accessibilityLabel("Pressay")
         }
     }

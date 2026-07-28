@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24">
+  <defs>
+    <mask id="waveCutout">
+      <rect width="24" height="24" fill="#fff"/>
+      <path d="M7 10.5v3M9.5 8.5v7M12 6.5v11M14.5 8v8M17 10v4"
+            fill="none" stroke="#000" stroke-width="1.8" stroke-linecap="round"/>
+    </mask>
+  </defs>
+  <circle cx="12" cy="12" r="10.5" fill="#000" mask="url(#waveCutout)"/>
+</svg>

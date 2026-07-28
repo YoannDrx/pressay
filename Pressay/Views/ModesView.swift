@@ -270,7 +270,7 @@ struct ModesView: View {
             contextToggles(mode)
             HStack {
                 Label(
-                    "Traitement cloud avec aperçu du contexte transmis",
+                    "Traitement cloud limité aux sources autorisées ci-dessus",
                     systemImage: "cloud"
                 )
                 .font(.caption)

@@ -85,7 +85,12 @@ fi
 
 echo "Vérification des signatures, entitlements et architectures…"
 codesign --verify --deep --strict --verbose=2 "$app_path"
-codesign --display --entitlements :- "$app_path" >/dev/null
+entitlements_path="$work_dir/Pressay.entitlements.plist"
+codesign --display --entitlements :- "$app_path" >"$entitlements_path"
+if [[ "$(/usr/bin/plutil -extract com.apple.security.get-task-allow raw -o - "$entitlements_path" 2>/dev/null || true)" == "true" ]]; then
+  echo "L’entitlement de débogage get-task-allow est interdit dans une release." >&2
+  exit 1
+fi
 
 sparkle_framework="$app_path/Contents/Frameworks/Sparkle.framework"
 if [[ ! -d "$sparkle_framework" ]]; then
