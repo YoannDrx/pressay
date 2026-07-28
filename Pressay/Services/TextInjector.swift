@@ -59,10 +59,10 @@ final class TextInjector: TextDelivering {
 
         if let app = NSRunningApplication(processIdentifier: target.processIdentifier),
            !app.isTerminated {
-            app.activate(options: [])
+            app.activate(options: [.activateAllWindows])
         }
-        try? await Task.sleep(for: .milliseconds(250))
-        guard TextInjector.hasAccessibilityPermission(),
+        guard await waitForTargetApplication(target.processIdentifier),
+              TextInjector.hasAccessibilityPermission(),
               isOriginalTargetStillFocused(target),
               await selectionStillMatches(target) else {
             return false
@@ -162,7 +162,57 @@ final class TextInjector: TextDelivering {
             return false
         }
         let currentElement = unsafeBitCast(currentValue, to: AXUIElement.self)
-        return CFEqual(currentElement, originalElement)
+        if CFEqual(currentElement, originalElement) {
+            return true
+        }
+        let role = copiedString(
+            attribute: kAXRoleAttribute,
+            from: currentElement
+        )
+        let subrole = copiedString(
+            attribute: kAXSubroleAttribute,
+            from: currentElement
+        )
+        let isProtected = copiedBool(
+            attribute: NSAccessibility.Attribute.containsProtectedContent.rawValue,
+            from: currentElement
+        )
+        let isSecure = subrole == kAXSecureTextFieldSubrole as String
+            || isProtected
+        let canWriteSelectedText = isAttributeSettable(
+            kAXSelectedTextAttribute,
+            on: currentElement
+        )
+        return FocusedElementValidator.matches(
+            snapshot: target.snapshot,
+            currentIdentifier: copiedString(
+                attribute: kAXIdentifierAttribute,
+                from: currentElement
+            ),
+            currentFrameHash: elementFrameHash(for: currentElement),
+            currentRole: role,
+            currentSubrole: subrole,
+            currentIsSecure: isSecure,
+            currentIsEditable: !isSecure && (
+                AccessibilityContextService.editableRoles.contains(role ?? "")
+                    || canWriteSelectedText
+            )
+        )
+    }
+
+    private func waitForTargetApplication(
+        _ processIdentifier: pid_t
+    ) async -> Bool {
+        let deadline = ContinuousClock.now + .seconds(1)
+        while ContinuousClock.now < deadline {
+            if NSWorkspace.shared.frontmostApplication?.processIdentifier
+                == processIdentifier {
+                return true
+            }
+            if Task.isCancelled { return false }
+            try? await Task.sleep(for: .milliseconds(25))
+        }
+        return false
     }
 
     private func selectedTextRange(from element: AXUIElement) -> CFRange? {
@@ -217,6 +267,113 @@ final class TextInjector: TextDelivering {
         return value as? String
     }
 
+    private func copiedString(
+        attribute: String,
+        from element: AXUIElement
+    ) -> String? {
+        var value: CFTypeRef?
+        guard AXUIElementCopyAttributeValue(
+            element,
+            attribute as CFString,
+            &value
+        ) == .success else {
+            return nil
+        }
+        return value as? String
+    }
+
+    private func copiedBool(
+        attribute: String,
+        from element: AXUIElement
+    ) -> Bool {
+        var value: CFTypeRef?
+        guard AXUIElementCopyAttributeValue(
+            element,
+            attribute as CFString,
+            &value
+        ) == .success else {
+            return false
+        }
+        return (value as? NSNumber)?.boolValue ?? false
+    }
+
+    private func isAttributeSettable(
+        _ attribute: String,
+        on element: AXUIElement
+    ) -> Bool {
+        var settable = DarwinBoolean(false)
+        return AXUIElementIsAttributeSettable(
+            element,
+            attribute as CFString,
+            &settable
+        ) == .success && settable.boolValue
+    }
+
+    private func elementFrameHash(for element: AXUIElement) -> String? {
+        guard let position = copiedPoint(
+            attribute: kAXPositionAttribute,
+            from: element
+        ),
+              let size = copiedSize(
+                attribute: kAXSizeAttribute,
+                from: element
+              ) else {
+            return nil
+        }
+        return SelectionFingerprint.hash(
+            [
+                stableCoordinate(position.x),
+                stableCoordinate(position.y),
+                stableCoordinate(size.width),
+                stableCoordinate(size.height)
+            ].joined(separator: "|")
+        )
+    }
+
+    private func copiedPoint(
+        attribute: String,
+        from element: AXUIElement
+    ) -> CGPoint? {
+        var value: CFTypeRef?
+        guard AXUIElementCopyAttributeValue(
+            element,
+            attribute as CFString,
+            &value
+        ) == .success,
+              let value,
+              CFGetTypeID(value) == AXValueGetTypeID() else {
+            return nil
+        }
+        let axValue = unsafeBitCast(value, to: AXValue.self)
+        guard AXValueGetType(axValue) == .cgPoint else { return nil }
+        var point = CGPoint.zero
+        return AXValueGetValue(axValue, .cgPoint, &point) ? point : nil
+    }
+
+    private func copiedSize(
+        attribute: String,
+        from element: AXUIElement
+    ) -> CGSize? {
+        var value: CFTypeRef?
+        guard AXUIElementCopyAttributeValue(
+            element,
+            attribute as CFString,
+            &value
+        ) == .success,
+              let value,
+              CFGetTypeID(value) == AXValueGetTypeID() else {
+            return nil
+        }
+        let axValue = unsafeBitCast(value, to: AXValue.self)
+        guard AXValueGetType(axValue) == .cgSize else { return nil }
+        var size = CGSize.zero
+        return AXValueGetValue(axValue, .cgSize, &size) ? size : nil
+    }
+
+    private func stableCoordinate(_ value: CGFloat) -> String {
+        String(format: "%.1f", Double(value))
+    }
+
     private func rememberUndo(
         for target: TextInjectionTarget,
         insertedText: String
@@ -247,7 +404,7 @@ final class TextInjector: TextDelivering {
         var identifierValue: CFTypeRef?
         if AXUIElementCopyAttributeValue(
             window,
-            "AXIdentifier" as CFString,
+            kAXIdentifierAttribute as CFString,
             &identifierValue
         ) == .success,
            let identifier = identifierValue as? String {
@@ -275,6 +432,38 @@ final class TextInjector: TextDelivering {
     nonisolated static func requestAccessibilityPermission() {
         let options = [kAXTrustedCheckOptionPrompt.takeUnretainedValue() as String: true]
         _ = AXIsProcessTrustedWithOptions(options as CFDictionary)
+    }
+}
+
+enum FocusedElementValidator {
+    static func matches(
+        snapshot: TargetSnapshot,
+        currentIdentifier: String?,
+        currentFrameHash: String?,
+        currentRole: String?,
+        currentSubrole: String?,
+        currentIsSecure: Bool,
+        currentIsEditable: Bool
+    ) -> Bool {
+        guard !currentIsSecure,
+              currentIsEditable,
+              currentRole == snapshot.elementRole,
+              currentSubrole == snapshot.elementSubrole else {
+            return false
+        }
+        if let expectedIdentifier = snapshot.elementIdentifier {
+            guard currentIdentifier == expectedIdentifier else {
+                return false
+            }
+            if let expectedFrameHash = snapshot.elementFrameHash {
+                return currentFrameHash == expectedFrameHash
+            }
+            return true
+        }
+        guard let expectedFrameHash = snapshot.elementFrameHash else {
+            return false
+        }
+        return currentFrameHash == expectedFrameHash
     }
 }
 

@@ -79,6 +79,8 @@ struct TargetSnapshot: Equatable, Sendable {
     let applicationName: String?
     let windowTitle: String?
     let windowIdentifier: String?
+    let elementIdentifier: String?
+    let elementFrameHash: String?
     let elementRole: String?
     let elementSubrole: String?
     let selectedTextHash: String?
@@ -96,6 +98,8 @@ struct TargetSnapshot: Equatable, Sendable {
         applicationName: String?,
         windowTitle: String?,
         windowIdentifier: String? = nil,
+        elementIdentifier: String? = nil,
+        elementFrameHash: String? = nil,
         elementRole: String?,
         elementSubrole: String?,
         selectedTextHash: String?,
@@ -112,6 +116,8 @@ struct TargetSnapshot: Equatable, Sendable {
         self.applicationName = applicationName
         self.windowTitle = windowTitle
         self.windowIdentifier = windowIdentifier
+        self.elementIdentifier = elementIdentifier
+        self.elementFrameHash = elementFrameHash
         self.elementRole = elementRole
         self.elementSubrole = elementSubrole
         self.selectedTextHash = selectedTextHash

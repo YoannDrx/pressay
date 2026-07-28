@@ -56,7 +56,7 @@ DMG.
 
 La page de téléchargement publique est également disponible sur
 [yoann-andrieux.fr](https://www.yoann-andrieux.fr/fr/projects/pressay). La
-version stable publiée est `v1.2.0` ; les utilisateurs ayant activé le canal
+version stable publiée est `v1.2.1` ; les utilisateurs ayant activé le canal
 bêta recevront aussi cette version stable.
 
 ### Compiler depuis les sources
