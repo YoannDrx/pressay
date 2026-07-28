@@ -56,8 +56,9 @@ DMG.
 
 La page de téléchargement publique sera également disponible sur
 [yoann-andrieux.fr](https://www.yoann-andrieux.fr/fr/projects/pressay). Tant que
-la release `v1.2.0` n'est pas publiée, utilise la compilation depuis les sources
-ci-dessous.
+la release stable `v1.2.0` n'est pas publiée, les testeurs peuvent installer la
+[bêta 1.2.0-beta.1 signée et notariée](https://github.com/YoannDrx/pressay/releases/tag/v1.2.0-beta.1).
+Pour un usage hors bêta, utilise la compilation depuis les sources ci-dessous.
 
 ### Compiler depuis les sources
 
