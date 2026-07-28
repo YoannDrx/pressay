@@ -28,20 +28,23 @@ if [[ "$bundle_identifier" != "fr.yodev.pressay" ]]; then
   exit 1
 fi
 
-if [[ "$marketing_version" != "1.2.0" ]]; then
-  echo "La série 1.2 doit conserver MARKETING_VERSION=1.2.0 (trouvé: $marketing_version)." >&2
+if [[ ! "$marketing_version" =~ '^1\.2\.([0-9]+)$' ]]; then
+  echo "La release doit appartenir à la série 1.2.x (trouvé: $marketing_version)." >&2
   exit 1
 fi
+patch_number="${match[1]}"
 
 release_kind="development"
 if [[ -n "$expected_tag" ]]; then
-  if [[ "$expected_tag" == "v1.2.0" ]]; then
+  if [[ "$expected_tag" == "v$marketing_version" ]]; then
     release_kind="stable"
-    if [[ "$build_number" -ne 12099 ]]; then
-      echo "La stable v1.2.0 exige le build 12099 (trouvé: $build_number)." >&2
+    expected_build=$((12099 + patch_number))
+    if [[ "$build_number" -ne "$expected_build" ]]; then
+      echo "La stable $expected_tag exige le build $expected_build (trouvé: $build_number)." >&2
       exit 1
     fi
-  elif [[ "$expected_tag" =~ '^v1\.2\.0-beta\.([1-9][0-9]?)$' ]]; then
+  elif [[ "$marketing_version" == "1.2.0"
+          && "$expected_tag" =~ '^v1\.2\.0-beta\.([1-9][0-9]?)$' ]]; then
     release_kind="beta"
     beta_number="${match[1]}"
     expected_build=$((12000 + beta_number))
@@ -50,7 +53,8 @@ if [[ -n "$expected_tag" ]]; then
       echo "$expected_tag exige le build $expected_build dans la plage 12001–12089 (trouvé: $build_number)." >&2
       exit 1
     fi
-  elif [[ "$expected_tag" =~ '^v1\.2\.0-rc\.([1-8])$' ]]; then
+  elif [[ "$marketing_version" == "1.2.0"
+          && "$expected_tag" =~ '^v1\.2\.0-rc\.([1-8])$' ]]; then
     release_kind="rc"
     rc_number="${match[1]}"
     expected_build=$((12090 + rc_number))
@@ -59,11 +63,11 @@ if [[ -n "$expected_tag" ]]; then
       exit 1
     fi
   else
-    echo "Tag invalide: $expected_tag. Attendu: v1.2.0, v1.2.0-beta.N ou v1.2.0-rc.N." >&2
+    echo "Tag invalide: $expected_tag. Attendu pour une stable: v$marketing_version." >&2
     exit 1
   fi
-elif [[ "$build_number" -lt 12001 || "$build_number" -gt 12099 ]]; then
-  echo "Un build de développement 1.2 doit être compris entre 12001 et 12099." >&2
+elif [[ "$build_number" -lt 12001 ]]; then
+  echo "Un build de développement 1.2 doit être supérieur ou égal à 12001." >&2
   exit 1
 fi
 

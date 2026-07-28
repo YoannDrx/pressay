@@ -941,6 +941,137 @@ final class ProviderRoutingTests: XCTestCase {
     }
 }
 
+final class FocusedElementValidatorTests: XCTestCase {
+    func testStableIdentifierAcceptsRecreatedAccessibilityElement() {
+        let snapshot = makeSnapshot(
+            elementIdentifier: "message-composer",
+            elementFrameHash: "old-frame"
+        )
+
+        XCTAssertTrue(
+            FocusedElementValidator.matches(
+                snapshot: snapshot,
+                currentIdentifier: "message-composer",
+                currentFrameHash: "old-frame",
+                currentRole: "AXTextArea",
+                currentSubrole: nil,
+                currentIsSecure: false,
+                currentIsEditable: true
+            )
+        )
+    }
+
+    func testFrameFingerprintAcceptsRecreatedElementWithoutIdentifier() {
+        let snapshot = makeSnapshot(
+            elementIdentifier: nil,
+            elementFrameHash: "stable-frame"
+        )
+
+        XCTAssertTrue(
+            FocusedElementValidator.matches(
+                snapshot: snapshot,
+                currentIdentifier: nil,
+                currentFrameHash: "stable-frame",
+                currentRole: "AXTextArea",
+                currentSubrole: nil,
+                currentIsSecure: false,
+                currentIsEditable: true
+            )
+        )
+    }
+
+    func testDifferentFrameRejectsAnotherFieldInTheSameWindow() {
+        let snapshot = makeSnapshot(
+            elementIdentifier: nil,
+            elementFrameHash: "original-frame"
+        )
+
+        XCTAssertFalse(
+            FocusedElementValidator.matches(
+                snapshot: snapshot,
+                currentIdentifier: nil,
+                currentFrameHash: "other-frame",
+                currentRole: "AXTextArea",
+                currentSubrole: nil,
+                currentIsSecure: false,
+                currentIsEditable: true
+            )
+        )
+    }
+
+    func testSecureOrNonEditableCurrentElementIsAlwaysRejected() {
+        let snapshot = makeSnapshot(
+            elementIdentifier: "message-composer",
+            elementFrameHash: nil
+        )
+
+        XCTAssertFalse(
+            FocusedElementValidator.matches(
+                snapshot: snapshot,
+                currentIdentifier: "message-composer",
+                currentFrameHash: nil,
+                currentRole: "AXTextArea",
+                currentSubrole: nil,
+                currentIsSecure: true,
+                currentIsEditable: true
+            )
+        )
+        XCTAssertFalse(
+            FocusedElementValidator.matches(
+                snapshot: snapshot,
+                currentIdentifier: "message-composer",
+                currentFrameHash: nil,
+                currentRole: "AXTextArea",
+                currentSubrole: nil,
+                currentIsSecure: false,
+                currentIsEditable: false
+            )
+        )
+    }
+
+    func testMissingStableIdentityDoesNotRelaxTargetValidation() {
+        let snapshot = makeSnapshot(
+            elementIdentifier: nil,
+            elementFrameHash: nil
+        )
+
+        XCTAssertFalse(
+            FocusedElementValidator.matches(
+                snapshot: snapshot,
+                currentIdentifier: nil,
+                currentFrameHash: nil,
+                currentRole: "AXTextArea",
+                currentSubrole: nil,
+                currentIsSecure: false,
+                currentIsEditable: true
+            )
+        )
+    }
+
+    private func makeSnapshot(
+        elementIdentifier: String?,
+        elementFrameHash: String?
+    ) -> TargetSnapshot {
+        TargetSnapshot(
+            processIdentifier: 123,
+            bundleIdentifier: "com.example.editor",
+            applicationName: "Editor",
+            windowTitle: "Document",
+            windowIdentifier: "document-window",
+            elementIdentifier: elementIdentifier,
+            elementFrameHash: elementFrameHash,
+            elementRole: "AXTextArea",
+            elementSubrole: nil,
+            selectedTextHash: nil,
+            canReadSelectedText: true,
+            canWriteSelectedText: true,
+            canWriteValue: true,
+            isSecure: false,
+            isEditable: true
+        )
+    }
+}
+
 final class TargetSelectionValidatorTests: XCTestCase {
     func testOriginalSelectionIsAccepted() {
         let snapshot = makeSnapshot(

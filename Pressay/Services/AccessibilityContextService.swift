@@ -23,11 +23,22 @@ final class AccessibilityContextService: ContextCapturing {
             from: focusedElement
         )
         let isSecure = subrole == kAXSecureTextFieldSubrole as String || isProtected
-        let isEditable = Self.editableRoles.contains(role ?? "")
+        let canWriteSelectedText = isAttributeSettable(
+            kAXSelectedTextAttribute,
+            on: focusedElement
+        )
+        let canWriteValue = isAttributeSettable(
+            kAXValueAttribute,
+            on: focusedElement
+        )
+        let isEditable = !isSecure && (
+            Self.editableRoles.contains(role ?? "")
+                || canWriteSelectedText
+        )
         let window = copiedElement(attribute: kAXWindowAttribute, from: focusedElement)
             ?? copiedElement(attribute: kAXFocusedWindowAttribute, from: appElement)
         let windowTitle = copiedString(attribute: kAXTitleAttribute, from: window)
-        let windowIdentifier = copiedString(attribute: "AXIdentifier", from: window)
+        let windowIdentifier = copiedString(attribute: kAXIdentifierAttribute, from: window)
             ?? windowTitle.flatMap {
                 SelectionFingerprint.hash(
                     "\(application.processIdentifier)|\($0)"
@@ -51,20 +62,19 @@ final class AccessibilityContextService: ContextCapturing {
             applicationName: application.localizedName,
             windowTitle: windowTitle,
             windowIdentifier: windowIdentifier,
+            elementIdentifier: copiedString(
+                attribute: kAXIdentifierAttribute,
+                from: focusedElement
+            ),
+            elementFrameHash: elementFrameHash(for: focusedElement),
             elementRole: role,
             elementSubrole: subrole,
             selectedTextHash: selectionHash,
             selectionLocation: selectedTextRange?.location,
             selectionLength: selectedTextRange?.length,
             canReadSelectedText: selectedText != nil,
-            canWriteSelectedText: isAttributeSettable(
-                kAXSelectedTextAttribute,
-                on: focusedElement
-            ),
-            canWriteValue: isAttributeSettable(
-                kAXValueAttribute,
-                on: focusedElement
-            ),
+            canWriteSelectedText: canWriteSelectedText,
+            canWriteValue: canWriteValue,
             isSecure: isSecure,
             isEditable: isEditable
         )
@@ -115,6 +125,8 @@ final class AccessibilityContextService: ContextCapturing {
             applicationName: snapshot.applicationName,
             windowTitle: snapshot.windowTitle,
             windowIdentifier: snapshot.windowIdentifier,
+            elementIdentifier: snapshot.elementIdentifier,
+            elementFrameHash: snapshot.elementFrameHash,
             elementRole: snapshot.elementRole,
             elementSubrole: snapshot.elementSubrole,
             selectedTextHash: SelectionFingerprint.hash(selectedText),
@@ -209,6 +221,72 @@ final class AccessibilityContextService: ContextCapturing {
         return AXValueGetValue(axValue, .cfRange, &range) ? range : nil
     }
 
+    private func elementFrameHash(for element: AXUIElement?) -> String? {
+        guard let element,
+              let position = copiedPoint(
+                attribute: kAXPositionAttribute,
+                from: element
+              ),
+              let size = copiedSize(
+                attribute: kAXSizeAttribute,
+                from: element
+              ) else {
+            return nil
+        }
+        return SelectionFingerprint.hash(
+            [
+                stableCoordinate(position.x),
+                stableCoordinate(position.y),
+                stableCoordinate(size.width),
+                stableCoordinate(size.height)
+            ].joined(separator: "|")
+        )
+    }
+
+    private func copiedPoint(
+        attribute: String,
+        from element: AXUIElement
+    ) -> CGPoint? {
+        var value: CFTypeRef?
+        guard AXUIElementCopyAttributeValue(
+            element,
+            attribute as CFString,
+            &value
+        ) == .success,
+              let value,
+              CFGetTypeID(value) == AXValueGetTypeID() else {
+            return nil
+        }
+        let axValue = unsafeBitCast(value, to: AXValue.self)
+        guard AXValueGetType(axValue) == .cgPoint else { return nil }
+        var point = CGPoint.zero
+        return AXValueGetValue(axValue, .cgPoint, &point) ? point : nil
+    }
+
+    private func copiedSize(
+        attribute: String,
+        from element: AXUIElement
+    ) -> CGSize? {
+        var value: CFTypeRef?
+        guard AXUIElementCopyAttributeValue(
+            element,
+            attribute as CFString,
+            &value
+        ) == .success,
+              let value,
+              CFGetTypeID(value) == AXValueGetTypeID() else {
+            return nil
+        }
+        let axValue = unsafeBitCast(value, to: AXValue.self)
+        guard AXValueGetType(axValue) == .cgSize else { return nil }
+        var size = CGSize.zero
+        return AXValueGetValue(axValue, .cgSize, &size) ? size : nil
+    }
+
+    private func stableCoordinate(_ value: CGFloat) -> String {
+        String(format: "%.1f", Double(value))
+    }
+
     private func isAttributeSettable(
         _ attribute: String,
         on element: AXUIElement?
@@ -226,7 +304,7 @@ final class AccessibilityContextService: ContextCapturing {
         await ClipboardTransactionCoordinator.shared.captureSelection()
     }
 
-    private static let editableRoles: Set<String> = [
+    static let editableRoles: Set<String> = [
         "AXTextField",
         "AXTextArea",
         "AXComboBox",
