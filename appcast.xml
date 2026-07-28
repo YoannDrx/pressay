@@ -3,13 +3,13 @@
     <channel>
         <title>Pressay</title>
         <item>
-            <title>1.2.0</title>
-            <pubDate>Tue, 28 Jul 2026 11:06:59 +0000</pubDate>
+            <title>1.2.1</title>
+            <pubDate>Tue, 28 Jul 2026 12:54:58 +0000</pubDate>
             <link>https://github.com/YoannDrx/pressay</link>
-            <sparkle:version>12099</sparkle:version>
-            <sparkle:shortVersionString>1.2.0</sparkle:shortVersionString>
+            <sparkle:version>12100</sparkle:version>
+            <sparkle:shortVersionString>1.2.1</sparkle:shortVersionString>
             <sparkle:minimumSystemVersion>14.0</sparkle:minimumSystemVersion>
-            <enclosure url="https://github.com/YoannDrx/pressay/releases/download/v1.2.0/Pressay.dmg" length="3041104" type="application/octet-stream" sparkle:edSignature="2SqF8nyskjqcjJkWUaJ0l9ta8/reLlenyGyS0a18kN9MB1u/H6WebOOg0/UShDNEUMkbM2kashzmMTTQ9GpyBw==" />
+            <enclosure url="https://github.com/YoannDrx/pressay/releases/download/v1.2.1/Pressay.dmg" length="3034750" type="application/octet-stream" sparkle:edSignature="Z+HVdqKJecRhovH7WeXOz/qbxtqzqBVUZ6GweZt7kI2mi0G4GWmuh7Zz3BLb5Blcb9LQUh83z4kzNTY472cRAw==" />
         </item>
     </channel>
 </rss>
