@@ -81,15 +81,38 @@ exiger une approbation. Y ajouter :
 
 - `DEVELOPER_ID_APPLICATION`
 
+Ces valeurs doivent vivre uniquement dans l'environnement `release`. Ne pas
+créer de secrets homonymes au niveau du dépôt : lorsqu'un job utilise un
+environnement, les secrets de cet environnement masquent ceux du dépôt et une
+ancienne valeur peut alors être utilisée sans être visible dans le workflow.
+
 Exemple d'encodage du certificat :
 
 ```bash
 base64 -i DeveloperIDApplication.p12 | pbcopy
 ```
 
+Exporter la clé Sparkle avec l'outil officiel plutôt qu'avec `security` :
+
+```bash
+Sparkle/bin/generate_keys \
+  --account fr.yodev.whisper \
+  -x sparkle-private-key
+```
+
+Le fichier exporté doit contenir la représentation Base64 attendue par
+`generate_appcast --ed-key-file`. Sa clé publique doit correspondre à
+`SPARKLE_PUBLIC_ED_KEY` dans le projet Xcode. Supprimer le fichier d'export dès
+que le secret d'environnement a été configuré.
+
 Les secrets ne sont jamais disponibles dans le workflow de pull request. Le job
 final est le seul à recevoir `contents: write`, et le verrou de concurrence
 interdit deux publications simultanées.
+
+La première bêta publique a été produite par le run
+[`30348895645`](https://github.com/YoannDrx/pressay/actions/runs/30348895645).
+La release, son checksum et son appcast sont disponibles sous
+[`v1.2.0-beta.1`](https://github.com/YoannDrx/pressay/releases/tag/v1.2.0-beta.1).
 
 ## URLs et appcast
 

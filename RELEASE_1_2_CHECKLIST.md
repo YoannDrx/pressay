@@ -69,11 +69,22 @@ Tier B — au moins quatre applications, avec un testeur par application :
 - [x] Rediriger définitivement les anciens feeds Pressay et Whisper vers
   `https://yoanndrx.github.io/pressay/appcast.xml` ; PR portfolio validée,
   fusionnée et déployée.
-- [ ] Valider les secrets de publication. `APPLE_TEAM_ID` et
-  `SPARKLE_PRIVATE_KEY` sont configurés ; le P12 CI, `APPLE_ID`, le mot de passe
-  spécifique Apple et le mot de passe du P12 restent à fournir. Le mot de passe
-  du Keychain temporaire est généré et masqué à chaque workflow.
-- [ ] Produire `v1.2.0-beta.1` build 12001, DMG, checksum et appcast signés.
+- [x] Valider les six secrets de publication dans l'environnement GitHub
+  protégé `release` : P12 CI, mot de passe P12, compte et équipe Apple, mot de
+  passe spécifique Apple et clé Sparkle exportée en Base64. Aucun doublon ne
+  subsiste au niveau dépôt ; le mot de passe du Keychain temporaire est généré
+  et masqué à chaque workflow.
+- [x] Produire
+  [`v1.2.0-beta.1`](https://github.com/YoannDrx/pressay/releases/tag/v1.2.0-beta.1)
+  build 12001 avec DMG, checksum et appcast signés. Le run
+  [`30348895645`](https://github.com/YoannDrx/pressay/actions/runs/30348895645)
+  valide les tests, l'analyse, l'archive universelle, la notarisation, Gatekeeper,
+  la signature Sparkle, la GitHub Release et la publication Pages.
+- [x] Retélécharger les assets publics et vérifier indépendamment le SHA-256,
+  le ticket agrafé, Gatekeeper sur le DMG et l'app montée, `arm64 + x86_64`,
+  la version 1.2.0/build 12001 et la signature Ed25519 de l'appcast.
+- [x] Comparer l'appcast de la release et celui de GitHub Pages octet par octet,
+  puis valider l'ancien feed redirigé vers le feed canonique.
 - [ ] Tester stable → bêta, bêta → bêta et bêta → stable.
 - [ ] Couvrir au moins un Mac Apple Silicon et un Mac Intel.
 - [ ] Obtenir cinq testeurs minimum et sept jours sans P0/P1.
