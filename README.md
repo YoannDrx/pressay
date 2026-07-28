@@ -166,14 +166,15 @@ parole est traitée comme l’instruction ; la sélection et le contexte restent
 données passives non fiables. Le remplacement n’a lieu qu’après validation de
 l’aperçu et nouvelle vérification de l’élément ciblé.
 
-### Contexte et cloud visibles
+### Contexte et cloud contrôlés
 
-Chaque mode autorise explicitement ses sources de contexte. Avant un traitement
-cloud, Pressay affiche le mode, le fournisseur, le modèle et le contenu exact
-des sources réellement transmises. Les champs sécurisés sont bloqués avant le
+Chaque mode autorise explicitement ses sources de contexte. Les modes
+`cloudAllowed` s’exécutent directement et indiquent le fournisseur ainsi que les
+sources utilisées dans le HUD. Les champs sécurisés sont bloqués avant le
 démarrage du micro. La politique `askBeforeCloud` exige un choix explicite à
-chaque session ; l’utilisateur peut envoyer, annuler ou conserver la
-transcription brute lorsque ce choix est compatible avec l’intention.
+chaque session et affiche le contenu exact avant l’envoi ; l’utilisateur peut
+envoyer, annuler ou conserver la transcription brute lorsque ce choix est
+compatible avec l’intention.
 
 ## Permissions requises
 

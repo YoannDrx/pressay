@@ -15,7 +15,10 @@ final class AccessibilityContextService: ContextCapturing {
         }
 
         let appElement = AXUIElementCreateApplication(application.processIdentifier)
-        let focusedElement = copiedElement(attribute: kAXFocusedUIElementAttribute, from: appElement)
+        let focusedElement = focusedElement(
+            in: appElement,
+            processIdentifier: application.processIdentifier
+        )
         let role = copiedString(attribute: kAXRoleAttribute, from: focusedElement)
         let subrole = copiedString(attribute: kAXSubroleAttribute, from: focusedElement)
         let isProtected = copiedBool(
@@ -31,9 +34,16 @@ final class AccessibilityContextService: ContextCapturing {
             kAXValueAttribute,
             on: focusedElement
         )
-        let isEditable = !isSecure && (
-            Self.editableRoles.contains(role ?? "")
-                || canWriteSelectedText
+        let reportsEditable = copiedBool(
+            attribute: kAXIsEditableAttribute,
+            from: focusedElement
+        )
+        let isEditable = AccessibilityEditabilityPolicy.isEditable(
+            role: role,
+            isSecure: isSecure,
+            reportsEditable: reportsEditable,
+            canWriteSelectedText: canWriteSelectedText,
+            canWriteValue: canWriteValue
         )
         let window = copiedElement(attribute: kAXWindowAttribute, from: focusedElement)
             ?? copiedElement(attribute: kAXFocusedWindowAttribute, from: appElement)
@@ -189,6 +199,43 @@ final class AccessibilityContextService: ContextCapturing {
         return unsafeBitCast(value, to: AXUIElement.self)
     }
 
+    private func focusedElement(
+        in appElement: AXUIElement,
+        processIdentifier: pid_t
+    ) -> AXUIElement? {
+        if let focused = copiedElement(
+            attribute: kAXFocusedUIElementAttribute,
+            from: appElement
+        ) {
+            return focused
+        }
+        guard TextInjector.hasAccessibilityPermission(),
+              AXUIElementSetAttributeValue(
+                appElement,
+                "AXManualAccessibility" as CFString,
+                kCFBooleanTrue
+              ) == .success else {
+            return nil
+        }
+
+        // Electron/Chromium may publish its accessibility tree one run-loop
+        // turn after AXManualAccessibility is enabled.
+        for _ in 0..<5 {
+            guard NSWorkspace.shared.frontmostApplication?.processIdentifier
+                    == processIdentifier else {
+                return nil
+            }
+            if let focused = copiedElement(
+                attribute: kAXFocusedUIElementAttribute,
+                from: appElement
+            ) {
+                return focused
+            }
+            Thread.sleep(forTimeInterval: 0.01)
+        }
+        return nil
+    }
+
     private func copiedString(attribute: String, from element: AXUIElement?) -> String? {
         guard let element else { return nil }
         var value: CFTypeRef?
@@ -303,11 +350,4 @@ final class AccessibilityContextService: ContextCapturing {
     private func copiedSelectionViaPasteboard() async -> String? {
         await ClipboardTransactionCoordinator.shared.captureSelection()
     }
-
-    static let editableRoles: Set<String> = [
-        "AXTextField",
-        "AXTextArea",
-        "AXComboBox",
-        "AXSearchField"
-    ]
 }

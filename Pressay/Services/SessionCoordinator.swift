@@ -523,7 +523,9 @@ final class SessionCoordinator: ObservableObject {
         if item.mode.providerPolicy == .localOnly, isCloudProcessing {
             throw CoordinatorError.localProcessorUnavailable
         }
-        if isCloudProcessing {
+        let requiresCloudConfirmation = item.mode.providerPolicy == .askBeforeCloud
+            || item.mode.providerPolicy == .preferLocal
+        if isCloudProcessing, requiresCloudConfirmation {
             let preflight = cloudPreflight(
                 transcription: transcription,
                 sessionID: item.session.id,
@@ -542,8 +544,7 @@ final class SessionCoordinator: ObservableObject {
             let decision = await cloudConsent.requestConsent(
                 for: preflight,
                 allowsRawTranscription: item.session.intent != .transformSelection,
-                requiresExplicitChoice: item.mode.providerPolicy == .askBeforeCloud
-                    || item.mode.providerPolicy == .preferLocal
+                requiresExplicitChoice: true
             )
             try Task.checkCancellation()
             switch decision {
@@ -824,7 +825,11 @@ final class SessionCoordinator: ObservableObject {
                 : "Texte inséré"
         } else {
             textDeliverer.copyToPasteboard(finalText)
-            lastNotice = "Texte copié — la cible initiale n’est plus disponible"
+            if let failure = textDeliverer.lastDeliveryFailure {
+                lastNotice = "Texte copié — \(failure.userMessage)"
+            } else {
+                lastNotice = "Texte copié — la cible initiale n’est plus disponible"
+            }
         }
         hud.isUndoAvailable = inserted && textDeliverer.canUndoLastInsertion
         hud.configureResultActions(
@@ -836,7 +841,7 @@ final class SessionCoordinator: ObservableObject {
                 [weak self] in self?.compareRawAndFinalResult()
             }
         )
-        hud.show(.success, detail: lastNotice, autoHide: true)
+        hud.show(inserted ? .success : .copied, detail: lastNotice, autoHide: true)
     }
 
     private func trimReplayDescriptors() {

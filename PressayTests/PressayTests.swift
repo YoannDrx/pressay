@@ -1072,6 +1072,100 @@ final class FocusedElementValidatorTests: XCTestCase {
     }
 }
 
+final class AccessibilityEditabilityPolicyTests: XCTestCase {
+    func testKnownTextRolesRemainEditable() {
+        XCTAssertTrue(
+            AccessibilityEditabilityPolicy.isEditable(
+                role: "AXTextArea",
+                isSecure: false,
+                reportsEditable: false,
+                canWriteSelectedText: false,
+                canWriteValue: false
+            )
+        )
+    }
+
+    func testContentEditableFallbackRequiresEditableAndSettableValue() {
+        XCTAssertTrue(
+            AccessibilityEditabilityPolicy.isEditable(
+                role: "AXGroup",
+                isSecure: false,
+                reportsEditable: true,
+                canWriteSelectedText: false,
+                canWriteValue: true
+            )
+        )
+        XCTAssertFalse(
+            AccessibilityEditabilityPolicy.isEditable(
+                role: "AXGroup",
+                isSecure: false,
+                reportsEditable: true,
+                canWriteSelectedText: false,
+                canWriteValue: false
+            )
+        )
+    }
+
+    func testSettableNonTextControlIsNotAcceptedByItself() {
+        XCTAssertFalse(
+            AccessibilityEditabilityPolicy.isEditable(
+                role: "AXSlider",
+                isSecure: false,
+                reportsEditable: false,
+                canWriteSelectedText: false,
+                canWriteValue: true
+            )
+        )
+    }
+
+    func testSecureElementIsNeverEditable() {
+        XCTAssertFalse(
+            AccessibilityEditabilityPolicy.isEditable(
+                role: "AXTextField",
+                isSecure: true,
+                reportsEditable: true,
+                canWriteSelectedText: true,
+                canWriteValue: true
+            )
+        )
+    }
+}
+
+final class DeliveryPreferencePolicyTests: XCTestCase {
+    func testBrowsersPreferPasteDelivery() {
+        XCTAssertTrue(
+            DeliveryPreferencePolicy.prefersPaste(
+                bundleIdentifier: "com.google.Chrome",
+                isElectron: false
+            )
+        )
+        XCTAssertTrue(
+            DeliveryPreferencePolicy.prefersPaste(
+                bundleIdentifier: "com.apple.Safari",
+                isElectron: false
+            )
+        )
+    }
+
+    func testElectronAppsPreferPasteDelivery() {
+        XCTAssertTrue(
+            DeliveryPreferencePolicy.prefersPaste(
+                bundleIdentifier: "com.example.editor",
+                isElectron: true
+            )
+        )
+    }
+
+    func testNativeAppsKeepAccessibilityDelivery() {
+        XCTAssertFalse(
+            DeliveryPreferencePolicy.prefersPaste(
+                bundleIdentifier: "com.apple.Notes",
+                isElectron: false
+            )
+        )
+    }
+}
+
 final class TargetSelectionValidatorTests: XCTestCase {
     func testOriginalSelectionIsAccepted() {
         let snapshot = makeSnapshot(
@@ -1417,6 +1511,37 @@ final class SessionCoordinatorTests: XCTestCase {
         XCTAssertTrue(delivery.insertedTexts.isEmpty)
         XCTAssertNil(coordinator.lastError)
         XCTAssertEqual(coordinator.lastNotice, "Traitement annulé")
+    }
+
+    func testCloudAllowedProcessesImmediatelyWithoutConsentRequest() async throws {
+        let processor = MockTextProcessor()
+        let resolver = MockModeResolver()
+        resolver.mode = NativeModeCatalog.visibleModes.first {
+            $0.id == NativeModeCatalog.cleanID
+        }!
+        resolver.mode.providerPolicy = .cloudAllowed
+        let consent = MockCloudConsent(decision: .cancel)
+        let delivery = MockTextDeliverer(shouldInsert: true)
+        let coordinator = makeCoordinator(
+            audio: MockAudioCapturer(result: speechResult()),
+            transcriber: MockSpeechTranscriber(text: "euh bonjour"),
+            context: MockContextCapturer(
+                result: .init(target: nil, context: .empty)
+            ),
+            delivery: delivery,
+            history: MockHistoryRepository(),
+            textProcessor: processor,
+            modeResolver: resolver,
+            cloudConsent: consent
+        )
+
+        coordinator.startCapture()
+        coordinator.stopCaptureAndQueue()
+        try await waitUntilFinished(coordinator)
+
+        XCTAssertTrue(consent.preflights.isEmpty)
+        XCTAssertEqual(processor.requests.count, 1)
+        XCTAssertEqual(delivery.insertedTexts, ["Texte transformé"])
     }
 
     func testCloudPreflightContainsOnlyAuthorizedExactSources() async throws {

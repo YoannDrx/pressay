@@ -249,7 +249,7 @@ struct SettingsView: View {
                     Text("GPT-5.6 Sol").tag("gpt-5.6-sol")
                 }
                 Label(
-                    "Seules les sources autorisées par le mode sont envoyées. store: false désactive la conservation des réponses comme état applicatif.",
+                    "Les modes « Cloud autorisé » s’exécutent directement. Seules leurs sources autorisées sont envoyées et store: false désactive leur conservation comme état applicatif.",
                     systemImage: "lock.shield"
                 )
                 .font(.system(size: 10))

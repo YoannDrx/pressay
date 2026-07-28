@@ -103,6 +103,7 @@ protocol TextPreviewPresenting: AnyObject {
 protocol TextDelivering: AnyObject {
     var canUndoLastInsertion: Bool { get }
     var lastDeliveryStrategy: DeliveryStrategy { get }
+    var lastDeliveryFailure: DeliveryFailureReason? { get }
     func inject(text: String, target: TextInjectionTarget?) async -> Bool
     func copyToPasteboard(_ text: String)
     func undoLastInsertion() -> Bool
@@ -110,6 +111,51 @@ protocol TextDelivering: AnyObject {
 
 extension TextDelivering {
     var lastDeliveryStrategy: DeliveryStrategy { .copied }
+    var lastDeliveryFailure: DeliveryFailureReason? { nil }
+}
+
+enum DeliveryFailureReason: String, Sendable {
+    case emptyText
+    case missingTarget
+    case secureTarget
+    case nonEditableTarget
+    case targetApplicationUnavailable
+    case targetApplicationNotFrontmost
+    case accessibilityNotGranted
+    case targetWindowChanged
+    case focusedElementUnavailable
+    case focusedElementChanged
+    case selectionChanged
+    case clipboardPasteFailed
+
+    var userMessage: String {
+        switch self {
+        case .emptyText:
+            "aucun texte à insérer"
+        case .missingTarget:
+            "aucun champ cible n’a été capturé"
+        case .secureTarget:
+            "le champ cible est protégé"
+        case .nonEditableTarget:
+            "le champ cible n’est pas éditable"
+        case .targetApplicationUnavailable:
+            "l’application cible a été fermée"
+        case .targetApplicationNotFrontmost:
+            "l’application cible n’a pas pu être réactivée"
+        case .accessibilityNotGranted:
+            "l’autorisation Accessibilité n’est pas reconnue"
+        case .targetWindowChanged:
+            "la fenêtre cible a changé"
+        case .focusedElementUnavailable:
+            "le champ cible n’est plus exposé à l’accessibilité"
+        case .focusedElementChanged:
+            "le champ actif ne correspond plus au champ initial"
+        case .selectionChanged:
+            "la sélection ou le curseur a changé"
+        case .clipboardPasteFailed:
+            "macOS a refusé le collage"
+        }
+    }
 }
 
 @MainActor
