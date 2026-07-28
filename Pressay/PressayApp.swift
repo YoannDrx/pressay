@@ -32,14 +32,22 @@ struct PressayApp: App {
     private var menuBarIcon: some View {
         if appState.isTranscribing {
             Image(systemName: "ellipsis.circle")
+                .symbolRenderingMode(.monochrome)
+                .font(.system(size: 16, weight: .regular))
                 .symbolEffect(.pulse)
+                .accessibilityLabel("Pressay, transcription en cours")
         } else if appState.isRecording {
             Image(systemName: "waveform.circle.fill")
+                .symbolRenderingMode(.monochrome)
+                .font(.system(size: 16, weight: .regular))
                 .symbolEffect(.variableColor.iterative)
                 .foregroundStyle(.red)
+                .accessibilityLabel("Pressay, enregistrement en cours")
         } else {
-            Image("PressayMenuIcon")
-                .renderingMode(.template)
+            Image(systemName: "waveform.circle")
+                .symbolRenderingMode(.monochrome)
+                .font(.system(size: 16, weight: .regular))
+                .accessibilityLabel("Pressay")
         }
     }
 }

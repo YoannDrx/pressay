@@ -54,11 +54,10 @@ Apple et distribuée sous la forme d'un binaire universel `arm64 + x86_64`. Tu p
 vérifier le téléchargement avec le fichier `Pressay.dmg.sha256` publié à côté du
 DMG.
 
-La page de téléchargement publique sera également disponible sur
-[yoann-andrieux.fr](https://www.yoann-andrieux.fr/fr/projects/pressay). Tant que
-la release stable `v1.2.0` n'est pas publiée, les testeurs peuvent installer la
-[bêta 1.2.0-beta.1 signée et notariée](https://github.com/YoannDrx/pressay/releases/tag/v1.2.0-beta.1).
-Pour un usage hors bêta, utilise la compilation depuis les sources ci-dessous.
+La page de téléchargement publique est également disponible sur
+[yoann-andrieux.fr](https://www.yoann-andrieux.fr/fr/projects/pressay). La
+version stable publiée est `v1.2.0` ; les utilisateurs ayant activé le canal
+bêta recevront aussi cette version stable.
 
 ### Compiler depuis les sources
 
@@ -170,10 +169,11 @@ l’aperçu et nouvelle vérification de l’élément ciblé.
 ### Contexte et cloud visibles
 
 Chaque mode autorise explicitement ses sources de contexte. Avant un traitement
-cloud, le HUD affiche le mode et le manifeste des sources réellement
-transmises. Les champs sécurisés sont bloqués avant le démarrage du micro. La
-politique `askBeforeCloud` refuse actuellement l’envoi tant que le parcours de
-consentement interactif n’est pas livré.
+cloud, Pressay affiche le mode, le fournisseur, le modèle et le contenu exact
+des sources réellement transmises. Les champs sécurisés sont bloqués avant le
+démarrage du micro. La politique `askBeforeCloud` exige un choix explicite à
+chaque session ; l’utilisateur peut envoyer, annuler ou conserver la
+transcription brute lorsque ce choix est compatible avec l’intention.
 
 ## Permissions requises
 
