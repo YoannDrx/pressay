@@ -1,0 +1,20 @@
+"description" = "Pressay transforme votre voix en texte depuis la barre des menus de macOS, sans compte Pressay et sans abonnement imposé.
+
+Démarrez une dictée, parlez naturellement puis récupérez le résultat dans le presse-papiers. Le mode Fidèle conserve votre formulation. Les modes Propre, Message, Email, Prompt IA, Note, Compte rendu, Ticket, Commit, Traduction, Résumé et Tâches adaptent le texte à votre besoin. Vous pouvez aussi créer vos propres modes et choisir leur style.
+
+Pressay utilise votre propre clé API OpenAI, conservée dans le Trousseau macOS. L’audio et, pour les modes de transformation, le texte nécessaire sont envoyés directement à OpenAI. Les frais d’usage éventuels sont facturés directement par OpenAI. Pressay n’exploite aucune télémétrie distante et ne crée pas de compte utilisateur. Votre historique est stocké localement et chiffré sur votre Mac ; vous pouvez l’exclure ou le supprimer depuis les réglages.
+
+Cette édition Mac App Store fonctionne dans App Sandbox. Pour respecter ce modèle de sécurité, elle copie le résultat dans le presse-papiers et ne contrôle pas les autres applications pour y insérer automatiquement le texte. La Voice Inbox locale peut conserver les résultats que vous choisissez. La distribution directe disponible sur le site Pressay propose séparément le collage universel et demande l’autorisation Accessibilité.
+
+Fonctionnalités principales :
+• Dictée française et anglaise depuis la barre des menus
+• Douze modes de rédaction intégrés
+• Modes personnalisés
+• Historique local chiffré et Voice Inbox optionnelle
+• Clé API personnelle stockée dans le Trousseau
+• Aucune télémétrie distante par défaut
+• Interface entièrement pilotable au clavier";
+"keywords" = "dictée,vocal,transcription,texte,productivité,notes,reformulation,traduction,IA,macOS";
+"marketingUrl" = "https://www.yoann-andrieux.fr/fr/projects/pressay";
+"promotionalText" = "Dictez, reformulez et retrouvez vos idées depuis la barre des menus, avec votre propre clé API et un historique local chiffré.";
+"supportUrl" = "https://github.com/YoannDrx/pressay/issues";

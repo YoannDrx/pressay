@@ -1,0 +1,3 @@
+"name" = "Pressay";
+"privacyPolicyUrl" = "https://github.com/YoannDrx/pressay/blob/main/PRIVACY.md";
+"subtitle" = "Dictée vocale pour macOS";
