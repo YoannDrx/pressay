@@ -18,7 +18,7 @@ propose une dictée déclenchée depuis la barre des menus, les douze modes, les
 modes personnalisés, l'historique chiffré et la Voice Inbox. Le résultat est
 copié ; l'utilisateur le colle où il le souhaite.
 
-## État du code au 31 juillet 2026
+## État du code et de la livraison au 1er août 2026
 
 - cible et schéma partagés `Pressay App Store` présents dans Xcode ;
 - compilation conditionnelle `APP_STORE` ;
@@ -28,6 +28,12 @@ copié ; l'utilisateur le colle où il le souhaite.
 - manifeste `PrivacyInfo.xcprivacy` inclus ;
 - build Release universel vérifié par `scripts/validate-app-store.sh` ;
 - tests de non-régression de la variante directe conservés.
+- archive 1.2.0 (12001) signée et exportée avec le profil Mac App Store ;
+- paquet téléversé et accepté par Apple, état `BETA_INTERNAL_TESTING` ;
+- textes français publiés dans App Store Connect ;
+- trois captures 1440 × 900 sans transparence prêtes dans
+  `AppStoreAssets/Screenshots/Final` ;
+- PR de fondation App Store fusionnée dans `main`.
 
 La cible est alignée sur la fiche App Store Connect `6795505605`, qui utilise
 le bundle historique `fr.yodev.pressay`. La distribution directe et la variante
@@ -69,7 +75,7 @@ ALLOW_PROVISIONING_UPDATES=1 scripts/archive-app-store.sh
 L'export est écrit dans `build/app-store/<version>-<build>/` et reste local ;
 le script ne téléverse et ne soumet rien automatiquement.
 
-## Pré requis Apple à terminer
+## Pré requis Apple
 
 1. La fiche `6795505605` et l'App ID explicite `fr.yodev.pressay` sont alignés.
 2. Xcode gère la signature via un certificat Apple Distribution cloud et un
@@ -77,12 +83,14 @@ le script ne téléverse et ne soumet rien automatiquement.
 3. Accepter les contrats encore signalés dans Business. Le statut de commerçant
    DSA est déjà vérifié ; les contrats, informations fiscales et bancaires ne
    sont nécessaires que selon les territoires et le modèle économique choisis.
-4. Archiver `Pressay App Store`, exécuter **Validate App**, puis téléverser le
-   build vers App Store Connect.
-5. Répondre aux questions de conformité export et attendre le traitement du
-   build.
-6. Tester au moins une installation via TestFlight sur une session macOS propre.
-7. Associer le build, compléter les métadonnées, puis soumettre à App Review.
+4. L’archive `Pressay App Store` a été signée, validée puis téléversée.
+5. La conformité export est déclarée par `ITSAppUsesNonExemptEncryption = false`
+   et le build a terminé son traitement Apple.
+6. Il reste à tester une installation via TestFlight sur une session macOS
+   propre.
+7. Il reste à charger les captures, publier les réponses de confidentialité,
+   compléter la classification d’âge, associer le build et fournir une clé API
+   temporaire à App Review avant la soumission.
 
 Apple documente l'App Sandbox comme une exigence du Mac App Store et exige que
 les mises à jour App Store passent par l'App Store. Le flux direct reste donc un
@@ -99,8 +107,8 @@ déclaration devra être réévaluée avant l'envoi.
 
 ### Français
 
-- **Nom** : Pressay Companion
-- **Sous-titre** : Dictée vocale contrôlable
+- **Nom** : Pressay
+- **Sous-titre** : Dictée vocale pour macOS
 - **Catégorie principale** : Productivité
 - **Catégorie secondaire** : Utilitaires
 - **Mots-clés** : dictée,vocal,transcription,texte,productivité,notes,IA
@@ -136,16 +144,17 @@ L'interface n'est pas encore entièrement localisée en anglais. Ne publier la
 fiche anglaise qu'après validation de chaque chaîne visible, ou conserver le
 français comme langue principale pour le premier build.
 
-## Captures à produire
+## Captures produites
 
-Apple demande entre une et dix captures macOS sans transparence. Produire au
-minimum quatre images cohérentes, sans clé API, texte personnel ou notification
-d'une autre app :
+Apple demande entre une et dix captures macOS sans transparence. Les trois
+captures prêtes à charger sont :
 
-1. fenêtre principale et explication « presse-papiers + Voice Inbox » ;
-2. dictée active depuis la barre des menus ;
-3. choix des modes et éditeur de mode personnalisé ;
-4. historique/Inbox chiffrés avec contenu de démonstration.
+1. `01-dictee.png` : réglages et garanties locales ;
+2. `02-menu.png` : parcours de dictée depuis la barre des menus ;
+3. `03-modes.png` : modes de rédaction.
+
+Elles mesurent 1440 × 900, ne contiennent ni transparence, ni clé API, ni texte
+personnel, ni notification d’une autre app.
 
 Les captures doivent montrer le comportement réel de l'édition App Store. Ne
 pas montrer ni mentionner un collage automatique dans une app tierce.
