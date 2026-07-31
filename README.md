@@ -36,6 +36,17 @@ corpus qualité FR/EN n’a pas validé la release locale 1.3.
 
 ## Télécharger et installer
 
+Pressay possède deux canaux distincts :
+
+- **Pressay direct** conserve la dictée universelle, l'insertion dans les autres
+  apps, les raccourcis globaux et les mises à jour Sparkle ;
+- **Pressay Companion pour le Mac App Store** fonctionne dans App Sandbox et
+  livre le résultat au presse-papiers et à la Voice Inbox, sans demander
+  Accessibilité ni installer un mécanisme de mise à jour externe.
+
+Les détails et la checklist de soumission sont dans
+[APP_STORE.md](APP_STORE.md).
+
 ### Prérequis
 
 - macOS 14 (Sonoma) ou plus récent
@@ -84,6 +95,15 @@ bêta recevront aussi cette version stable.
 5. **Accorde les permissions**
    - **Microphone** : pour enregistrer ta voix
    - **Accessibilité** : pour coller le texte automatiquement
+
+La variante App Store se construit avec le schéma dédié :
+
+```bash
+xcodebuild build \
+  -project Pressay.xcodeproj \
+  -scheme "Pressay App Store" \
+  -destination 'generic/platform=macOS'
+```
 
 Une compilation locale nécessite Xcode. Les builds de développement déjà
 installées sous les anciens identifiants `com.hyrak.whisper` ou

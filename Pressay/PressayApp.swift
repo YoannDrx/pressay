@@ -1,5 +1,45 @@
 import SwiftUI
 
+#if APP_STORE
+@MainActor
+final class AppStoreMainWindowController {
+    static let shared = AppStoreMainWindowController()
+
+    private var window: NSWindow?
+    private var didPresentAtLaunch = false
+
+    private init() {}
+
+    func showAtLaunch(appState: AppState, updateService: UpdateService) {
+        guard !didPresentAtLaunch else { return }
+        didPresentAtLaunch = true
+        show(appState: appState, updateService: updateService)
+    }
+
+    func show(appState: AppState, updateService: UpdateService) {
+        if window == nil {
+            let rootView = SettingsView()
+                .environmentObject(appState)
+                .environmentObject(updateService)
+            let window = NSWindow(
+                contentRect: NSRect(x: 0, y: 0, width: 700, height: 760),
+                styleMask: [.titled, .closable, .miniaturizable, .resizable],
+                backing: .buffered,
+                defer: false
+            )
+            window.title = "Pressay Companion"
+            window.contentView = NSHostingView(rootView: rootView)
+            window.isReleasedWhenClosed = false
+            window.setFrameAutosaveName("PressayCompanionMainWindow")
+            window.center()
+            self.window = window
+        }
+        window?.makeKeyAndOrderFront(nil)
+        NSApp.activate(ignoringOtherApps: true)
+    }
+}
+#endif
+
 @main
 struct PressayApp: App {
     @StateObject private var appState: AppState
@@ -8,11 +48,15 @@ struct PressayApp: App {
     init() {
         // Hosted macOS unit tests launch the complete app before XCTest is
         // attached. They must not migrate or unlock production credentials.
+#if !APP_STORE
         if !Constants.isRunningTests {
             AppMigrationService().runIfNeeded()
         }
-        _appState = StateObject(wrappedValue: AppState())
-        _updateService = StateObject(wrappedValue: UpdateService())
+#endif
+        let appState = AppState()
+        let updateService = UpdateService()
+        _appState = StateObject(wrappedValue: appState)
+        _updateService = StateObject(wrappedValue: updateService)
     }
 
     var body: some Scene {
@@ -22,14 +66,26 @@ struct PressayApp: App {
                 .environmentObject(updateService)
         } label: {
             menuBarIcon
+                .onAppear {
+                    #if APP_STORE
+                    DispatchQueue.main.async {
+                        AppStoreMainWindowController.shared.showAtLaunch(
+                            appState: appState,
+                            updateService: updateService
+                        )
+                    }
+                    #endif
+                }
         }
         .menuBarExtraStyle(.window)
 
+        #if !APP_STORE
         Settings {
             SettingsView()
                 .environmentObject(appState)
                 .environmentObject(updateService)
         }
+        #endif
     }
 
     @ViewBuilder

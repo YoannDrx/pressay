@@ -1,3 +1,22 @@
+#if APP_STORE
+import SwiftUI
+
+struct ShortcutRecorderField: View {
+    @ObservedObject var router: ShortcutRouter
+    let action: ShortcutAction
+    var onRegistered: ((ShortcutDefinition) -> Void)?
+
+    var body: some View {
+        Text("Version directe uniquement")
+            .font(.caption)
+            .foregroundStyle(.secondary)
+    }
+}
+
+extension ShortcutDefinition {
+    var displayName: String { "Indisponible" }
+}
+#else
 import AppKit
 import Carbon.HIToolbox
 import SwiftUI
@@ -308,3 +327,4 @@ private extension ShortcutModifiers {
         return value
     }
 }
+#endif

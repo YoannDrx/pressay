@@ -1,3 +1,26 @@
+#if APP_STORE
+import AppKit
+import Foundation
+
+actor ClipboardTransactionCoordinator {
+    static let shared = ClipboardTransactionCoordinator()
+
+    func captureSelection() async -> String? { nil }
+
+    func paste(_ text: String) async -> Bool {
+        await setPermanentString(text)
+        return false
+    }
+
+    func setPermanentString(_ text: String) async {
+        await MainActor.run {
+            let pasteboard = NSPasteboard.general
+            pasteboard.clearContents()
+            pasteboard.setString(text, forType: .string)
+        }
+    }
+}
+#else
 import AppKit
 import Carbon.HIToolbox
 import Foundation
@@ -183,3 +206,4 @@ actor ClipboardTransactionCoordinator {
         return true
     }
 }
+#endif

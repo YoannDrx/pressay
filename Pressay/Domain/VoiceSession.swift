@@ -733,25 +733,29 @@ struct CapabilityMatrix: Equatable, Sendable {
     let grantedPermissions: Set<String>
 
     static var current: CapabilityMatrix {
+        let version = ProcessInfo.processInfo.operatingSystemVersion
 #if arch(arm64)
         let isAppleSilicon = true
+        let supportsFoundationModels = version.majorVersion >= 26
 #else
         let isAppleSilicon = false
+        let supportsFoundationModels = false
 #endif
-        let version = ProcessInfo.processInfo.operatingSystemVersion
         var transcriptionProviders: Set<String> = ["openai"]
         var processingProviders: Set<String> = ["openai-responses"]
         if version.majorVersion >= 26 {
             transcriptionProviders.insert("speech-analyzer")
-            if isAppleSilicon {
-                processingProviders.insert("foundation-models")
-            }
         }
+#if arch(arm64)
+        if version.majorVersion >= 26 {
+            processingProviders.insert("foundation-models")
+        }
+#endif
         return CapabilityMatrix(
             operatingSystem: version,
             isAppleSilicon: isAppleSilicon,
             supportsSystemSpeechAnalyzer: version.majorVersion >= 26,
-            supportsFoundationModels: version.majorVersion >= 26 && isAppleSilicon,
+            supportsFoundationModels: supportsFoundationModels,
             installedTranscriptionProviders: transcriptionProviders,
             installedProcessingProviders: processingProviders,
             grantedPermissions: []

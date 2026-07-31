@@ -43,6 +43,41 @@
 		JJJ000001 /* ProviderRoutingService.swift in Sources */ = {isa = PBXBuildFile; fileRef = JJJ000010 /* ProviderRoutingService.swift */; };
 		JJJ000002 /* ModelCatalogService.swift in Sources */ = {isa = PBXBuildFile; fileRef = JJJ000011 /* ModelCatalogService.swift */; };
 		KKK000001 /* ShortcutRecorderView.swift in Sources */ = {isa = PBXBuildFile; fileRef = KKK000010 /* ShortcutRecorderView.swift */; };
+		MAS000001 /* DistributionChannel.swift in Sources */ = {isa = PBXBuildFile; fileRef = MAS000010 /* DistributionChannel.swift */; };
+		MAS100001 /* PressayApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = AAA000010 /* PressayApp.swift */; };
+		MAS100002 /* AppState.swift in Sources */ = {isa = PBXBuildFile; fileRef = AAA000011 /* AppState.swift */; };
+		MAS100003 /* MenuBarView.swift in Sources */ = {isa = PBXBuildFile; fileRef = AAA000012 /* MenuBarView.swift */; };
+		MAS100004 /* SettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = AAA000013 /* SettingsView.swift */; };
+		MAS100005 /* AudioRecorder.swift in Sources */ = {isa = PBXBuildFile; fileRef = AAA000014 /* AudioRecorder.swift */; };
+		MAS100006 /* KeyboardService.swift in Sources */ = {isa = PBXBuildFile; fileRef = AAA000015 /* KeyboardService.swift */; };
+		MAS100007 /* TranscriptionService.swift in Sources */ = {isa = PBXBuildFile; fileRef = AAA000016 /* TranscriptionService.swift */; };
+		MAS100008 /* TextInjector.swift in Sources */ = {isa = PBXBuildFile; fileRef = AAA000017 /* TextInjector.swift */; };
+		MAS100009 /* KeychainHelper.swift in Sources */ = {isa = PBXBuildFile; fileRef = AAA000018 /* KeychainHelper.swift */; };
+		MAS10000A /* Constants.swift in Sources */ = {isa = PBXBuildFile; fileRef = AAA000019 /* Constants.swift */; };
+		MAS10000B /* SoundService.swift in Sources */ = {isa = PBXBuildFile; fileRef = BBB000010 /* SoundService.swift */; };
+		MAS10000C /* HistoryService.swift in Sources */ = {isa = PBXBuildFile; fileRef = BBB000011 /* HistoryService.swift */; };
+		MAS10000D /* HistoryView.swift in Sources */ = {isa = PBXBuildFile; fileRef = BBB000012 /* HistoryView.swift */; };
+		MAS10000E /* SpeechDetectionPolicy.swift in Sources */ = {isa = PBXBuildFile; fileRef = DDD000010 /* SpeechDetectionPolicy.swift */; };
+		MAS10000F /* MultipartFormData.swift in Sources */ = {isa = PBXBuildFile; fileRef = DDD000011 /* MultipartFormData.swift */; };
+		MAS100010 /* PerformanceMetricsService.swift in Sources */ = {isa = PBXBuildFile; fileRef = DDD000012 /* PerformanceMetricsService.swift */; };
+		MAS100011 /* StatusHUD.swift in Sources */ = {isa = PBXBuildFile; fileRef = DDD000013 /* StatusHUD.swift */; };
+		MAS100012 /* UpdateService.swift in Sources */ = {isa = PBXBuildFile; fileRef = FFF000011 /* UpdateService.swift */; };
+		MAS100013 /* VoiceSession.swift in Sources */ = {isa = PBXBuildFile; fileRef = GGG000010 /* VoiceSession.swift */; };
+		MAS100014 /* ServiceProtocols.swift in Sources */ = {isa = PBXBuildFile; fileRef = GGG000011 /* ServiceProtocols.swift */; };
+		MAS100015 /* AccessibilityContextService.swift in Sources */ = {isa = PBXBuildFile; fileRef = GGG000012 /* AccessibilityContextService.swift */; };
+		MAS100016 /* SessionCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = GGG000013 /* SessionCoordinator.swift */; };
+		MAS100017 /* ModeStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = HHH000010 /* ModeStore.swift */; };
+		MAS100018 /* OpenAITextProcessingService.swift in Sources */ = {isa = PBXBuildFile; fileRef = HHH000011 /* OpenAITextProcessingService.swift */; };
+		MAS100019 /* TextPreview.swift in Sources */ = {isa = PBXBuildFile; fileRef = HHH000012 /* TextPreview.swift */; };
+		MAS10001A /* ModesView.swift in Sources */ = {isa = PBXBuildFile; fileRef = HHH000013 /* ModesView.swift */; };
+		MAS10001B /* ClipboardTransactionCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = III000010 /* ClipboardTransactionCoordinator.swift */; };
+		MAS10001C /* CloudConsentService.swift in Sources */ = {isa = PBXBuildFile; fileRef = III000011 /* CloudConsentService.swift */; };
+		MAS10001D /* InMemoryReplayBuffer.swift in Sources */ = {isa = PBXBuildFile; fileRef = III000012 /* InMemoryReplayBuffer.swift */; };
+		MAS10001E /* ProviderRoutingService.swift in Sources */ = {isa = PBXBuildFile; fileRef = JJJ000010 /* ProviderRoutingService.swift */; };
+		MAS10001F /* ShortcutRecorderView.swift in Sources */ = {isa = PBXBuildFile; fileRef = KKK000010 /* ShortcutRecorderView.swift */; };
+		MAS100020 /* DistributionChannel.swift in Sources */ = {isa = PBXBuildFile; fileRef = MAS000010 /* DistributionChannel.swift */; };
+		MAS100021 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = CCC000010 /* Assets.xcassets */; };
+		MAS100022 /* PrivacyInfo.xcprivacy in Resources */ = {isa = PBXBuildFile; fileRef = MAS000013 /* PrivacyInfo.xcprivacy */; };
 		ZZZ000001 /* PressayAXFixtureApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = ZZZ000010 /* PressayAXFixtureApp.swift */; };
 /* End PBXBuildFile section */
 
@@ -86,6 +121,11 @@
 		JJJ000010 /* ProviderRoutingService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProviderRoutingService.swift; sourceTree = "<group>"; };
 		JJJ000011 /* ModelCatalogService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ModelCatalogService.swift; sourceTree = "<group>"; };
 		KKK000010 /* ShortcutRecorderView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ShortcutRecorderView.swift; sourceTree = "<group>"; };
+		MAS000010 /* DistributionChannel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DistributionChannel.swift; sourceTree = "<group>"; };
+		MAS000011 /* Info-AppStore.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = "Info-AppStore.plist"; sourceTree = "<group>"; };
+		MAS000012 /* PressayAppStore.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = PressayAppStore.entitlements; sourceTree = "<group>"; };
+		MAS000013 /* PrivacyInfo.xcprivacy */ = {isa = PBXFileReference; lastKnownFileType = text.xml; path = PrivacyInfo.xcprivacy; sourceTree = "<group>"; };
+		MAS000014 /* Pressay Companion.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = "Pressay Companion.app"; sourceTree = BUILT_PRODUCTS_DIR; };
 		ZZZ000010 /* PressayAXFixtureApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PressayAXFixtureApp.swift; sourceTree = "<group>"; };
 		ZZZ000011 /* PressayAXFixture.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = PressayAXFixture.app; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
@@ -100,6 +140,13 @@
 			runOnlyForDeploymentPostprocessing = 0;
 		};
 		EEE00001D /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		MAS00001D /* Frameworks */ = {
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
@@ -128,6 +175,9 @@
 				CCC000010 /* Assets.xcassets */,
 				AAA00001A /* Info.plist */,
 				AAA00001B /* Pressay.entitlements */,
+				MAS000011 /* Info-AppStore.plist */,
+				MAS000012 /* PressayAppStore.entitlements */,
+				MAS000013 /* PrivacyInfo.xcprivacy */,
 			);
 			path = Pressay;
 			sourceTree = "<group>";
@@ -187,6 +237,7 @@
 			isa = PBXGroup;
 			children = (
 				AAA00001C /* Pressay.app */,
+				MAS000014 /* Pressay Companion.app */,
 				EEE000011 /* PressayTests.xctest */,
 				ZZZ000011 /* PressayAXFixture.app */,
 			);
@@ -197,6 +248,7 @@
 			isa = PBXGroup;
 			children = (
 				GGG000010 /* VoiceSession.swift */,
+				MAS000010 /* DistributionChannel.swift */,
 			);
 			path = Domain;
 			sourceTree = "<group>";
@@ -260,6 +312,25 @@
 			productReference = AAA00001C /* Pressay.app */;
 			productType = "com.apple.product-type.application";
 		};
+		MAS000024 /* Pressay App Store */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = MAS000025 /* Build configuration list for PBXNativeTarget "Pressay App Store" */;
+			buildPhases = (
+				MAS000026 /* Sources */,
+				MAS00001D /* Frameworks */,
+				MAS000027 /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			name = "Pressay App Store";
+			packageProductDependencies = (
+			);
+			productName = "Pressay Companion";
+			productReference = MAS000014 /* Pressay Companion.app */;
+			productType = "com.apple.product-type.application";
+		};
 		EEE000024 /* PressayTests */ = {
 			isa = PBXNativeTarget;
 			buildConfigurationList = EEE000025 /* Build configuration list for PBXNativeTarget "PressayTests" */;
@@ -312,6 +383,9 @@
 						CreatedOnToolsVersion = 15.0;
 						TestTargetID = AAA000024;
 					};
+					MAS000024 = {
+						CreatedOnToolsVersion = 26.0;
+					};
 					ZZZ000024 = {
 						CreatedOnToolsVersion = 15.0;
 					};
@@ -334,6 +408,7 @@
 			projectRoot = "";
 			targets = (
 				AAA000024 /* Pressay */,
+				MAS000024 /* Pressay App Store */,
 				EEE000024 /* PressayTests */,
 				ZZZ000024 /* PressayAXFixture */,
 			);
@@ -353,6 +428,15 @@
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		MAS000027 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				MAS100021 /* Assets.xcassets in Resources */,
+				MAS100022 /* PrivacyInfo.xcprivacy in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -403,6 +487,7 @@
 				JJJ000001 /* ProviderRoutingService.swift in Sources */,
 				JJJ000002 /* ModelCatalogService.swift in Sources */,
 				KKK000001 /* ShortcutRecorderView.swift in Sources */,
+				MAS000001 /* DistributionChannel.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -411,6 +496,45 @@
 			buildActionMask = 2147483647;
 			files = (
 				EEE000001 /* PressayTests.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		MAS000026 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				MAS100001 /* PressayApp.swift in Sources */,
+				MAS100002 /* AppState.swift in Sources */,
+				MAS100003 /* MenuBarView.swift in Sources */,
+				MAS100004 /* SettingsView.swift in Sources */,
+				MAS100005 /* AudioRecorder.swift in Sources */,
+				MAS100006 /* KeyboardService.swift in Sources */,
+				MAS100007 /* TranscriptionService.swift in Sources */,
+				MAS100008 /* TextInjector.swift in Sources */,
+				MAS100009 /* KeychainHelper.swift in Sources */,
+				MAS10000A /* Constants.swift in Sources */,
+				MAS10000B /* SoundService.swift in Sources */,
+				MAS10000C /* HistoryService.swift in Sources */,
+				MAS10000D /* HistoryView.swift in Sources */,
+				MAS10000E /* SpeechDetectionPolicy.swift in Sources */,
+				MAS10000F /* MultipartFormData.swift in Sources */,
+				MAS100010 /* PerformanceMetricsService.swift in Sources */,
+				MAS100011 /* StatusHUD.swift in Sources */,
+				MAS100012 /* UpdateService.swift in Sources */,
+				MAS100013 /* VoiceSession.swift in Sources */,
+				MAS100014 /* ServiceProtocols.swift in Sources */,
+				MAS100015 /* AccessibilityContextService.swift in Sources */,
+				MAS100016 /* SessionCoordinator.swift in Sources */,
+				MAS100017 /* ModeStore.swift in Sources */,
+				MAS100018 /* OpenAITextProcessingService.swift in Sources */,
+				MAS100019 /* TextPreview.swift in Sources */,
+				MAS10001A /* ModesView.swift in Sources */,
+				MAS10001B /* ClipboardTransactionCoordinator.swift in Sources */,
+				MAS10001C /* CloudConsentService.swift in Sources */,
+				MAS10001D /* InMemoryReplayBuffer.swift in Sources */,
+				MAS10001E /* ProviderRoutingService.swift in Sources */,
+				MAS10001F /* ShortcutRecorderView.swift in Sources */,
+				MAS100020 /* DistributionChannel.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -624,6 +748,62 @@
 			};
 			name = Release;
 		};
+		MAS00002D /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				CODE_SIGN_ENTITLEMENTS = Pressay/PressayAppStore.entitlements;
+				CODE_SIGN_STYLE = Automatic;
+				COMBINE_HIDPI_IMAGES = YES;
+				CURRENT_PROJECT_VERSION = 12001;
+				DEVELOPMENT_TEAM = G9WFV7HNV6;
+				ENABLE_APP_SANDBOX = YES;
+				ENABLE_HARDENED_RUNTIME = YES;
+				GENERATE_INFOPLIST_FILE = NO;
+				INFOPLIST_FILE = "Pressay/Info-AppStore.plist";
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/../Frameworks",
+				);
+				MARKETING_VERSION = 1.2.0;
+				PRODUCT_BUNDLE_IDENTIFIER = fr.yodev.pressay;
+				PRODUCT_NAME = "Pressay Companion";
+				PROVISIONING_PROFILE_SPECIFIER = "";
+				SWIFT_ACTIVE_COMPILATION_CONDITIONS = "$(inherited) APP_STORE";
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_VERSION = 5.0;
+			};
+			name = Debug;
+		};
+		MAS00002E /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				CODE_SIGN_ENTITLEMENTS = Pressay/PressayAppStore.entitlements;
+				CODE_SIGN_STYLE = Automatic;
+				COMBINE_HIDPI_IMAGES = YES;
+				CURRENT_PROJECT_VERSION = 12001;
+				DEVELOPMENT_TEAM = G9WFV7HNV6;
+				ENABLE_APP_SANDBOX = YES;
+				ENABLE_HARDENED_RUNTIME = YES;
+				GENERATE_INFOPLIST_FILE = NO;
+				INFOPLIST_FILE = "Pressay/Info-AppStore.plist";
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/../Frameworks",
+				);
+				MARKETING_VERSION = 1.2.0;
+				PRODUCT_BUNDLE_IDENTIFIER = fr.yodev.pressay;
+				PRODUCT_NAME = "Pressay Companion";
+				PROVISIONING_PROFILE_SPECIFIER = "";
+				SWIFT_ACTIVE_COMPILATION_CONDITIONS = "$(inherited) APP_STORE";
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_VERSION = 5.0;
+			};
+			name = Release;
+		};
 		EEE00002D /* Debug */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
@@ -703,6 +883,15 @@
 			buildConfigurations = (
 				AAA00002B /* Debug */,
 				AAA00002C /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		MAS000025 /* Build configuration list for PBXNativeTarget "Pressay App Store" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				MAS00002D /* Debug */,
+				MAS00002E /* Release */,
 			);
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;

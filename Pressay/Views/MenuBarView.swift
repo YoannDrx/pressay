@@ -40,6 +40,20 @@ struct MenuBarView: View {
                 .foregroundStyle(.secondary)
                 .padding(.horizontal)
 
+            if !DistributionChannel.current.supportsGlobalShortcuts {
+                Button(action: appState.toggleCaptureFromInterface) {
+                    Label(
+                        appState.isRecording ? "Terminer la dictée" : "Démarrer une dictée",
+                        systemImage: appState.isRecording ? "stop.fill" : "mic.fill"
+                    )
+                    .frame(maxWidth: .infinity)
+                }
+                .buttonStyle(.borderedProminent)
+                .controlSize(.large)
+                .keyboardShortcut(.space, modifiers: [])
+                .padding(.horizontal)
+            }
+
             HStack(spacing: 8) {
                 Label("Mode", systemImage: selectedMode.symbolName)
                     .font(.system(size: 11, weight: .medium))
@@ -54,7 +68,8 @@ struct MenuBarView: View {
             }
             .padding(.horizontal)
 
-            if appState.keyboardService.transformationShortcutAvailable {
+            if DistributionChannel.current.supportsSelectionTransformation,
+               appState.keyboardService.transformationShortcutAvailable {
                 Label(
                     "Transformer la sélection : \(transformationShortcutName)",
                     systemImage: "wand.and.stars"
@@ -69,7 +84,12 @@ struct MenuBarView: View {
                     shortcutRouter: appState.keyboardService
                 )
             } label: {
-                Label("Gérer les modes et profils…", systemImage: "slider.horizontal.3")
+                Label(
+                    DistributionChannel.current.supportsApplicationProfiles
+                        ? "Gérer les modes et profils…"
+                        : "Gérer les modes…",
+                    systemImage: "slider.horizontal.3"
+                )
             }
             .padding(.horizontal, 4)
 
@@ -131,18 +151,29 @@ struct MenuBarView: View {
             }
 
             Button {
-                openSettings()
+                if DistributionChannel.current == .appStore {
+                    #if APP_STORE
+                    AppStoreMainWindowController.shared.show(
+                        appState: appState,
+                        updateService: updateService
+                    )
+                    #endif
+                } else {
+                    openSettings()
+                }
             } label: {
                 Label("Réglages…", systemImage: "slider.horizontal.3")
             }
             .keyboardShortcut(",", modifiers: .command)
             .padding(.horizontal, 4)
 
-            Button(action: updateService.checkForUpdates) {
-                Label("Rechercher les mises à jour…", systemImage: "arrow.triangle.2.circlepath")
+            if DistributionChannel.current.usesSparkle {
+                Button(action: updateService.checkForUpdates) {
+                    Label("Rechercher les mises à jour…", systemImage: "arrow.triangle.2.circlepath")
+                }
+                .disabled(!updateService.canCheckForUpdates)
+                .padding(.horizontal, 4)
             }
-            .disabled(!updateService.canCheckForUpdates)
-            .padding(.horizontal, 4)
 
             Button(role: .destructive) {
                 NSApplication.shared.terminate(nil)
@@ -159,6 +190,9 @@ struct MenuBarView: View {
     }
 
     private var shortcutInstruction: String {
+        guard DistributionChannel.current.supportsGlobalShortcuts else {
+            return "Démarre la dictée ici. Le résultat sera copié ; la Voice Inbox est optionnelle."
+        }
         let definition = appState.keyboardService.currentShortcut(for: .dictate)
         let key = definition?.displayName ?? "Fn / Globe"
         let isModifierOnly = definition?.side != nil

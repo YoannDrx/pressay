@@ -308,7 +308,7 @@ final class VoiceInboxService: ObservableObject, VoiceInboxRepository {
     }
 
     private var isEnabled: Bool {
-        defaults.object(forKey: Constants.inboxEnabledKey) as? Bool ?? true
+        defaults.object(forKey: Constants.inboxEnabledKey) as? Bool ?? false
     }
 
     private var retentionDays: Int {

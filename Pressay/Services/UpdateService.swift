@@ -1,3 +1,25 @@
+#if APP_STORE
+import Combine
+import Foundation
+
+@MainActor
+final class UpdateService: ObservableObject {
+    @Published private(set) var canCheckForUpdates = false
+    @Published var includeBetaUpdates = false
+
+    init() {}
+    init(defaults: UserDefaults) {}
+
+    init(
+        canCheckForUpdates: Bool,
+        checkForUpdatesAction: @escaping () -> Void
+    ) {
+        self.canCheckForUpdates = false
+    }
+
+    func checkForUpdates() {}
+}
+#else
 import AppKit
 import Combine
 import Sparkle
@@ -89,3 +111,4 @@ final class UpdateService: NSObject,
         NSApp.setActivationPolicy(.accessory)
     }
 }
+#endif

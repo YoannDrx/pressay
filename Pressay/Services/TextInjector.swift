@@ -1,3 +1,53 @@
+#if APP_STORE
+import AppKit
+import Foundation
+
+struct TextInjectionTarget {
+    let snapshot: TargetSnapshot
+
+    init(
+        snapshot: TargetSnapshot,
+        focusedElement: Any? = nil,
+        selectionRange: CFRange? = nil,
+        selectedText: String? = nil
+    ) {
+        self.snapshot = snapshot
+    }
+}
+
+@MainActor
+final class TextInjector: TextDelivering {
+    static let shared = TextInjector()
+
+    private(set) var lastDeliveryStrategy: DeliveryStrategy = .copied
+    private(set) var lastDeliveryFailure: DeliveryFailureReason?
+    var canUndoLastInsertion: Bool { false }
+
+    private init() {}
+
+    func inject(text: String, target: TextInjectionTarget?) async -> Bool {
+        let cleanText = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !cleanText.isEmpty else {
+            lastDeliveryFailure = .emptyText
+            return false
+        }
+        lastDeliveryFailure = .missingTarget
+        return false
+    }
+
+    func copyToPasteboard(_ text: String) {
+        lastDeliveryStrategy = .copied
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(text, forType: .string)
+    }
+
+    func undoLastInsertion() -> Bool { false }
+    func prepareRecentInsertionForReplacement() -> Bool { false }
+
+    static func hasAccessibilityPermission() -> Bool { false }
+    static func requestAccessibilityPermission() {}
+}
+#else
 import AppKit
 import Carbon.HIToolbox
 import OSLog
@@ -597,6 +647,7 @@ enum DeliveryPreferencePolicy {
             || bundleIdentifier.map(browserBundleIdentifiers.contains) == true
     }
 }
+#endif
 
 enum FocusedElementValidator {
     static func matches(

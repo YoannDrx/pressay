@@ -29,7 +29,7 @@ struct SettingsView: View {
     @AppStorage(Constants.historyRetentionDaysKey)
     private var historyRetentionDays = 1
     @AppStorage(Constants.inboxEnabledKey)
-    private var inboxEnabled = true
+    private var inboxEnabled = false
     @AppStorage(Constants.inboxRetentionDaysKey)
     private var inboxRetentionDays = 30
     @AppStorage(Constants.metricsEnabledKey)
@@ -53,9 +53,13 @@ struct SettingsView: View {
                     recognitionSection
                     hudSection
                     modesSection
-                    shortcutSection
+                    if DistributionChannel.current.supportsGlobalShortcuts {
+                        shortcutSection
+                    }
                     privacySection
-                    updatesSection
+                    if DistributionChannel.current.usesSparkle {
+                        updatesSection
+                    }
                     aboutSection
                 }
                 .padding(24)
@@ -114,13 +118,23 @@ struct SettingsView: View {
                     granted: appState.hasMicrophonePermission,
                     action: appState.requestMicrophonePermission
                 )
-                Divider().opacity(0.45)
-                permissionRow(
-                    title: "Accessibilité",
-                    detail: "Identifie la cible, protège les champs sensibles et remplace une sélection.",
-                    granted: appState.hasAccessibilityPermission,
-                    action: appState.requestAccessibilityPermission
-                )
+                if DistributionChannel.current.supportsAccessibility {
+                    Divider().opacity(0.45)
+                    permissionRow(
+                        title: "Accessibilité",
+                        detail: "Identifie la cible, protège les champs sensibles et remplace une sélection.",
+                        granted: appState.hasAccessibilityPermission,
+                        action: appState.requestAccessibilityPermission
+                    )
+                } else {
+                    Divider().opacity(0.45)
+                    Label(
+                        "Version App Store : copie et Voice Inbox, sans contrôle des autres applications.",
+                        systemImage: "checkmark.shield"
+                    )
+                    .font(.system(size: 10))
+                    .foregroundStyle(.secondary)
+                }
             }
         }
     }
@@ -284,7 +298,11 @@ struct SettingsView: View {
                 )
                 .font(.system(size: 10))
                 .foregroundStyle(.secondary)
-                Button("Gérer les modes et profils d’app…") {
+                Button(
+                    DistributionChannel.current.supportsApplicationProfiles
+                        ? "Gérer les modes et profils d’app…"
+                        : "Gérer les modes…"
+                ) {
                     ModesWindowController.shared.show(
                         shortcutRouter: appState.keyboardService
                     )
@@ -412,7 +430,8 @@ struct SettingsView: View {
         SettingsSection(title: "À PROPOS", icon: "info.circle") {
             HStack {
                 VStack(alignment: .leading, spacing: 3) {
-                    Text("Pressay for macOS").font(.system(size: 12, weight: .semibold))
+                    Text(DistributionChannel.current.displayName)
+                        .font(.system(size: 12, weight: .semibold))
                     Text("Audio temporaire · Historique AES-256 · Aucune télémétrie distante")
                         .font(.system(size: 10))
                         .foregroundStyle(.secondary)

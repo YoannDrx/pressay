@@ -61,12 +61,26 @@ Le téléchargement de l'application est gratuit. L'utilisation de la clé API
 personnelle peut être facturée directement par OpenAI selon ses tarifs. Yodev ne
 reçoit ni paiement, ni contenu de dictée, ni métrique d'utilisation.
 
-## Permissions macOS
+## Variantes de distribution et permissions macOS
+
+La version directe et l'édition Mac App Store sont des bundles distincts :
+
+- **Pressay direct** utilise le microphone, Accessibility et les événements
+  clavier globaux pour conserver la cible et insérer le texte ;
+- **Pressay Companion (Mac App Store)** fonctionne dans App Sandbox, utilise le
+  microphone et le réseau sortant, puis copie le résultat dans le presse-papiers
+  et la Voice Inbox. Elle ne demande pas Accessibility et ne surveille aucun
+  raccourci global.
+
+Pour la version directe :
 
 - Le microphone sert uniquement à capturer la dictée.
 - L'accessibilité sert à identifier la cible, détecter les champs sécurisés,
   capturer la sélection demandée et simuler le collage dans l'application cible.
 - Les événements clavier globaux servent uniquement à détecter le raccourci choisi.
+
+L'édition App Store ne contient pas Sparkle : ses mises à jour sont distribuées
+uniquement par le Mac App Store.
 
 ## Contrôle par l'utilisateur
 

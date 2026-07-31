@@ -2,6 +2,58 @@ import XCTest
 import Carbon.HIToolbox
 @testable import Pressay
 
+final class DistributionChannelTests: XCTestCase {
+    func testDirectDistributionKeepsUniversalCapabilities() {
+        XCTAssertEqual(DistributionChannel.current, .direct)
+        XCTAssertTrue(DistributionChannel.direct.supportsAccessibility)
+        XCTAssertTrue(DistributionChannel.direct.supportsUniversalInsertion)
+        XCTAssertTrue(DistributionChannel.direct.supportsSelectionTransformation)
+        XCTAssertTrue(DistributionChannel.direct.supportsGlobalShortcuts)
+        XCTAssertTrue(DistributionChannel.direct.usesSparkle)
+    }
+
+    func testAppStoreDistributionIsCopyOnlyAndSandboxCompatible() {
+        XCTAssertFalse(DistributionChannel.appStore.supportsAccessibility)
+        XCTAssertFalse(DistributionChannel.appStore.supportsUniversalInsertion)
+        XCTAssertFalse(DistributionChannel.appStore.supportsSelectionTransformation)
+        XCTAssertFalse(DistributionChannel.appStore.supportsGlobalShortcuts)
+        XCTAssertFalse(DistributionChannel.appStore.supportsApplicationProfiles)
+        XCTAssertFalse(DistributionChannel.appStore.usesSparkle)
+    }
+}
+
+@MainActor
+final class VoiceInboxPrivacyDefaultsTests: XCTestCase {
+    func testVoiceInboxDoesNotPersistWithoutExplicitOptIn() {
+        let suiteName = "VoiceInboxPrivacyDefaultsTests.\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suiteName)!
+        let fileURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("\(UUID().uuidString).enc")
+        defer {
+            defaults.removePersistentDomain(forName: suiteName)
+            try? FileManager.default.removeItem(at: fileURL)
+        }
+        let inbox = VoiceInboxService(
+            fileURL: fileURL,
+            keychain: MemoryKeychainStore(),
+            defaults: defaults
+        )
+        inbox.append(
+            HistoryRecord(
+                sessionID: UUID(),
+                rawText: "Une idée",
+                finalText: "Une idée",
+                transcriptionProvider: "test",
+                audioDuration: 1,
+                deliveryStatus: .copied
+            )
+        )
+
+        XCTAssertTrue(inbox.entries.isEmpty)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: fileURL.path))
+    }
+}
+
 final class SpeechDetectionPolicyTests: XCTestCase {
     func testSilenceIsRejected() {
         let result = SpeechDetectionPolicy.analyze(
