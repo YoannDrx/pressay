@@ -1,4 +1,9 @@
+import AVFoundation
 import Foundation
+#if canImport(FoundationModels)
+import FoundationModels
+#endif
+import Speech
 
 enum ProviderRoutingError: LocalizedError, Equatable {
     case providerNotFound(String)
@@ -57,9 +62,10 @@ final class TranscriptionRouter: TranscriptionRouting {
                         displayName: "OpenAI",
                         locality: .cloud,
                         supportedLocales: ["fr", "en"],
-                        availability: openAI.isReady
-                            ? .available
-                            : .unavailable(reason: "Clé API non configurée")
+                        // Readiness is checked by the router when this
+                        // provider is actually selected. Avoid touching the
+                        // Keychain while Pressay builds its application graph.
+                        availability: .available
                     ),
                     openAI
                 )
@@ -221,5 +227,221 @@ final class ProcessingRouter: ProcessingRouting {
                 "Le modèle \(modelID) doit être téléchargé"
             )
         }
+    }
+}
+
+#if compiler(>=6.2)
+@available(macOS 26.0, *)
+final class SpeechAnalyzerTranscriptionProvider: SpeechTranscribing {
+    let identifier = "speech-analyzer"
+    let locality: ProviderLocality = .local
+
+    var isReady: Bool { SpeechTranscriber.isAvailable }
+
+    func transcribe(audioURL: URL) async throws -> TranscriptionResult {
+        guard isReady else {
+            throw ProviderRoutingError.providerUnavailable(
+                "La transcription système n’est pas disponible sur ce Mac"
+            )
+        }
+        let requestedLocale = Locale(
+            identifier: UserDefaults.standard.string(
+                forKey: Constants.transcriptionLanguageKey
+            ) ?? Constants.defaultTranscriptionLanguage
+        )
+        guard let locale = await SpeechTranscriber.supportedLocale(
+            equivalentTo: requestedLocale
+        ) else {
+            throw ProviderRoutingError.providerUnavailable(
+                "La langue \(requestedLocale.identifier) n’est pas disponible localement"
+            )
+        }
+
+        let module = SpeechTranscriber(locale: locale, preset: .transcription)
+        if let request = try await AssetInventory.assetInstallationRequest(
+            supporting: [module]
+        ) {
+            try await request.downloadAndInstall()
+        }
+
+        let file = try AVAudioFile(forReading: audioURL)
+        let analyzer = SpeechAnalyzer(modules: [module])
+        let resultsTask = Task { () throws -> String in
+            var fragments: [String] = []
+            for try await result in module.results {
+                try Task.checkCancellation()
+                let fragment = String(result.text.characters)
+                    .trimmingCharacters(in: .whitespacesAndNewlines)
+                if !fragment.isEmpty {
+                    fragments.append(fragment)
+                }
+            }
+            return fragments.joined(separator: " ")
+        }
+
+        do {
+            let lastSampleTime = try await analyzer.analyzeSequence(from: file)
+            if let lastSampleTime {
+                try await analyzer.finalizeAndFinish(through: lastSampleTime)
+            } else {
+                try await analyzer.finalizeAndFinishThroughEndOfInput()
+            }
+            let text = try await resultsTask.value
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !text.isEmpty else {
+                throw ProviderRoutingError.providerUnavailable(
+                    "La transcription locale n’a produit aucun texte"
+                )
+            }
+            return TranscriptionResult(text: text, averageLogProbability: 0)
+        } catch {
+            resultsTask.cancel()
+            await analyzer.cancelAndFinishNow()
+            throw error
+        }
+    }
+}
+#endif
+
+#if canImport(FoundationModels)
+@available(macOS 26.0, *)
+final class FoundationModelsProcessor: TextProcessing {
+    let identifier = "foundation-models"
+    let modelIdentifier = "apple-system-language-model"
+    let locality: ProviderLocality = .local
+
+    static var availability: ProviderAvailability {
+        switch SystemLanguageModel.default.availability {
+        case .available:
+            return .available
+        case .unavailable(.deviceNotEligible):
+            return .unavailable(reason: "Ce Mac n’est pas compatible avec Apple Intelligence")
+        case .unavailable(.appleIntelligenceNotEnabled):
+            return .unavailable(reason: "Apple Intelligence doit être activé")
+        case .unavailable(.modelNotReady):
+            return .unavailable(reason: "Le modèle Apple Intelligence n’est pas encore prêt")
+        @unknown default:
+            return .unavailable(reason: "Le modèle Apple Intelligence est indisponible")
+        }
+    }
+
+    func process(_ request: TextProcessingRequest) async throws -> TextProcessingResult {
+        guard Self.availability == .available else {
+            if case .unavailable(let reason) = Self.availability {
+                throw ProviderRoutingError.providerUnavailable(reason)
+            }
+            throw ProviderRoutingError.localProviderUnavailable
+        }
+
+        let model = SystemLanguageModel(
+            useCase: .general,
+            guardrails: .permissiveContentTransformations
+        )
+        let session = LanguageModelSession(
+            model: model,
+            instructions: OpenAITextProcessingService.instructions(
+                for: request.mode
+            )
+        )
+        let response = try await session.respond(
+            to: OpenAITextProcessingService.input(
+                text: request.text,
+                mode: request.mode,
+                context: request.context.restricted(
+                    to: request.mode.allowedContextSources
+                )
+            )
+        )
+        let text = response.content.trimmingCharacters(
+            in: .whitespacesAndNewlines
+        )
+        guard !text.isEmpty else {
+            throw ProviderRoutingError.providerUnavailable(
+                "Le modèle local n’a produit aucun texte"
+            )
+        }
+        return TextProcessingResult(
+            text: text,
+            providerIdentifier: identifier
+        )
+    }
+}
+#endif
+
+enum SystemProviderRegistry {
+    static func transcriptionRegistrations(
+        openAI: any SpeechTranscribing
+    ) -> [(ProviderDescriptor, any SpeechTranscribing)] {
+        var registrations: [(ProviderDescriptor, any SpeechTranscribing)] = [
+            (
+                ProviderDescriptor(
+                    id: openAI.identifier,
+                    displayName: "OpenAI",
+                    locality: .cloud,
+                    supportedLocales: ["fr", "en"],
+                    // Keep startup non-blocking; the provider's `isReady`
+                    // value is evaluated at the time of use.
+                    availability: .available
+                ),
+                openAI
+            )
+        ]
+        #if compiler(>=6.2)
+        if #available(macOS 26.0, *) {
+            let provider = SpeechAnalyzerTranscriptionProvider()
+            registrations.append(
+                (
+                    ProviderDescriptor(
+                        id: provider.identifier,
+                        displayName: "Transcription Apple",
+                        locality: .local,
+                        supportedLocales: ["fr", "en"],
+                        availability: provider.isReady
+                            ? .available
+                            : .unavailable(
+                                reason: "La transcription système est indisponible"
+                            )
+                    ),
+                    provider
+                )
+            )
+        }
+        #endif
+        return registrations
+    }
+
+    static func processingRegistrations(
+        openAI: any TextProcessing
+    ) -> [(ProviderDescriptor, any TextProcessing)] {
+        var registrations: [(ProviderDescriptor, any TextProcessing)] = [
+            (
+                ProviderDescriptor(
+                    id: openAI.identifier,
+                    displayName: "OpenAI Responses",
+                    locality: .cloud,
+                    supportedLocales: ["fr", "en"],
+                    availability: .available
+                ),
+                openAI
+            )
+        ]
+        #if canImport(FoundationModels)
+        if #available(macOS 26.0, *) {
+            let provider = FoundationModelsProcessor()
+            registrations.append(
+                (
+                    ProviderDescriptor(
+                        id: provider.identifier,
+                        displayName: "Apple Intelligence",
+                        locality: .local,
+                        supportedLocales: ["fr", "en"],
+                        availability: FoundationModelsProcessor.availability
+                    ),
+                    provider
+                )
+            )
+        }
+        #endif
+        return registrations
     }
 }

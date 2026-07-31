@@ -4,6 +4,8 @@ import SwiftUI
 enum HUDState: Equatable {
     case listening
     case transcribing
+    case processing
+    case delivering
     case success
     case copied
     case cancelled
@@ -12,6 +14,8 @@ enum HUDState: Equatable {
         switch self {
         case .listening: return "J’écoute…"
         case .transcribing: return "Transcription…"
+        case .processing: return "Transformation…"
+        case .delivering: return "Insertion…"
         case .success: return "Texte inséré"
         case .copied: return "Texte copié"
         case .cancelled: return "Annulé"
@@ -22,6 +26,8 @@ enum HUDState: Equatable {
         switch self {
         case .listening: return "waveform"
         case .transcribing: return "ellipsis"
+        case .processing: return "wand.and.stars"
+        case .delivering: return "arrow.down.doc"
         case .success: return "checkmark"
         case .copied: return "doc.on.clipboard"
         case .cancelled: return "xmark"
@@ -32,6 +38,8 @@ enum HUDState: Equatable {
         switch self {
         case .listening: return .red
         case .transcribing: return .blue
+        case .processing: return .purple
+        case .delivering: return .teal
         case .success: return .green
         case .copied: return .orange
         case .cancelled: return .secondary
@@ -50,11 +58,18 @@ final class StatusHUDController: ObservableObject {
     @Published var isUndoAvailable = false
     @Published private(set) var canRetranscribe = false
     @Published private(set) var canCompareRawAndFinal = false
+    @Published private(set) var canCorrect = false
+    @Published private(set) var hudSize: HUDSize = .comfortable
+    @Published private(set) var showsResultActions = true
+    @Published private(set) var selectedModeID: UUID?
+    @Published private(set) var modeOptions: [HUDModeOption] = []
     var onCancel: (() -> Void)?
     var onUndo: (() -> Void)?
     private var onCopy: (() -> Void)?
     private var onRetranscribe: (() -> Void)?
     private var onCompareRawAndFinal: (() -> Void)?
+    private var onCorrect: (() -> Void)?
+    private var onSelectMode: ((UUID) -> Void)?
     private var panel: NSPanel?
     private var hideTask: Task<Void, Never>?
     private var autoHideRequested = false
@@ -66,6 +81,7 @@ final class StatusHUDController: ObservableObject {
         autoHide: Bool = false
     ) {
         hideTask?.cancel()
+        refreshPreferences()
         autoHideRequested = autoHide
         self.state = state
         self.detail = detail
@@ -78,6 +94,7 @@ final class StatusHUDController: ObservableObject {
 
         let panel = panel ?? makePanel()
         self.panel = panel
+        panel.setContentSize(panelSize)
         position(panel)
         panel.orderFrontRegardless()
 
@@ -109,15 +126,34 @@ final class StatusHUDController: ObservableObject {
     func configureResultActions(
         canRetranscribe: Bool,
         canCompareRawAndFinal: Bool,
+        canCorrect: Bool,
         onCopy: @escaping () -> Void,
         onRetranscribe: @escaping () -> Void,
-        onCompareRawAndFinal: @escaping () -> Void
+        onCompareRawAndFinal: @escaping () -> Void,
+        onCorrect: @escaping () -> Void
     ) {
         self.canRetranscribe = canRetranscribe
         self.canCompareRawAndFinal = canCompareRawAndFinal
+        self.canCorrect = canCorrect
         self.onCopy = onCopy
         self.onRetranscribe = onRetranscribe
         self.onCompareRawAndFinal = onCompareRawAndFinal
+        self.onCorrect = onCorrect
+    }
+
+    func configureModeSelection(
+        currentModeID: UUID,
+        options: [HUDModeOption],
+        onSelect: @escaping (UUID) -> Void
+    ) {
+        selectedModeID = currentModeID
+        modeOptions = options
+        onSelectMode = onSelect
+    }
+
+    func selectMode(_ id: UUID) {
+        selectedModeID = id
+        onSelectMode?(id)
     }
 
     func copyResult() {
@@ -132,9 +168,13 @@ final class StatusHUDController: ObservableObject {
         onCompareRawAndFinal?()
     }
 
+    func correctResult() {
+        onCorrect?()
+    }
+
     private func makePanel() -> NSPanel {
         let panel = NSPanel(
-            contentRect: NSRect(x: 0, y: 0, width: 380, height: 52),
+            contentRect: NSRect(origin: .zero, size: panelSize),
             styleMask: [.borderless, .nonactivatingPanel],
             backing: .buffered,
             defer: false
@@ -153,10 +193,13 @@ final class StatusHUDController: ObservableObject {
         guard autoHideRequested, !pointerIsInside else { return }
         hideTask?.cancel()
         hideTask = Task { [weak self] in
-            let delay: Duration = self?.state == .success
-                || self?.state == .copied
-                ? .milliseconds(1_500)
-                : .milliseconds(700)
+            let delay: Duration
+            if self?.state == .success || self?.state == .copied {
+                guard let resultDelay = self?.resultDuration.delay else { return }
+                delay = resultDelay
+            } else {
+                delay = .milliseconds(600)
+            }
             try? await Task.sleep(for: delay)
             guard !Task.isCancelled else { return }
             self?.hide()
@@ -167,11 +210,60 @@ final class StatusHUDController: ObservableObject {
         let pointer = NSEvent.mouseLocation
         let screen = NSScreen.screens.first { NSMouseInRect(pointer, $0.frame, false) } ?? NSScreen.main
         let visible = screen?.visibleFrame ?? .zero
-        let origin = NSPoint(
-            x: min(max(pointer.x + 14, visible.minX + 8), visible.maxX - panel.frame.width - 8),
-            y: min(max(pointer.y - panel.frame.height - 18, visible.minY + 8), visible.maxY - panel.frame.height - 8)
-        )
+        let origin: NSPoint
+        switch hudPosition {
+        case .bottomCenter:
+            origin = NSPoint(
+                x: visible.midX - panel.frame.width / 2,
+                y: visible.minY + 72
+            )
+        case .topCenter:
+            origin = NSPoint(
+                x: visible.midX - panel.frame.width / 2,
+                y: visible.maxY - panel.frame.height - 54
+            )
+        case .pointer:
+            origin = NSPoint(
+                x: min(
+                    max(pointer.x + 14, visible.minX + 8),
+                    visible.maxX - panel.frame.width - 8
+                ),
+                y: min(
+                    max(pointer.y - panel.frame.height - 18, visible.minY + 8),
+                    visible.maxY - panel.frame.height - 8
+                )
+            )
+        }
         panel.setFrameOrigin(origin)
+    }
+
+    private var hudPosition: HUDPosition {
+        HUDPosition(
+            rawValue: UserDefaults.standard.string(forKey: Constants.hudPositionKey) ?? ""
+        ) ?? .bottomCenter
+    }
+
+    private var resultDuration: HUDResultDuration {
+        HUDResultDuration(
+            rawValue: UserDefaults.standard.string(
+                forKey: Constants.hudResultDurationKey
+            ) ?? ""
+        ) ?? .fast
+    }
+
+    fileprivate var panelSize: NSSize {
+        hudSize == .compact
+            ? NSSize(width: 380, height: 52)
+            : NSSize(width: 430, height: 60)
+    }
+
+    private func refreshPreferences() {
+        hudSize = HUDSize(
+            rawValue: UserDefaults.standard.string(forKey: Constants.hudSizeKey) ?? ""
+        ) ?? .comfortable
+        showsResultActions = UserDefaults.standard.object(
+            forKey: Constants.hudShowsResultActionsKey
+        ) as? Bool ?? true
     }
 
     func elapsedText(at date: Date) -> String {
@@ -190,18 +282,28 @@ private struct StatusHUDView: View {
     private var differentiateWithoutColor
 
     var body: some View {
-        HStack(spacing: 8) {
+        HStack(spacing: controller.hudSize == .compact ? 8 : 10) {
             ZStack {
                 Circle()
                     .fill(controller.state.color.opacity(0.16))
-                    .frame(width: 26, height: 26)
+                    .frame(
+                        width: controller.hudSize == .compact ? 26 : 30,
+                        height: controller.hudSize == .compact ? 26 : 30
+                    )
                 Image(systemName: controller.state.icon)
-                    .font(.system(size: 11, weight: .bold))
+                    .font(
+                        .system(
+                            size: controller.hudSize == .compact ? 11 : 13,
+                            weight: .bold
+                        )
+                    )
                     .foregroundStyle(controller.state.color)
                     .symbolEffect(
                         .pulse,
                         isActive: !reduceMotion
-                            && controller.state == .transcribing
+                            && (controller.state == .transcribing
+                                || controller.state == .processing
+                                || controller.state == .delivering)
                     )
                     .symbolEffect(
                         .variableColor.iterative,
@@ -213,7 +315,12 @@ private struct StatusHUDView: View {
 
             VStack(alignment: .leading, spacing: 2) {
                 Text(controller.state.title)
-                    .font(.system(size: 11, weight: .semibold))
+                    .font(
+                        .system(
+                            size: controller.hudSize == .compact ? 11 : 12,
+                            weight: .semibold
+                        )
+                    )
                     .lineLimit(1)
                 HStack(spacing: 5) {
                     if controller.state == .listening {
@@ -226,7 +333,12 @@ private struct StatusHUDView: View {
                             .lineLimit(1)
                     }
                 }
-                .font(.system(size: 8, design: .rounded))
+                .font(
+                    .system(
+                        size: controller.hudSize == .compact ? 8 : 9,
+                        design: .rounded
+                    )
+                )
                 .foregroundStyle(.secondary)
 
                 if controller.state == .listening {
@@ -253,56 +365,114 @@ private struct StatusHUDView: View {
                 }
             }
             Spacer(minLength: 0)
+            if controller.state == .listening,
+               let selectedModeID = controller.selectedModeID,
+               controller.modeOptions.count > 1 {
+                Menu {
+                    ForEach(controller.modeOptions) { mode in
+                        Button {
+                            controller.selectMode(mode.id)
+                        } label: {
+                            Label(mode.name, systemImage: mode.symbolName)
+                        }
+                    }
+                } label: {
+                    HStack(spacing: 4) {
+                        if let mode = controller.modeOptions.first(where: {
+                            $0.id == selectedModeID
+                        }) {
+                            Image(systemName: mode.symbolName)
+                            Text(mode.name)
+                        }
+                        Image(systemName: "chevron.up.chevron.down")
+                            .font(.system(size: 7, weight: .bold))
+                    }
+                    .font(.system(size: 9, weight: .semibold))
+                    .padding(.horizontal, 7)
+                    .padding(.vertical, 5)
+                    .background(.primary.opacity(0.07), in: Capsule())
+                }
+                .menuStyle(.borderlessButton)
+                .fixedSize()
+                .accessibilityLabel("Changer le mode de cette dictée")
+            }
             if controller.state == .success || controller.state == .copied {
                 HStack(spacing: 7) {
-                    Button("Copier", action: controller.copyResult)
-                        .accessibilityHint(
-                            "Copie le résultat visible dans le presse-papiers"
-                        )
-                    if controller.canRetranscribe {
-                        Button("Retranscrire", action: controller.retranscribeResult)
+                    if controller.showsResultActions {
+                        Button("Copier", action: controller.copyResult)
                             .accessibilityHint(
-                                "Relance la transcription depuis l’audio temporaire"
+                                "Copie le résultat visible dans le presse-papiers"
                             )
-                    }
-                    if controller.canCompareRawAndFinal {
-                        Button("Brut/Final", action: controller.compareRawAndFinalResult)
-                            .accessibilityLabel(
-                                "Comparer la transcription brute et le texte final"
-                            )
-                    }
-                    if controller.isUndoAvailable {
-                        Button("Annuler") {
-                            controller.onUndo?()
+                        if controller.canRetranscribe {
+                            Button("Retranscrire", action: controller.retranscribeResult)
+                                .accessibilityHint(
+                                    "Relance la transcription depuis l’audio temporaire"
+                                )
                         }
-                        .accessibilityLabel("Annuler la dernière insertion")
+                        if controller.canCompareRawAndFinal {
+                            Button("Brut/Final", action: controller.compareRawAndFinalResult)
+                                .accessibilityLabel(
+                                    "Comparer la transcription brute et le texte final"
+                                )
+                        }
+                        if controller.canCorrect {
+                            Button("Corriger", action: controller.correctResult)
+                                .accessibilityHint(
+                                    "Dicte une correction pour la dernière insertion"
+                                )
+                        }
+                        if controller.isUndoAvailable {
+                            Button("Annuler") {
+                                controller.onUndo?()
+                            }
+                            .accessibilityLabel("Annuler la dernière insertion")
+                        }
                     }
+                    dismissButton(
+                        help: "Fermer",
+                        accessibilityLabel: "Fermer le résultat"
+                    )
                 }
-                .font(.system(size: 8, weight: .semibold))
+                .font(
+                    .system(
+                        size: controller.hudSize == .compact ? 8 : 9,
+                        weight: .semibold
+                    )
+                )
                 .buttonStyle(.plain)
-            } else if controller.state == .listening || controller.state == .transcribing {
-                Button {
-                    controller.onCancel?()
-                } label: {
-                    Image(systemName: "xmark")
-                        .font(.system(size: 8, weight: .bold))
-                        .frame(width: 20, height: 20)
-                        .background(.primary.opacity(0.07), in: Circle())
+            } else if controller.state == .listening
+                        || controller.state == .transcribing
+                        || controller.state == .processing
+                        || controller.state == .delivering {
+                Button(action: { controller.onCancel?() }) {
+                    dismissButtonLabel
                 }
                 .buttonStyle(.plain)
                 .help("Annuler")
                 .accessibilityLabel(
                     controller.state == .listening
                         ? "Annuler l’enregistrement"
-                        : "Annuler la transcription"
+                        : "Annuler le traitement"
                 )
             }
         }
-        .padding(.horizontal, 10)
-        .frame(width: 380, height: 52)
-        .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 13, style: .continuous))
+        .padding(.horizontal, controller.hudSize == .compact ? 10 : 12)
+        .frame(
+            width: controller.panelSize.width,
+            height: controller.panelSize.height
+        )
+        .background(
+            .ultraThinMaterial,
+            in: RoundedRectangle(
+                cornerRadius: controller.hudSize == .compact ? 13 : 15,
+                style: .continuous
+            )
+        )
         .overlay(
-            RoundedRectangle(cornerRadius: 13, style: .continuous)
+            RoundedRectangle(
+                cornerRadius: controller.hudSize == .compact ? 13 : 15,
+                style: .continuous
+            )
                 .stroke(
                     differentiateWithoutColor
                         ? Color.primary.opacity(0.5)
@@ -313,5 +483,25 @@ private struct StatusHUDView: View {
         .onHover(perform: controller.setPointerInside)
         .accessibilityElement(children: .contain)
         .accessibilityLabel("Pressay. \(controller.state.title)")
+    }
+
+    private var dismissButtonLabel: some View {
+        Image(systemName: "xmark")
+            .font(.system(size: 9, weight: .bold))
+            .frame(width: 22, height: 22)
+            .contentShape(Circle())
+            .background(.primary.opacity(0.07), in: Circle())
+    }
+
+    private func dismissButton(
+        help: String,
+        accessibilityLabel: String
+    ) -> some View {
+        Button(action: controller.hide) {
+            dismissButtonLabel
+        }
+        .buttonStyle(.plain)
+        .help(help)
+        .accessibilityLabel(accessibilityLabel)
     }
 }

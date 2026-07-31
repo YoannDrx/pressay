@@ -28,8 +28,20 @@ struct SettingsView: View {
     private var historyEnabled = true
     @AppStorage(Constants.historyRetentionDaysKey)
     private var historyRetentionDays = 1
+    @AppStorage(Constants.inboxEnabledKey)
+    private var inboxEnabled = true
+    @AppStorage(Constants.inboxRetentionDaysKey)
+    private var inboxRetentionDays = 30
     @AppStorage(Constants.metricsEnabledKey)
     private var metricsEnabled = false
+    @AppStorage(Constants.hudPositionKey)
+    private var hudPosition = HUDPosition.bottomCenter.rawValue
+    @AppStorage(Constants.hudSizeKey)
+    private var hudSize = HUDSize.comfortable.rawValue
+    @AppStorage(Constants.hudResultDurationKey)
+    private var hudResultDuration = HUDResultDuration.fast.rawValue
+    @AppStorage(Constants.hudShowsResultActionsKey)
+    private var hudShowsResultActions = true
 
     var body: some View {
         VStack(spacing: 0) {
@@ -39,6 +51,7 @@ struct SettingsView: View {
                     permissionsSection
                     apiSection
                     recognitionSection
+                    hudSection
                     modesSection
                     shortcutSection
                     privacySection
@@ -59,6 +72,8 @@ struct SettingsView: View {
         }
         .onChange(of: historyEnabled) { _, _ in HistoryService.shared.applyPreferences() }
         .onChange(of: historyRetentionDays) { _, _ in HistoryService.shared.applyPreferences() }
+        .onChange(of: inboxEnabled) { _, _ in VoiceInboxService.shared.applyPreferences() }
+        .onChange(of: inboxRetentionDays) { _, _ in VoiceInboxService.shared.applyPreferences() }
     }
 
     private var header: some View {
@@ -203,6 +218,21 @@ struct SettingsView: View {
                 LabeledContent {
                     ShortcutRecorderField(
                         router: appState.keyboardService,
+                        action: .correctLastInsertion
+                    )
+                } label: {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("Corriger la dernière insertion")
+                            .font(.system(size: 12, weight: .medium))
+                        Text("Sélection sûre, instruction vocale puis aperçu.")
+                            .font(.system(size: 10))
+                            .foregroundStyle(.secondary)
+                    }
+                }
+                Divider().opacity(0.45)
+                LabeledContent {
+                    ShortcutRecorderField(
+                        router: appState.keyboardService,
                         action: .transformSelection
                     )
                 } label: {
@@ -263,6 +293,47 @@ struct SettingsView: View {
         }
     }
 
+    private var hudSection: some View {
+        SettingsSection(title: "HUD", icon: "rectangle.inset.filled") {
+            VStack(alignment: .leading, spacing: 13) {
+                settingPicker(
+                    title: "Position",
+                    detail: "Écran qui contient le pointeur au début de la dictée.",
+                    selection: $hudPosition
+                ) {
+                    ForEach(HUDPosition.allCases) { position in
+                        Text(position.label).tag(position.rawValue)
+                    }
+                }
+                Divider().opacity(0.45)
+                settingPicker(
+                    title: "Taille",
+                    detail: "Compacte ou confortable selon ton espace de travail.",
+                    selection: $hudSize
+                ) {
+                    ForEach(HUDSize.allCases) { size in
+                        Text(size.label).tag(size.rawValue)
+                    }
+                }
+                Divider().opacity(0.45)
+                settingPicker(
+                    title: "Résultat",
+                    detail: "Durée avant disparition ; le survol met le délai en pause.",
+                    selection: $hudResultDuration
+                ) {
+                    ForEach(HUDResultDuration.allCases) { duration in
+                        Text(duration.label).tag(duration.rawValue)
+                    }
+                }
+                Toggle(
+                    "Afficher Copier, Retranscrire, Brut/Final et Annuler",
+                    isOn: $hudShowsResultActions
+                )
+                .font(.system(size: 11, weight: .medium))
+            }
+        }
+    }
+
     private var privacySection: some View {
         SettingsSection(title: "CONFIDENTIALITÉ ET MESURES", icon: "lock.shield") {
             VStack(alignment: .leading, spacing: 13) {
@@ -273,6 +344,23 @@ struct SettingsView: View {
                         Text("24 heures").tag(1)
                         Text("7 jours").tag(7)
                         Text("30 jours").tag(30)
+                    }
+                }
+                Divider().opacity(0.45)
+                Toggle(
+                    "Conserver les dictées sans cible dans la Voice Inbox",
+                    isOn: $inboxEnabled
+                )
+                .font(.system(size: 12, weight: .medium))
+                if inboxEnabled {
+                    settingPicker(
+                        title: "Rétention Inbox",
+                        detail: "Stockage local chiffré, distinct de l’historique.",
+                        selection: $inboxRetentionDays
+                    ) {
+                        Text("7 jours").tag(7)
+                        Text("30 jours").tag(30)
+                        Text("90 jours").tag(90)
                     }
                 }
                 Divider().opacity(0.45)

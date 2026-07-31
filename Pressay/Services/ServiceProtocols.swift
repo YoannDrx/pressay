@@ -87,6 +87,19 @@ protocol ModeResolving: AnyObject {
         applicationBundleIdentifier: String?,
         intent: VoiceIntent
     ) -> ModeDefinition
+    func deliveryPolicy(
+        for applicationBundleIdentifier: String?
+    ) -> ApplicationDeliveryPolicy
+    func availableModes() -> [ModeDefinition]
+}
+
+extension ModeResolving {
+    func deliveryPolicy(
+        for applicationBundleIdentifier: String?
+    ) -> ApplicationDeliveryPolicy {
+        .automatic
+    }
+    func availableModes() -> [ModeDefinition] { [] }
 }
 
 @MainActor
@@ -107,11 +120,13 @@ protocol TextDelivering: AnyObject {
     func inject(text: String, target: TextInjectionTarget?) async -> Bool
     func copyToPasteboard(_ text: String)
     func undoLastInsertion() -> Bool
+    func prepareRecentInsertionForReplacement() -> Bool
 }
 
 extension TextDelivering {
     var lastDeliveryStrategy: DeliveryStrategy { .copied }
     var lastDeliveryFailure: DeliveryFailureReason? { nil }
+    func prepareRecentInsertionForReplacement() -> Bool { false }
 }
 
 enum DeliveryFailureReason: String, Sendable {
@@ -185,6 +200,11 @@ protocol ActionExecuting: AnyObject {
 
 @MainActor
 protocol HistoryRepository: AnyObject {
+    func append(_ record: HistoryRecord)
+}
+
+@MainActor
+protocol VoiceInboxRepository: AnyObject {
     func append(_ record: HistoryRecord)
 }
 
@@ -262,9 +282,16 @@ protocol HUDPresenting: AnyObject {
     func configureResultActions(
         canRetranscribe: Bool,
         canCompareRawAndFinal: Bool,
+        canCorrect: Bool,
         onCopy: @escaping () -> Void,
         onRetranscribe: @escaping () -> Void,
-        onCompareRawAndFinal: @escaping () -> Void
+        onCompareRawAndFinal: @escaping () -> Void,
+        onCorrect: @escaping () -> Void
+    )
+    func configureModeSelection(
+        currentModeID: UUID,
+        options: [HUDModeOption],
+        onSelect: @escaping (UUID) -> Void
     )
 }
 
@@ -272,8 +299,15 @@ extension HUDPresenting {
     func configureResultActions(
         canRetranscribe: Bool,
         canCompareRawAndFinal: Bool,
+        canCorrect: Bool,
         onCopy: @escaping () -> Void,
         onRetranscribe: @escaping () -> Void,
-        onCompareRawAndFinal: @escaping () -> Void
+        onCompareRawAndFinal: @escaping () -> Void,
+        onCorrect: @escaping () -> Void
+    ) {}
+    func configureModeSelection(
+        currentModeID: UUID,
+        options: [HUDModeOption],
+        onSelect: @escaping (UUID) -> Void
     ) {}
 }

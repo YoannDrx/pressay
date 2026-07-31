@@ -579,6 +579,47 @@ final class ModeResolverTests: XCTestCase {
         )
     }
 
+    func testDeliveryPolicyAndProviderOverridesSurviveReload() throws {
+        let suiteName = "PressayTests.ModeResolver.Providers.\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        let fileURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("pressay-modes-\(UUID().uuidString).json")
+        defer { try? FileManager.default.removeItem(at: fileURL) }
+
+        let store = ModeStore(fileURL: fileURL, defaults: defaults)
+        store.setTranscriptionProviderOverride(
+            modeID: NativeModeCatalog.cleanID,
+            providerID: "speech-analyzer"
+        )
+        store.setProcessingProviderOverride(
+            modeID: NativeModeCatalog.cleanID,
+            providerID: "foundation-models"
+        )
+        store.upsertApplicationProfile(
+            ApplicationProfile(
+                bundleIdentifier: "com.example.private",
+                modeID: NativeModeCatalog.cleanID,
+                source: .manual,
+                isEnabled: true,
+                deliveryPolicy: .copyOnly
+            )
+        )
+
+        let reloaded = ModeStore(fileURL: fileURL, defaults: defaults)
+        let mode = try XCTUnwrap(
+            reloaded.mode(withID: NativeModeCatalog.cleanID)
+        )
+        let resolver = ModeResolverService(store: reloaded)
+
+        XCTAssertEqual(mode.transcriptionProviderID, "speech-analyzer")
+        XCTAssertEqual(mode.processingProviderID, "foundation-models")
+        XCTAssertEqual(
+            resolver.deliveryPolicy(for: "com.example.private"),
+            .copyOnly
+        )
+    }
+
     func testV1MigrationKeepsBackupForTwoSuccessfulLaunches() throws {
         let suiteName = "PressayTests.ModeResolver.Migration.\(UUID().uuidString)"
         let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
@@ -826,6 +867,51 @@ final class DiagnosticReportTests: XCTestCase {
 }
 
 final class ProviderRoutingTests: XCTestCase {
+    func testPreferLocalSelectsAvailableSystemProvider() throws {
+        let cloud = MockSpeechTranscriber(text: "Cloud")
+        let local = MockSpeechTranscriber(
+            text: "Local",
+            identifier: "speech-analyzer",
+            locality: .local
+        )
+        let router = TranscriptionRouter(
+            registrations: [
+                (
+                    ProviderDescriptor(
+                        id: cloud.identifier,
+                        displayName: "Cloud",
+                        locality: .cloud,
+                        supportedLocales: ["fr"],
+                        availability: .available
+                    ),
+                    cloud
+                ),
+                (
+                    ProviderDescriptor(
+                        id: local.identifier,
+                        displayName: "Local",
+                        locality: .local,
+                        supportedLocales: ["fr"],
+                        availability: .available
+                    ),
+                    local
+                )
+            ],
+            automaticCloudProviderID: cloud.identifier,
+            automaticLocalProviderIDs: [local.identifier]
+        )
+        var mode = NativeModeCatalog.visibleModes[0]
+        mode.providerPolicy = .preferLocal
+
+        let selected = try router.provider(
+            for: mode,
+            capabilities: .current
+        )
+
+        XCTAssertEqual(selected.identifier, local.identifier)
+        XCTAssertEqual(selected.locality, .local)
+    }
+
     func testLocalOnlyRejectsExplicitCloudTranscriber() {
         let cloud = MockSpeechTranscriber(text: "Cloud")
         let router = TranscriptionRouter(
@@ -1745,12 +1831,144 @@ final class SessionCoordinatorTests: XCTestCase {
         )
     }
 
+    func testExcludedApplicationNeverStartsRecording() {
+        let audio = MockAudioCapturer(result: speechResult())
+        let resolver = MockModeResolver()
+        resolver.deliveryPolicy = .excluded
+        let coordinator = makeCoordinator(
+            audio: audio,
+            transcriber: MockSpeechTranscriber(text: "Texte"),
+            context: MockContextCapturer(
+                result: .init(target: nil, context: .empty)
+            ),
+            delivery: MockTextDeliverer(shouldInsert: true),
+            history: MockHistoryRepository(),
+            modeResolver: resolver
+        )
+
+        coordinator.startCapture()
+
+        XCTAssertFalse(audio.didStart)
+        XCTAssertNil(coordinator.captureSession)
+        XCTAssertEqual(
+            coordinator.lastError,
+            "Pressay est désactivé pour cette application"
+        )
+    }
+
+    func testCopyOnlyPolicyCopiesOnceWithoutInjection() async throws {
+        let resolver = MockModeResolver()
+        resolver.deliveryPolicy = .copyOnly
+        let delivery = MockTextDeliverer(shouldInsert: true)
+        let coordinator = makeCoordinator(
+            audio: MockAudioCapturer(result: speechResult()),
+            transcriber: MockSpeechTranscriber(text: "Texte à copier"),
+            context: MockContextCapturer(
+                result: .init(target: nil, context: .empty)
+            ),
+            delivery: delivery,
+            history: MockHistoryRepository(),
+            modeResolver: resolver
+        )
+
+        coordinator.startCapture()
+        coordinator.stopCaptureAndQueue()
+        try await waitUntilFinished(coordinator)
+
+        XCTAssertTrue(delivery.insertedTexts.isEmpty)
+        XCTAssertEqual(delivery.copiedTexts, ["Texte à copier"])
+    }
+
+    func testPreviewPolicyNeverInsertsBeforeConfirmation() async throws {
+        let resolver = MockModeResolver()
+        resolver.deliveryPolicy = .preview
+        let delivery = MockTextDeliverer(shouldInsert: true)
+        let preview = MockPreviewPresenter()
+        let coordinator = makeCoordinator(
+            audio: MockAudioCapturer(result: speechResult()),
+            transcriber: MockSpeechTranscriber(text: "Texte à vérifier"),
+            context: MockContextCapturer(
+                result: .init(target: nil, context: .empty)
+            ),
+            delivery: delivery,
+            history: MockHistoryRepository(),
+            modeResolver: resolver,
+            previewPresenter: preview
+        )
+
+        coordinator.startCapture()
+        coordinator.stopCaptureAndQueue()
+        try await waitUntilPreview(coordinator)
+
+        XCTAssertTrue(delivery.insertedTexts.isEmpty)
+        XCTAssertEqual(preview.preview?.proposedText, "Texte à vérifier")
+    }
+
+    func testMissingEditableTargetRoutesResultToInbox() async throws {
+        let delivery = MockTextDeliverer(
+            shouldInsert: false,
+            failure: .missingTarget
+        )
+        let inbox = MockVoiceInboxRepository()
+        let coordinator = makeCoordinator(
+            audio: MockAudioCapturer(result: speechResult()),
+            transcriber: MockSpeechTranscriber(text: "Idée sans cible"),
+            context: MockContextCapturer(
+                result: .init(target: nil, context: .empty)
+            ),
+            delivery: delivery,
+            history: MockHistoryRepository(),
+            inbox: inbox
+        )
+
+        coordinator.startCapture()
+        coordinator.stopCaptureAndQueue()
+        try await waitUntilFinished(coordinator)
+
+        XCTAssertEqual(inbox.records.map(\.finalText), ["Idée sans cible"])
+        XCTAssertEqual(delivery.copiedTexts, ["Idée sans cible"])
+    }
+
+    func testCorrectionSelectsRecentInsertionBeforeVoiceTransformation() {
+        let delivery = MockTextDeliverer(
+            shouldInsert: true,
+            canPrepareReplacement: true
+        )
+        let audio = MockAudioCapturer(result: speechResult())
+        let coordinator = makeCoordinator(
+            audio: audio,
+            transcriber: MockSpeechTranscriber(text: "Corrige"),
+            context: MockContextCapturer(
+                result: .init(
+                    target: makeTarget(
+                        processIdentifier: 91,
+                        bundleIdentifier: "com.example.editor"
+                    ),
+                    context: ContextSnapshot(
+                        applicationBundleIdentifier: "com.example.editor",
+                        selectedText: "ancienne insertion",
+                        sources: [.application, .selection]
+                    )
+                )
+            ),
+            delivery: delivery,
+            history: MockHistoryRepository()
+        )
+
+        coordinator.startCorrectionCapture()
+
+        XCTAssertTrue(delivery.didPrepareReplacement)
+        XCTAssertTrue(audio.didStart)
+        XCTAssertEqual(coordinator.captureSession?.intent, .transformSelection)
+    }
+
     private func makeCoordinator(
         audio: MockAudioCapturer,
         transcriber: MockSpeechTranscriber,
         context: MockContextCapturer,
         delivery: MockTextDeliverer,
         history: MockHistoryRepository,
+        inbox: VoiceInboxRepository? = nil,
         textProcessor: MockTextProcessor? = nil,
         modeResolver: MockModeResolver? = nil,
         previewPresenter: MockPreviewPresenter? = nil,
@@ -1766,6 +1984,7 @@ final class SessionCoordinatorTests: XCTestCase {
             textDeliverer: delivery,
             previewPresenter: previewPresenter ?? MockPreviewPresenter(),
             history: history,
+            inbox: inbox,
             sounds: MockSoundFeedback(),
             metrics: MockMetricsRecorder(),
             hud: MockHUDPresenter()
@@ -1889,14 +2108,22 @@ private final class MockAudioCapturer: AudioCapturing {
 }
 
 private final class MockSpeechTranscriber: SpeechTranscribing {
-    let identifier = "mock"
+    let identifier: String
     let isReady: Bool
+    let locality: ProviderLocality
     let text: String
     var callCount = 0
 
-    init(text: String, isReady: Bool = true) {
+    init(
+        text: String,
+        isReady: Bool = true,
+        identifier: String = "mock",
+        locality: ProviderLocality = .cloud
+    ) {
         self.text = text
         self.isReady = isReady
+        self.identifier = identifier
+        self.locality = locality
     }
 
     func transcribe(audioURL: URL) async throws -> TranscriptionResult {
@@ -1940,6 +2167,8 @@ private final class MockCloudConsent: CloudConsentRequesting {
 @MainActor
 private final class MockModeResolver: ModeResolving {
     var mode = NativeModeCatalog.visibleModes[0]
+    var deliveryPolicy: ApplicationDeliveryPolicy = .automatic
+    var modes = NativeModeCatalog.visibleModes
 
     func resolveMode(
         explicitModeID: UUID?,
@@ -1951,6 +2180,14 @@ private final class MockModeResolver: ModeResolving {
         }
         return mode
     }
+
+    func deliveryPolicy(
+        for applicationBundleIdentifier: String?
+    ) -> ApplicationDeliveryPolicy {
+        deliveryPolicy
+    }
+
+    func availableModes() -> [ModeDefinition] { modes }
 }
 
 @MainActor
@@ -2001,14 +2238,24 @@ private final class MockPreviewPresenter: TextPreviewPresenting {
 @MainActor
 private final class MockTextDeliverer: TextDelivering {
     let shouldInsert: Bool
+    let failure: DeliveryFailureReason?
+    let canPrepareReplacement: Bool
     var insertedTexts: [String] = []
     var targets: [TextInjectionTarget?] = []
     var copiedTexts: [String] = []
     var didUndo = false
+    var didPrepareReplacement = false
     var canUndoLastInsertion: Bool { shouldInsert && !insertedTexts.isEmpty && !didUndo }
+    var lastDeliveryFailure: DeliveryFailureReason? { failure }
 
-    init(shouldInsert: Bool) {
+    init(
+        shouldInsert: Bool,
+        failure: DeliveryFailureReason? = nil,
+        canPrepareReplacement: Bool = false
+    ) {
         self.shouldInsert = shouldInsert
+        self.failure = failure
+        self.canPrepareReplacement = canPrepareReplacement
     }
 
     func inject(text: String, target: TextInjectionTarget?) async -> Bool {
@@ -2026,10 +2273,24 @@ private final class MockTextDeliverer: TextDelivering {
         didUndo = true
         return true
     }
+
+    func prepareRecentInsertionForReplacement() -> Bool {
+        didPrepareReplacement = true
+        return canPrepareReplacement
+    }
 }
 
 @MainActor
 private final class MockHistoryRepository: HistoryRepository {
+    var records: [HistoryRecord] = []
+
+    func append(_ record: HistoryRecord) {
+        records.append(record)
+    }
+}
+
+@MainActor
+private final class MockVoiceInboxRepository: VoiceInboxRepository {
     var records: [HistoryRecord] = []
 
     func append(_ record: HistoryRecord) {

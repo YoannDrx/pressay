@@ -5,7 +5,8 @@ Une case ne doit être cochée qu’avec un artefact ou un résultat reproductib
 
 ## Implémentation présente
 
-- [x] `MARKETING_VERSION` 1.2.0 et convention de builds bêta/RC/stable.
+- [x] `MARKETING_VERSION` 1.2.2, build 12101 et convention de builds
+  bêta/RC/stable/correctif.
 - [x] Schéma `modes.json` v2, migration v1, permissions `0600` et sauvegarde
   conservée deux lancements.
 - [x] Douze modes natifs, modes personnalisés et profils d’application opt-in.
@@ -93,8 +94,10 @@ Tier B — au moins quatre applications, avec un testeur par application :
 - [x] Produire localement l’archive Release build 12001 universelle signée
   Developer ID, vérifier sa signature profonde, son Team ID, Hardened Runtime
   et `arm64 + x86_64`.
-- [ ] Passer au build 12099, taguer exactement `v1.2.0`, notariser, vérifier
-  Gatekeeper et promouvoir le feed stable.
+- [x] Publier les stables 1.2.0 puis 1.2.1, notariser, vérifier Gatekeeper et
+  promouvoir le feed stable.
+- [ ] Publier le correctif 1.2.2 build 12101 après les validations de ce
+  document, puis retélécharger et vérifier indépendamment ses artefacts.
 
 ## Socle 1.3 non publiable
 
@@ -103,7 +106,9 @@ gates suivants :
 
 - [ ] intégrer et épingler FluidAudio/Parakeet ;
 - [ ] produire et intégrer le XCFramework whisper.cpp universel ;
-- [ ] ajouter SpeechAnalyzer et Foundation Models sous disponibilité macOS 26 ;
+- [x] ajouter le code SpeechAnalyzer et Foundation Models sous disponibilité
+  macOS 26 et compilation conditionnelle ; ils restent hors des capacités
+  garanties du binaire 1.2 jusqu’au passage des gates 1.3 ;
 - [ ] intégrer llama.cpp/Qwen opt-in ;
 - [ ] signer et publier le catalogue de modèles ;
 - [ ] livrer l’interface de téléchargement, pause, reprise et suppression ;

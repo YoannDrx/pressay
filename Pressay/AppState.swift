@@ -27,16 +27,23 @@ final class AppState: ObservableObject {
             textProcessor: OpenAITextProcessingService.shared,
             cloudConsent: CloudConsentController.shared,
             transcriptionRouter: TranscriptionRouter(
-                openAI: TranscriptionService.shared
+                registrations: SystemProviderRegistry
+                    .transcriptionRegistrations(
+                        openAI: TranscriptionService.shared
+                    )
             ),
             processingRouter: ProcessingRouter(
-                openAI: OpenAITextProcessingService.shared
+                registrations: SystemProviderRegistry
+                    .processingRegistrations(
+                        openAI: OpenAITextProcessingService.shared
+                    )
             ),
             contextCapturer: AccessibilityContextService.shared,
             modeResolver: ModeResolverService.shared,
             textDeliverer: TextInjector.shared,
             previewPresenter: TextPreviewController.shared,
             history: HistoryService.shared,
+            inbox: VoiceInboxService.shared,
             sounds: SoundService.shared,
             metrics: PerformanceMetricsService.shared,
             hud: StatusHUDController.shared
@@ -56,13 +63,16 @@ final class AppState: ObservableObject {
         textDeliverer: TextDelivering,
         previewPresenter: TextPreviewPresenting,
         history: HistoryRepository,
+        inbox: VoiceInboxRepository? = nil,
         sounds: SoundFeedback,
         metrics: MetricsRecording,
         hud: HUDPresenting
     ) {
         self.audioRecorder = audioRecorder
         self.keyboardService = keyboardService
-        self.hasAPIKey = transcriber.isReady
+        // A Keychain read can wait for SecurityAgent. Keep it away from the
+        // main-thread construction of the SwiftUI application graph.
+        self.hasAPIKey = false
         self.hasMicrophonePermission = audioRecorder.hasPermission
         self.sessionCoordinator = SessionCoordinator(
             audioCapturer: audioRecorder,
@@ -76,10 +86,20 @@ final class AppState: ObservableObject {
             textDeliverer: textDeliverer,
             previewPresenter: previewPresenter,
             history: history,
+            inbox: inbox,
             sounds: sounds,
             metrics: metrics,
             hud: hud
         )
+
+        if !Constants.isRunningTests {
+            Task { [weak self] in
+                let isReady = await Task.detached(priority: .utility) {
+                    transcriber.isReady
+                }.value
+                self?.hasAPIKey = isReady
+            }
+        }
 
         sessionCoordinator.objectWillChange
             .sink { [weak self] in self?.objectWillChange.send() }
@@ -110,6 +130,11 @@ final class AppState: ObservableObject {
                 } else if self.sessionCoordinator.captureSession == nil {
                     self.sessionCoordinator.startCapture(intent: .transformSelection)
                 }
+            }
+        }
+        keyboardService.onCorrectionShortcut = { [weak self] in
+            Task { @MainActor in
+                self?.sessionCoordinator.startCorrectionCapture()
             }
         }
         keyboardService.onModeShortcut = { [weak self] modeID in

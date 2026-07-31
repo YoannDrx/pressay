@@ -5,6 +5,7 @@ import Foundation
 enum ShortcutAction: Hashable {
     case dictate
     case transformSelection
+    case correctLastInsertion
     case mode(UUID)
 }
 
@@ -19,6 +20,7 @@ final class ShortcutRouter: ObservableObject {
     @Published private(set) var isMonitoring = false
     @Published private(set) var isHandsFreeActive = false
     @Published private(set) var transformationShortcutAvailable = false
+    @Published private(set) var correctionShortcutAvailable = false
     @Published private(set) var lastRegistrationMessage: String?
     @Published private(set) var isRecordingShortcut = false
 
@@ -44,6 +46,7 @@ final class ShortcutRouter: ObservableObject {
     var onCancel: (() -> Void)?
     var onHandsFreeChanged: ((Bool) -> Void)?
     var onTransformationShortcut: (() -> Void)?
+    var onCorrectionShortcut: (() -> Void)?
     var onModeShortcut: ((UUID) -> Void)?
     var onDictationHotKey: (() -> Void)?
 
@@ -83,6 +86,15 @@ final class ShortcutRouter: ObservableObject {
                 action: .transformSelection,
                 shortcut: transformDefinition
             ) == .registered
+        correctionShortcutAvailable = register(
+            action: .correctLastInsertion,
+            shortcut: persistedCorrectionShortcut()
+                ?? ShortcutDefinition(
+                    keyCode: UInt16(kVK_ANSI_R),
+                    modifiers: [.option, .shift],
+                    side: nil
+                )
+        ) == .registered
         for mode in ModeStore.shared.visibleModes {
             if let shortcut = mode.shortcut {
                 _ = register(action: .mode(mode.id), shortcut: shortcut)
@@ -116,6 +128,7 @@ final class ShortcutRouter: ObservableObject {
         ignoresNextRelease = false
         isHandsFreeActive = false
         transformationShortcutAvailable = false
+        correctionShortcutAvailable = false
         isMonitoring = false
     }
 
@@ -275,6 +288,8 @@ final class ShortcutRouter: ObservableObject {
             onDictationHotKey?()
         case .transformSelection:
             onTransformationShortcut?()
+        case .correctLastInsertion:
+            onCorrectionShortcut?()
         case .mode(let id):
             onModeShortcut?(id)
         }
@@ -436,6 +451,13 @@ final class ShortcutRouter: ObservableObject {
         }
     }
 
+    private func persistedCorrectionShortcut() -> ShortcutDefinition? {
+        guard let data = UserDefaults.standard.data(
+            forKey: Constants.correctionShortcutDefinitionKey
+        ) else { return nil }
+        return try? JSONDecoder().decode(ShortcutDefinition.self, from: data)
+    }
+
     private func persist(
         shortcut: ShortcutDefinition,
         for action: ShortcutAction
@@ -453,6 +475,13 @@ final class ShortcutRouter: ObservableObject {
                 modeID: NativeModeCatalog.transformSelectionID,
                 shortcut: shortcut
             )
+        case .correctLastInsertion:
+            if let data = try? JSONEncoder().encode(shortcut) {
+                UserDefaults.standard.set(
+                    data,
+                    forKey: Constants.correctionShortcutDefinitionKey
+                )
+            }
         case .mode(let modeID):
             ModeStore.shared.setShortcutOverride(
                 modeID: modeID,
@@ -509,6 +538,7 @@ private extension ShortcutAction {
         switch self {
         case .dictate: return "Dictée"
         case .transformSelection: return "Transformation"
+        case .correctLastInsertion: return "Correction"
         case .mode: return "Un autre mode Pressay"
         }
     }

@@ -313,6 +313,24 @@ final class ModeStore: ObservableObject {
         setOverride(value, for: modeID)
     }
 
+    func setTranscriptionProviderOverride(
+        modeID: UUID,
+        providerID: String?
+    ) {
+        var value = overrides[modeID] ?? ModeOverrides()
+        value.transcriptionProviderID = providerID
+        setOverride(value, for: modeID)
+    }
+
+    func setProcessingProviderOverride(
+        modeID: UUID,
+        providerID: String?
+    ) {
+        var value = overrides[modeID] ?? ModeOverrides()
+        value.processingProviderID = providerID
+        setOverride(value, for: modeID)
+    }
+
     func installedProfileSuggestions() -> [ApplicationProfileSuggestion] {
         ApplicationProfileSuggestion.catalog.filter {
             NSWorkspace.shared.urlForApplication(
@@ -330,7 +348,10 @@ final class ModeStore: ObservableObject {
                 || customModes.contains(where: { $0.id == modeID }) else {
             return
         }
-        if value.shortcut == nil, value.providerPolicy == nil {
+        if value.shortcut == nil,
+           value.providerPolicy == nil,
+           value.transcriptionProviderID == nil,
+           value.processingProviderID == nil {
             overrides.removeValue(forKey: modeID)
         } else {
             overrides[modeID] = value
@@ -346,6 +367,12 @@ final class ModeStore: ObservableObject {
         }
         if let providerPolicy = value.providerPolicy {
             result.providerPolicy = providerPolicy
+        }
+        if let transcriptionProviderID = value.transcriptionProviderID {
+            result.transcriptionProviderID = transcriptionProviderID
+        }
+        if let processingProviderID = value.processingProviderID {
+            result.processingProviderID = processingProviderID
         }
         return result
     }
@@ -523,5 +550,22 @@ final class ModeResolverService: ModeResolving {
         }
         return store.mode(withID: store.selectedModeID)
             ?? NativeModeCatalog.visibleModes[0]
+    }
+
+    func deliveryPolicy(
+        for applicationBundleIdentifier: String?
+    ) -> ApplicationDeliveryPolicy {
+        guard let applicationBundleIdentifier,
+              let profile = store.applicationProfiles.first(where: {
+                $0.isEnabled
+                    && $0.bundleIdentifier == applicationBundleIdentifier
+              }) else {
+            return .automatic
+        }
+        return profile.deliveryPolicy ?? .automatic
+    }
+
+    func availableModes() -> [ModeDefinition] {
+        store.visibleModes
     }
 }
