@@ -74,6 +74,11 @@ défaut, et vérification qu’une app exclue ne crée ni historique ni Inbox.
 - `localOnly` sans fallback réseau et `preferLocal` avec fallback contrôlé ;
 - builds macOS 14 arm64 et x86_64 conservés.
 
+Les types macOS 26 sont protégés par disponibilité et compilation
+conditionnelle afin que la stable 1.2 continue de compiler avec Xcode 16.4. La
+chaîne 1.3 devra sélectionner explicitement Xcode 26 avant de rendre ces
+fournisseurs visibles dans un binaire public.
+
 Avant activation automatique : corpus consenti, WER/CER, lexique technique,
 hallucinations, p95, mémoire et énergie. Objectifs : moins de 1,5 s au p95 sur
 M2 16 Go pour dix secondes, dégradation WER relative ≤ 15 %, lexique technique

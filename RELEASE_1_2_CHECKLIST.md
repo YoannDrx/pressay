@@ -106,8 +106,9 @@ gates suivants :
 
 - [ ] intégrer et épingler FluidAudio/Parakeet ;
 - [ ] produire et intégrer le XCFramework whisper.cpp universel ;
-- [x] ajouter SpeechAnalyzer et Foundation Models sous disponibilité macOS 26,
-  en opt-in tant que le corpus qualité n’est pas validé ;
+- [x] ajouter le code SpeechAnalyzer et Foundation Models sous disponibilité
+  macOS 26 et compilation conditionnelle ; ils restent hors des capacités
+  garanties du binaire 1.2 jusqu’au passage des gates 1.3 ;
 - [ ] intégrer llama.cpp/Qwen opt-in ;
 - [ ] signer et publier le catalogue de modèles ;
 - [ ] livrer l’interface de téléchargement, pause, reprise et suppression ;

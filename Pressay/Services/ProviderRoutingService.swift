@@ -1,6 +1,8 @@
 import AVFoundation
 import Foundation
+#if canImport(FoundationModels)
 import FoundationModels
+#endif
 import Speech
 
 enum ProviderRoutingError: LocalizedError, Equatable {
@@ -228,6 +230,7 @@ final class ProcessingRouter: ProcessingRouting {
     }
 }
 
+#if compiler(>=6.2)
 @available(macOS 26.0, *)
 final class SpeechAnalyzerTranscriptionProvider: SpeechTranscribing {
     let identifier = "speech-analyzer"
@@ -298,7 +301,9 @@ final class SpeechAnalyzerTranscriptionProvider: SpeechTranscribing {
         }
     }
 }
+#endif
 
+#if canImport(FoundationModels)
 @available(macOS 26.0, *)
 final class FoundationModelsProcessor: TextProcessing {
     let identifier = "foundation-models"
@@ -361,6 +366,7 @@ final class FoundationModelsProcessor: TextProcessing {
         )
     }
 }
+#endif
 
 enum SystemProviderRegistry {
     static func transcriptionRegistrations(
@@ -380,6 +386,7 @@ enum SystemProviderRegistry {
                 openAI
             )
         ]
+        #if compiler(>=6.2)
         if #available(macOS 26.0, *) {
             let provider = SpeechAnalyzerTranscriptionProvider()
             registrations.append(
@@ -399,6 +406,7 @@ enum SystemProviderRegistry {
                 )
             )
         }
+        #endif
         return registrations
     }
 
@@ -417,6 +425,7 @@ enum SystemProviderRegistry {
                 openAI
             )
         ]
+        #if canImport(FoundationModels)
         if #available(macOS 26.0, *) {
             let provider = FoundationModelsProcessor()
             registrations.append(
@@ -432,6 +441,7 @@ enum SystemProviderRegistry {
                 )
             )
         }
+        #endif
         return registrations
     }
 }

@@ -27,11 +27,12 @@ la sélection initiale, affiche Original/Proposition, puis revérifie la cible e
 la sélection avant le remplacement. Si elles ont changé, le résultat est copié
 au lieu d’être collé au mauvais endroit.
 
-Le socle utilise la clé OpenAI personnelle de l’utilisateur : l’endpoint audio
-pour la transcription et la Responses API pour les modes de transformation.
-Sur macOS 26, SpeechAnalyzer et Foundation Models sont aussi proposés comme
-fournisseurs locaux explicites lorsqu’ils sont disponibles. Ils restent opt-in
-tant que le corpus qualité FR/EN n’a pas validé leur promotion automatique.
+La version publique 1.2 utilise la clé OpenAI personnelle de l’utilisateur :
+l’endpoint audio pour la transcription et la Responses API pour les modes de
+transformation. Le socle source contient des fournisseurs SpeechAnalyzer et
+Foundation Models compilés uniquement avec un SDK compatible ; ils ne font pas
+partie des capacités garanties de la 1.2 et restent désactivés tant que le
+corpus qualité FR/EN n’a pas validé la release locale 1.3.
 
 ## Télécharger et installer
 

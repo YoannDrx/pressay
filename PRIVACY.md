@@ -41,10 +41,10 @@ contient aucun outil publicitaire, traqueur ou service de télémétrie distant.
 - **Mises à jour** : Sparkle contacte le flux public de versions et GitHub pour
   vérifier ou télécharger une mise à jour. Pressay ne joint aucun profil système
   à cette requête.
-- **Fournisseurs locaux Apple** : sur les systèmes compatibles, l’utilisateur
-  peut sélectionner SpeechAnalyzer pour la transcription et Foundation Models
-  pour la transformation. Dans ce cas, la tâche concernée est traitée sur le
-  Mac et aucun appel OpenAI n’est effectué pour cette étape.
+- **Fournisseurs locaux Apple** : leur support existe dans le socle 1.3 mais ne
+  constitue pas une capacité garantie de la version publique 1.2. Lorsqu’un
+  futur build les rendra disponibles et que l’utilisateur les sélectionnera,
+  l’étape concernée sera traitée sur le Mac sans appel OpenAI.
 
 ## Destinataires
 
