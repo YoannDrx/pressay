@@ -15,11 +15,20 @@ cleanup() {
 }
 trap cleanup EXIT
 
+provisioning_arguments=()
+if [[ "${ALLOW_PROVISIONING_UPDATES:-0}" == "1" ]]; then
+  provisioning_arguments+=("-allowProvisioningUpdates")
+fi
+
 if ! security find-identity -v -p codesigning \
     | rg -q "\"Apple Distribution: .+ \\($team_id\\)\""; then
-  echo "Certificat Apple Distribution avec clé privée introuvable pour l'équipe $team_id." >&2
-  echo "Crée-le dans Xcode > Settings > Accounts > Manage Certificates." >&2
-  exit 1
+  if [[ "${ALLOW_PROVISIONING_UPDATES:-0}" == "1" ]]; then
+    echo "Aucun certificat Apple Distribution local ; Xcode va tenter de le gérer avec le compte connecté."
+  else
+    echo "Certificat Apple Distribution avec clé privée introuvable pour l'équipe $team_id." >&2
+    echo "Crée-le dans Xcode, ou relance explicitement avec ALLOW_PROVISIONING_UPDATES=1." >&2
+    exit 1
+  fi
 fi
 
 "$project_root/scripts/validate-app-store.sh"
@@ -40,11 +49,6 @@ if [[ -e "$output_directory" ]]; then
   echo "La destination existe déjà: $output_directory" >&2
   echo "Déplace-la ou choisis un nouveau numéro de build avant de recommencer." >&2
   exit 1
-fi
-
-provisioning_arguments=()
-if [[ "${ALLOW_PROVISIONING_UPDATES:-0}" == "1" ]]; then
-  provisioning_arguments+=("-allowProvisioningUpdates")
 fi
 
 xcodebuild archive \

@@ -49,16 +49,17 @@ sandbox, le manifeste, l'absence de Sparkle et l'absence de symboles d'API
 interapplications incompatibles. Il ne remplace ni la signature de
 distribution, ni la validation App Store Connect, ni un test TestFlight.
 
-Une fois l'identifiant confirmé, le certificat Apple Distribution et le profil
-disponibles :
+Une fois l'identifiant confirmé et le certificat Apple Distribution ainsi que
+le profil disponibles :
 
 ```bash
 scripts/archive-app-store.sh
 ```
 
-Le script refuse d'écraser un export existant. Il ne demande pas à Apple de
-créer un profil par défaut. Pour autoriser explicitement Xcode à gérer les
-profils lors de l'archive :
+Le script refuse d'écraser un export existant. Il ne demande rien à Apple par
+défaut. Si le compte développeur est déjà connecté dans Xcode, l'option suivante
+autorise explicitement Xcode à demander ou actualiser le certificat,
+l'identifiant et les profils nécessaires :
 
 ```bash
 ALLOW_PROVISIONING_UPDATES=1 scripts/archive-app-store.sh
