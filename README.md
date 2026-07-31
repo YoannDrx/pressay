@@ -27,10 +27,11 @@ la sélection initiale, affiche Original/Proposition, puis revérifie la cible e
 la sélection avant le remplacement. Si elles ont changé, le résultat est copié
 au lieu d’être collé au mauvais endroit.
 
-Le socle actuel utilise la clé OpenAI personnelle de l’utilisateur : l’endpoint
-audio pour la transcription et la Responses API pour les modes de
-transformation. Les moteurs locaux restent planifiés et aucun mode ne prétend
-fonctionner hors ligne avant leur intégration.
+Le socle utilise la clé OpenAI personnelle de l’utilisateur : l’endpoint audio
+pour la transcription et la Responses API pour les modes de transformation.
+Sur macOS 26, SpeechAnalyzer et Foundation Models sont aussi proposés comme
+fournisseurs locaux explicites lorsqu’ils sont disponibles. Ils restent opt-in
+tant que le corpus qualité FR/EN n’a pas validé leur promotion automatique.
 
 ## Télécharger et installer
 
@@ -56,7 +57,7 @@ DMG.
 
 La page de téléchargement publique est également disponible sur
 [yoann-andrieux.fr](https://www.yoann-andrieux.fr/fr/projects/pressay). La
-version stable publiée est `v1.2.1` ; les utilisateurs ayant activé le canal
+version stable publiée est `v1.2.2` ; les utilisateurs ayant activé le canal
 bêta recevront aussi cette version stable.
 
 ### Compiler depuis les sources
@@ -176,6 +177,21 @@ chaque session et affiche le contenu exact avant l’envoi ; l’utilisateur peu
 envoyer, annuler ou conserver la transcription brute lorsque ce choix est
 compatible avec l’intention.
 
+### Correction vocale et Voice Inbox
+
+Le résultat peut être corrigé à la voix tant que sa cible reste vérifiable. Si
+aucun champ éditable n’est disponible, Pressay peut conserver le résultat dans
+une Voice Inbox activée explicitement, chiffrée localement et soumise à une
+rétention indépendante. Une politique par application permet aussi de choisir
+l’injection automatique, l’aperçu, la copie seule ou l’exclusion complète.
+
+### HUD configurable
+
+Le HUD peut être compact ou confortable, placé en haut, en bas ou près du
+pointeur. Sa durée de résultat est configurable et une croix permet de le
+fermer immédiatement. Le mode peut être changé pendant l’écoute sans voler le
+focus de l’application cible.
+
 ## Permissions requises
 
 L'app a besoin de ces permissions pour fonctionner :
@@ -230,6 +246,8 @@ Les types de domaine et les frontières de services sont détaillés dans
 - **Champs sécurisés** : capture refusée avant l’enregistrement
 - **Clé API** : Stockée dans le Keychain macOS (chiffré)
 - **Historique** : Optionnel, chiffré localement, rétention configurable
+- **Voice Inbox** : Optionnelle, chiffrée séparément et conservée uniquement sur
+  le Mac
 - **Modes** : enregistrés localement avec des permissions de fichier limitées à
   l’utilisateur
 - **Métriques** : Optionnelles et locales, durées agrégées uniquement

@@ -7,8 +7,9 @@ publier un événement clavier pour y coller le texte.
 
 Le bundle public est `fr.yodev.pressay`. La version visible et le numéro de build
 proviennent uniquement de `MARKETING_VERSION` et `CURRENT_PROJECT_VERSION` dans
-le projet Xcode. La prochaine série publique est `1.2.0` : builds `12001–12089`
-pour les bêtas, `12090–12098` pour les RC et `12099` pour la stable.
+le projet Xcode. La série 1.2 utilise les builds `12001–12089` pour les bêtas
+1.2.0, `12090–12098` pour ses RC, `12099` pour la stable 1.2.0, puis un build
+incrémental par correctif (`12100` pour 1.2.1, `12101` pour 1.2.2).
 
 ## Préparer la signature Apple
 
@@ -25,7 +26,7 @@ export APPLE_ID="adresse@example.com"
 export APPLE_APP_SPECIFIC_PASSWORD="mot-de-passe-spécifique-à-l-app"
 export SPARKLE_PRIVATE_KEY="clé-privée-exportée-par-generate_keys"
 export SPARKLE_GENERATE_APPCAST="/chemin/vers/Sparkle/bin/generate_appcast"
-export RELEASE_TAG="v1.2.0-beta.1"
+export RELEASE_TAG="v1.2.2"
 ```
 
 La clé privée Sparkle ne doit jamais être ajoutée au dépôt. La clé publique
@@ -113,13 +114,15 @@ La première bêta publique a été produite par le run
 [`30348895645`](https://github.com/YoannDrx/pressay/actions/runs/30348895645).
 La release, son checksum et son appcast sont disponibles sous
 [`v1.2.0-beta.1`](https://github.com/YoannDrx/pressay/releases/tag/v1.2.0-beta.1).
+La publication stable actuelle suit exactement la même chaîne et la 1.2.2 doit
+porter le build 12101, strictement supérieur au build 12100 déjà publié.
 
 ## URLs et appcast
 
 Chaque appcast référence l'asset immuable du tag, par exemple :
 
 ```text
-https://github.com/YoannDrx/pressay/releases/download/v1.2.0-beta.1/Pressay.dmg
+https://github.com/YoannDrx/pressay/releases/download/v1.2.2/Pressay.dmg
 ```
 
 L’app utilise le feed canonique GitHub Pages :
@@ -151,5 +154,6 @@ Sur une session macOS propre :
 6. redémarrer l'app et contrôler réglages et historique ;
 7. tester une mise à jour Sparkle entre deux builds signés.
 
-Le CTA du portfolio doit rester désactivé jusqu'à la publication effective de
-`v1.2.0`.
+Le CTA du portfolio pointe vers `releases/latest` et ne doit être modifié
+qu’après vérification du DMG public, de son checksum et du ticket de
+notarisation.

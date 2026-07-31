@@ -35,6 +35,7 @@ final class TextInjector: TextDelivering {
 
     private struct UndoToken {
         let target: TextInjectionTarget
+        let insertedText: String
         let insertedUTF16Length: Int
         let expiresAt: Date
     }
@@ -142,6 +143,8 @@ final class TextInjector: TextDelivering {
     }
 
     func copyToPasteboard(_ text: String) {
+        lastDeliveryStrategy = .copied
+        lastDeliveryFailure = nil
         NSPasteboard.general.clearContents()
         NSPasteboard.general.setString(text, forType: .string)
     }
@@ -185,6 +188,36 @@ final class TextInjector: TextDelivering {
                 kAXSelectedTextRangeAttribute as CFString,
                 restoredRangeValue
             )
+        }
+        lastUndoToken = nil
+        return true
+    }
+
+    func prepareRecentInsertionForReplacement() -> Bool {
+        guard let token = lastUndoToken,
+              token.expiresAt.addingTimeInterval(52) > Date(),
+              let element = token.target.focusedElement,
+              let originalRange = token.target.selectionRange,
+              isOriginalTargetStillFocused(token.target),
+              let currentRange = selectedTextRange(from: element),
+              currentRange.location
+                == originalRange.location + token.insertedUTF16Length,
+              currentRange.length == 0 else {
+            return false
+        }
+
+        var insertedRange = CFRange(
+            location: originalRange.location,
+            length: token.insertedUTF16Length
+        )
+        guard let rangeValue = AXValueCreate(.cfRange, &insertedRange),
+              AXUIElementSetAttributeValue(
+                element,
+                kAXSelectedTextRangeAttribute as CFString,
+                rangeValue
+              ) == .success,
+              selectedText(from: element) == token.insertedText else {
+            return false
         }
         lastUndoToken = nil
         return true
@@ -459,6 +492,7 @@ final class TextInjector: TextDelivering {
     ) {
         lastUndoToken = UndoToken(
             target: target,
+            insertedText: insertedText,
             insertedUTF16Length: (insertedText as NSString).length,
             expiresAt: Date().addingTimeInterval(8)
         )

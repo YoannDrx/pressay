@@ -28,6 +28,10 @@ contient aucun outil publicitaire, traqueur ou service de télémétrie distant.
   transformation.
 - **Historique** : il est optionnel, chiffré localement avec AES-256-GCM et
   automatiquement supprimé selon la durée choisie (24 heures, 7 jours ou 30 jours).
+- **Voice Inbox** : elle est désactivée par défaut. Lorsqu’elle est activée, un
+  résultat sans cible éditable peut être conservé dans un fichier chiffré
+  distinct, avec une clé Keychain distincte et une rétention de 7, 30 ou 90
+  jours. Son contenu ne quitte pas le Mac du seul fait de son enregistrement.
 - **Modes et règles d'application** : ils sont conservés localement dans un
   fichier accessible uniquement au compte utilisateur. Ce fichier n'est pas
   annoncé comme chiffré.
@@ -37,6 +41,10 @@ contient aucun outil publicitaire, traqueur ou service de télémétrie distant.
 - **Mises à jour** : Sparkle contacte le flux public de versions et GitHub pour
   vérifier ou télécharger une mise à jour. Pressay ne joint aucun profil système
   à cette requête.
+- **Fournisseurs locaux Apple** : sur les systèmes compatibles, l’utilisateur
+  peut sélectionner SpeechAnalyzer pour la transcription et Foundation Models
+  pour la transformation. Dans ce cas, la tâche concernée est traitée sur le
+  Mac et aucun appel OpenAI n’est effectué pour cette étape.
 
 ## Destinataires
 
@@ -62,10 +70,11 @@ reçoit ni paiement, ni contenu de dictée, ni métrique d'utilisation.
 
 ## Contrôle par l'utilisateur
 
-L'utilisateur peut désactiver et effacer l'historique, réinitialiser les mesures
-locales, modifier ou supprimer ses modes et règles, et supprimer sa clé API
-depuis les réglages. Désactiver l'historique supprime immédiatement son fichier
-local. Les champs sécurisés sont exclus avant le démarrage de l'enregistrement.
+L'utilisateur peut désactiver et effacer l'historique ou la Voice Inbox,
+réinitialiser les mesures locales, modifier ou supprimer ses modes et règles,
+et supprimer sa clé API depuis les réglages. Désactiver l'historique ou la
+Voice Inbox supprime immédiatement le fichier local correspondant. Les champs
+sécurisés sont exclus avant le démarrage de l'enregistrement.
 
 Pour toute question, utiliser les issues du dépôt
 [YoannDrx/pressay](https://github.com/YoannDrx/pressay/issues).

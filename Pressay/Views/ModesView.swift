@@ -169,6 +169,7 @@ struct ModesView: View {
                     .labelsHidden()
                     .frame(width: 220)
                 }
+                providerRows(mode, isBuiltIn: true)
                 Text(mode.prompt.isEmpty ? "Transcription fidèle, sans réécriture." : mode.prompt)
                     .font(.body)
                     .textSelection(.enabled)
@@ -250,6 +251,7 @@ struct ModesView: View {
                 .labelsHidden()
                 .frame(width: 210)
             }
+            providerRows(mode, isBuiltIn: false)
             modeShortcutRow(mode)
             Text("Instructions du mode")
                 .font(.caption.weight(.semibold))
@@ -419,7 +421,19 @@ struct ModesView: View {
                         }
                     }
                     .labelsHidden()
-                    .frame(width: 190)
+                    .frame(width: 145)
+                    Picker(
+                        "",
+                        selection: profileDeliveryPolicyBinding(profile)
+                    ) {
+                        Text("Automatique").tag(ApplicationDeliveryPolicy.automatic)
+                        Text("Aperçu").tag(ApplicationDeliveryPolicy.preview)
+                        Text("Copie seule").tag(ApplicationDeliveryPolicy.copyOnly)
+                        Text("Exclue").tag(ApplicationDeliveryPolicy.excluded)
+                    }
+                    .labelsHidden()
+                    .frame(width: 115)
+                    .help("Politique de livraison pour cette application")
                     Button {
                         store.deleteApplicationProfile(id: profile.id)
                     } label: {
@@ -498,10 +512,125 @@ struct ModesView: View {
         )
     }
 
+    private func profileDeliveryPolicyBinding(
+        _ profile: ApplicationProfile
+    ) -> Binding<ApplicationDeliveryPolicy> {
+        Binding(
+            get: {
+                store.applicationProfiles.first(where: { $0.id == profile.id })?
+                    .deliveryPolicy ?? .automatic
+            },
+            set: { newPolicy in
+                var updated = profile
+                updated.deliveryPolicy = newPolicy == .automatic
+                    ? nil
+                    : newPolicy
+                store.upsertApplicationProfile(updated)
+            }
+        )
+    }
+
     private func builtInPolicyBinding(_ mode: ModeDefinition) -> Binding<ProviderPolicy> {
         Binding(
             get: { store.mode(withID: mode.id)?.providerPolicy ?? mode.providerPolicy },
             set: { store.setProviderPolicyOverride(modeID: mode.id, policy: $0) }
+        )
+    }
+
+    @ViewBuilder
+    private func providerRows(
+        _ mode: ModeDefinition,
+        isBuiltIn: Bool
+    ) -> some View {
+        LabeledContent("Transcription") {
+            Picker(
+                "",
+                selection: transcriptionProviderBinding(
+                    mode,
+                    isBuiltIn: isBuiltIn
+                )
+            ) {
+                Text("Automatique").tag("")
+                Text("OpenAI · Cloud").tag("openai")
+                if CapabilityMatrix.current.supportsSystemSpeechAnalyzer {
+                    Text("Apple · Local").tag("speech-analyzer")
+                }
+            }
+            .labelsHidden()
+            .frame(width: 220)
+        }
+        if mode.cleaningLevel != .faithful
+            || mode.intent == .transformSelection {
+            LabeledContent("Transformation") {
+                Picker(
+                    "",
+                    selection: processingProviderBinding(
+                        mode,
+                        isBuiltIn: isBuiltIn
+                    )
+                ) {
+                    Text("Automatique").tag("")
+                    Text("OpenAI · Cloud").tag("openai-responses")
+                    if CapabilityMatrix.current.supportsFoundationModels {
+                        Text("Apple Intelligence · Local")
+                            .tag("foundation-models")
+                    }
+                }
+                .labelsHidden()
+                .frame(width: 220)
+            }
+        }
+    }
+
+    private func transcriptionProviderBinding(
+        _ mode: ModeDefinition,
+        isBuiltIn: Bool
+    ) -> Binding<String> {
+        Binding(
+            get: {
+                (isBuiltIn
+                    ? store.mode(withID: mode.id)?.transcriptionProviderID
+                    : draft?.transcriptionProviderID) ?? ""
+            },
+            set: { providerID in
+                let value = providerID.isEmpty ? nil : providerID
+                if isBuiltIn {
+                    store.setTranscriptionProviderOverride(
+                        modeID: mode.id,
+                        providerID: value
+                    )
+                    draft = store.mode(withID: mode.id)
+                } else if var updated = draft {
+                    updated.transcriptionProviderID = value
+                    draft = updated
+                }
+            }
+        )
+    }
+
+    private func processingProviderBinding(
+        _ mode: ModeDefinition,
+        isBuiltIn: Bool
+    ) -> Binding<String> {
+        Binding(
+            get: {
+                (isBuiltIn
+                    ? store.mode(withID: mode.id)?.processingProviderID
+                    : draft?.processingProviderID) ?? ""
+            },
+            set: { providerID in
+                let value = providerID.isEmpty ? nil : providerID
+                if isBuiltIn {
+                    store.setProcessingProviderOverride(
+                        modeID: mode.id,
+                        providerID: value
+                    )
+                    draft = store.mode(withID: mode.id)
+                } else if var updated = draft {
+                    updated.processingProviderID = value
+                    draft = updated
+                }
+            }
         )
     }
 

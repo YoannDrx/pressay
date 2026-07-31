@@ -26,6 +26,7 @@ final class SessionCoordinator: ObservableObject {
         let audio: CapturedAudio
         let target: TextInjectionTarget?
         let mode: ModeDefinition
+        let deliveryPolicy: ApplicationDeliveryPolicy
         let replayOriginalText: String?
     }
 
@@ -59,6 +60,7 @@ final class SessionCoordinator: ObservableObject {
     private let textDeliverer: TextDelivering
     private let previewPresenter: TextPreviewPresenting
     private let history: HistoryRepository
+    private let inbox: VoiceInboxRepository?
     private let sounds: SoundFeedback
     private let metrics: MetricsRecording
     private let hud: HUDPresenting
@@ -68,6 +70,7 @@ final class SessionCoordinator: ObservableObject {
     private var processingTask: Task<Void, Never>?
     private var captureTarget: TextInjectionTarget?
     private var captureMode: ModeDefinition?
+    private var captureDeliveryPolicy: ApplicationDeliveryPolicy?
     private var previewDelivery: PreviewDelivery?
     private var capturePreparationTask: Task<Void, Never>?
     private var replayDescriptors: [UUID: ReplayDescriptor] = [:]
@@ -85,6 +88,7 @@ final class SessionCoordinator: ObservableObject {
         textDeliverer: TextDelivering,
         previewPresenter: TextPreviewPresenting,
         history: HistoryRepository,
+        inbox: VoiceInboxRepository? = nil,
         sounds: SoundFeedback,
         metrics: MetricsRecording,
         hud: HUDPresenting,
@@ -102,6 +106,7 @@ final class SessionCoordinator: ObservableObject {
         self.textDeliverer = textDeliverer
         self.previewPresenter = previewPresenter
         self.history = history
+        self.inbox = inbox
         self.sounds = sounds
         self.metrics = metrics
         self.hud = hud
@@ -134,6 +139,13 @@ final class SessionCoordinator: ObservableObject {
             applicationBundleIdentifier: capturedContext.context.applicationBundleIdentifier,
             intent: intent
         )
+        let deliveryPolicy = modeResolver.deliveryPolicy(
+            for: capturedContext.context.applicationBundleIdentifier
+        )
+        guard deliveryPolicy != .excluded else {
+            fail("Pressay est désactivé pour cette application")
+            return
+        }
         do {
             let activeTranscriber = try transcriptionRouter?
                 .provider(for: mode, capabilities: capabilities)
@@ -177,18 +189,25 @@ final class SessionCoordinator: ObservableObject {
                 self.beginCapture(
                     capturedContext: fallback,
                     mode: mode,
-                    intent: intent
+                    intent: intent,
+                    deliveryPolicy: deliveryPolicy
                 )
             }
             return
         }
-        beginCapture(capturedContext: capturedContext, mode: mode, intent: intent)
+        beginCapture(
+            capturedContext: capturedContext,
+            mode: mode,
+            intent: intent,
+            deliveryPolicy: deliveryPolicy
+        )
     }
 
     private func beginCapture(
         capturedContext: ContextCaptureResult,
         mode: ModeDefinition,
-        intent: VoiceIntent
+        intent: VoiceIntent,
+        deliveryPolicy: ApplicationDeliveryPolicy
     ) {
         do {
             try audioCapturer.startRecording()
@@ -205,6 +224,7 @@ final class SessionCoordinator: ObservableObject {
             _ = session.transition(to: .capturing)
             captureTarget = capturedContext.target
             captureMode = mode
+            captureDeliveryPolicy = deliveryPolicy
             captureSession = session
             lastError = nil
             lastNotice = nil
@@ -214,6 +234,22 @@ final class SessionCoordinator: ObservableObject {
                 detail: listeningDetail(modeName: mode.name),
                 autoHide: false
             )
+            if intent == .dictate {
+                let options = modeResolver.availableModes().map {
+                    HUDModeOption(
+                        id: $0.id,
+                        name: $0.name,
+                        symbolName: $0.symbolName
+                    )
+                }
+                hud.configureModeSelection(
+                    currentModeID: mode.id,
+                    options: options,
+                    onSelect: { [weak self] modeID in
+                        self?.updateCaptureMode(modeID)
+                    }
+                )
+            }
         } catch {
             fail(error.localizedDescription)
         }
@@ -221,11 +257,13 @@ final class SessionCoordinator: ObservableObject {
 
     func stopCaptureAndQueue() {
         guard var session = captureSession,
-              let mode = captureMode else {
+              let mode = captureMode,
+              let deliveryPolicy = captureDeliveryPolicy else {
             return
         }
         captureSession = nil
         captureMode = nil
+        captureDeliveryPolicy = nil
         let target = captureTarget
         captureTarget = nil
 
@@ -259,6 +297,7 @@ final class SessionCoordinator: ObservableObject {
                 audio: audio,
                 target: target ?? textTarget(for: session),
                 mode: mode,
+                deliveryPolicy: deliveryPolicy,
                 replayOriginalText: nil
             )
         )
@@ -277,6 +316,22 @@ final class SessionCoordinator: ObservableObject {
         processNextSession()
     }
 
+    private func updateCaptureMode(_ modeID: UUID) {
+        guard var session = captureSession,
+              session.intent == .dictate,
+              let mode = modeResolver.availableModes().first(where: {
+                $0.id == modeID && $0.isEnabled
+              }) else { return }
+        captureMode = mode
+        session.modeIdentifier = mode.id
+        captureSession = session
+        hud.show(
+            .listening,
+            detail: listeningDetail(modeName: mode.name),
+            autoHide: false
+        )
+    }
+
     func cancelCurrentSession() {
         if capturePreparationTask != nil {
             capturePreparationTask?.cancel()
@@ -292,6 +347,7 @@ final class SessionCoordinator: ObservableObject {
             captureSession = nil
             captureTarget = nil
             captureMode = nil
+            captureDeliveryPolicy = nil
             _ = session.transition(to: .cancelled)
             lastSession = session
             lastError = nil
@@ -330,6 +386,18 @@ final class SessionCoordinator: ObservableObject {
         lastNotice = "Insertion annulée"
         hud.isUndoAvailable = false
         hud.show(.cancelled, detail: lastNotice, autoHide: true)
+    }
+
+    func startCorrectionCapture() {
+        guard captureSession == nil, processingTask == nil else {
+            fail("Attends la fin du traitement en cours")
+            return
+        }
+        guard textDeliverer.prepareRecentInsertionForReplacement() else {
+            fail("La dernière insertion n’est plus sélectionnable en toute sécurité")
+            return
+        }
+        startCapture(intent: .transformSelection)
     }
 
     func copyLastResult() {
@@ -386,6 +454,7 @@ final class SessionCoordinator: ObservableObject {
                 audio: audio,
                 target: descriptor.target,
                 mode: descriptor.mode,
+                deliveryPolicy: .preview,
                 replayOriginalText: previous.finalText ?? previous.rawText
             )
         )
@@ -445,6 +514,11 @@ final class SessionCoordinator: ObservableObject {
                 let activeTranscriber = try self.transcriptionRouter?
                     .provider(for: item.mode, capabilities: self.capabilities)
                     ?? self.transcriber
+                self.hud.show(
+                    .transcribing,
+                    detail: "\(activeTranscriber.locality == .local ? "Local" : "Cloud") · \(activeTranscriber.identifier)",
+                    autoHide: false
+                )
                 let transcriptionStartedAt = Date()
                 let transcription = try await activeTranscriber.transcribe(
                     audioURL: item.audio.url
@@ -469,6 +543,7 @@ final class SessionCoordinator: ObservableObject {
                 item.session.timings.processingEndedAt = Date()
 
                 if item.session.intent == .transformSelection
+                    || item.deliveryPolicy == .preview
                     || item.replayOriginalText != nil {
                     self.presentPreview(
                         item: item,
@@ -537,7 +612,7 @@ final class SessionCoordinator: ObservableObject {
             _ = confirmationSession.transition(to: .awaitingConfirmation)
             processingSession = confirmationSession
             hud.show(
-                .transcribing,
+                .processing,
                 detail: "Confirmation cloud · \(item.mode.name)",
                 autoHide: false
             )
@@ -563,7 +638,7 @@ final class SessionCoordinator: ObservableObject {
 
         let sourceLabel = manifest.isEmpty ? "sans contexte" : manifest.joined(separator: ", ")
         hud.show(
-            .transcribing,
+            .processing,
             detail: "\(isCloudProcessing ? "Cloud" : "Local") · \(item.mode.name) · \(sourceLabel)",
             autoHide: false
         )
@@ -651,7 +726,7 @@ final class SessionCoordinator: ObservableObject {
         processingSession = session
         let original = item.replayOriginalText
             ?? session.context.selectedText
-            ?? ""
+            ?? (item.deliveryPolicy == .preview ? rawText : "")
         let providerIdentifier = processed.providerIdentifier ?? textProcessor.identifier
         let preview = TextPreview(
             sessionID: session.id,
@@ -749,6 +824,31 @@ final class SessionCoordinator: ObservableObject {
         contextManifest: [String],
         lowConfidence: Bool
     ) async {
+        if item.deliveryPolicy == .copyOnly {
+            textDeliverer.copyToPasteboard(text)
+            var session = item.session
+            session.finalText = text
+            session.timings.deliveryEndedAt = Date()
+            _ = session.transition(to: .completed)
+            complete(
+                session: session,
+                rawText: rawText,
+                finalText: text,
+                processingProvider: providerIdentifier,
+                transcriptionProviderIdentifier: transcriptionProviderIdentifier,
+                contextManifest: contextManifest,
+                audioDuration: item.audio.duration,
+                inserted: false,
+                lowConfidence: lowConfidence,
+                textAlreadyCopied: true
+            )
+            return
+        }
+        hud.show(
+            .delivering,
+            detail: item.target == nil ? "Copie de secours" : "Cible initiale",
+            autoHide: false
+        )
         let insertionStartedAt = Date()
         let inserted = await textDeliverer.inject(text: text, target: item.target)
         metrics.record(
@@ -781,7 +881,8 @@ final class SessionCoordinator: ObservableObject {
         contextManifest: [String],
         audioDuration: TimeInterval,
         inserted: Bool,
-        lowConfidence: Bool
+        lowConfidence: Bool,
+        textAlreadyCopied: Bool = false
     ) {
         metrics.record(
             .total,
@@ -799,8 +900,7 @@ final class SessionCoordinator: ObservableObject {
             finalText: finalText,
             undoDeadline: undoDeadline
         )
-        history.append(
-            HistoryRecord(
+        let record = HistoryRecord(
                 sessionID: session.id,
                 rawText: rawText,
                 finalText: finalText,
@@ -815,8 +915,13 @@ final class SessionCoordinator: ObservableObject {
                 audioDuration: audioDuration,
                 contextManifest: contextManifest,
                 deliveryStatus: inserted ? .inserted : .copied
-            )
         )
+        history.append(record)
+        if !inserted,
+           let failure = textDeliverer.lastDeliveryFailure,
+           failure == .missingTarget || failure == .nonEditableTarget {
+            inbox?.append(record)
+        }
 
         lastError = nil
         if inserted {
@@ -824,8 +929,12 @@ final class SessionCoordinator: ObservableObject {
                 ? "Texte inséré — vérifie cette transcription incertaine"
                 : "Texte inséré"
         } else {
-            textDeliverer.copyToPasteboard(finalText)
-            if let failure = textDeliverer.lastDeliveryFailure {
+            if !textAlreadyCopied {
+                textDeliverer.copyToPasteboard(finalText)
+            }
+            if textAlreadyCopied {
+                lastNotice = "Texte copié"
+            } else if let failure = textDeliverer.lastDeliveryFailure {
                 lastNotice = "Texte copié — \(failure.userMessage)"
             } else {
                 lastNotice = "Texte copié — la cible initiale n’est plus disponible"
@@ -835,11 +944,13 @@ final class SessionCoordinator: ObservableObject {
         hud.configureResultActions(
             canRetranscribe: replayBuffer.audio(for: session.id) != nil,
             canCompareRawAndFinal: rawText != finalText,
+            canCorrect: inserted && textDeliverer.canUndoLastInsertion,
             onCopy: { [weak self] in self?.copyLastResult() },
             onRetranscribe: { [weak self] in self?.retranscribeLastResult() },
             onCompareRawAndFinal: {
                 [weak self] in self?.compareRawAndFinalResult()
-            }
+            },
+            onCorrect: { [weak self] in self?.startCorrectionCapture() }
         )
         hud.show(inserted ? .success : .copied, detail: lastNotice, autoHide: true)
     }

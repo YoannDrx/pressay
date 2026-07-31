@@ -1,6 +1,10 @@
 import Foundation
 
 enum Constants {
+    static var isRunningTests: Bool {
+        ProcessInfo.processInfo.environment["XCTestConfigurationFilePath"] != nil
+    }
+
     static let bundleIdentifier = "fr.yodev.pressay"
     static let keychainService = bundleIdentifier
     static let legacyBundleIdentifiers = [
@@ -9,6 +13,7 @@ enum Constants {
     ]
     static let keychainAPIKeyAccount = "openai-api-key"
     static let keychainHistoryKeyAccount = "history-encryption-key"
+    static let keychainInboxKeyAccount = "inbox-encryption-key"
     static let identityMigrationCompletedKey = "pressay-identity-migration-v1-completed"
     static let applicationSupportDirectoryName = "Pressay"
     static let legacyApplicationSupportDirectoryName = "Whisper"
@@ -21,6 +26,7 @@ enum Constants {
     static let vocabularyProfileKey = "vocabulary-profile"
     static let shortcutKey = "dictation-shortcut"
     static let dictationShortcutDefinitionKey = "dictation-shortcut-definition-v1"
+    static let correctionShortcutDefinitionKey = "correction-shortcut-definition-v1"
     static let activationModeKey = "dictation-activation-mode"
     static let processingModelKey = "processing-model"
     static let selectedModeIDKey = "selected-mode-id"
@@ -28,7 +34,13 @@ enum Constants {
     static let includeBetaUpdatesKey = "include-beta-updates"
     static let historyEnabledKey = "history-enabled"
     static let historyRetentionDaysKey = "history-retention-days"
+    static let inboxEnabledKey = "voice-inbox-enabled"
+    static let inboxRetentionDaysKey = "voice-inbox-retention-days"
     static let metricsEnabledKey = "local-metrics-enabled"
+    static let hudPositionKey = "hud-position"
+    static let hudSizeKey = "hud-size"
+    static let hudResultDurationKey = "hud-result-duration"
+    static let hudShowsResultActionsKey = "hud-shows-result-actions"
     static let migratedPreferenceKeys = [
         transcriptionLanguageKey,
         transcriptionModelKey,
@@ -36,13 +48,20 @@ enum Constants {
         vocabularyProfileKey,
         shortcutKey,
         dictationShortcutDefinitionKey,
+        correctionShortcutDefinitionKey,
         activationModeKey,
         processingModelKey,
         selectedModeIDKey,
         includeBetaUpdatesKey,
         historyEnabledKey,
         historyRetentionDaysKey,
-        metricsEnabledKey
+        inboxEnabledKey,
+        inboxRetentionDaysKey,
+        metricsEnabledKey,
+        hudPositionKey,
+        hudSizeKey,
+        hudResultDurationKey,
+        hudShowsResultActionsKey
     ]
     static let defaultTranscriptionLanguage = "fr"
     static let defaultTranscriptionModel = "gpt-4o-mini-transcribe"
@@ -63,6 +82,57 @@ enum Constants {
     static let noiseMargin: Float = 10
     static let lowConfidenceLogProbability = -0.85
     static let handsFreeDoublePressInterval: TimeInterval = 0.28
+}
+
+enum HUDPosition: String, CaseIterable, Identifiable {
+    case bottomCenter
+    case topCenter
+    case pointer
+
+    var id: String { rawValue }
+
+    var label: String {
+        switch self {
+        case .bottomCenter: return "Bas au centre"
+        case .topCenter: return "Haut au centre"
+        case .pointer: return "Près du pointeur"
+        }
+    }
+}
+
+enum HUDSize: String, CaseIterable, Identifiable {
+    case compact
+    case comfortable
+
+    var id: String { rawValue }
+    var label: String { self == .compact ? "Compacte" : "Confortable" }
+}
+
+enum HUDResultDuration: String, CaseIterable, Identifiable {
+    case fast
+    case balanced
+    case relaxed
+    case manual
+
+    var id: String { rawValue }
+
+    var label: String {
+        switch self {
+        case .fast: return "Rapide · 0,9 s"
+        case .balanced: return "Normale · 1,5 s"
+        case .relaxed: return "Longue · 3 s"
+        case .manual: return "Manuelle"
+        }
+    }
+
+    var delay: Duration? {
+        switch self {
+        case .fast: return .milliseconds(900)
+        case .balanced: return .milliseconds(1_500)
+        case .relaxed: return .seconds(3)
+        case .manual: return nil
+        }
+    }
 }
 
 enum TranscriptionModel: String, CaseIterable, Identifiable {

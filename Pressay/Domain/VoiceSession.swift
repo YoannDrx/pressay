@@ -234,6 +234,14 @@ struct ShortcutDefinition: Codable, Hashable, Sendable {
 struct ModeOverrides: Codable, Equatable, Sendable {
     var shortcut: ShortcutDefinition?
     var providerPolicy: ProviderPolicy?
+    var transcriptionProviderID: String?
+    var processingProviderID: String?
+}
+
+struct HUDModeOption: Identifiable, Equatable, Sendable {
+    let id: UUID
+    let name: String
+    let symbolName: String
 }
 
 enum ProfileSource: String, Codable, CaseIterable, Sendable {
@@ -242,25 +250,35 @@ enum ProfileSource: String, Codable, CaseIterable, Sendable {
     case migrated
 }
 
+enum ApplicationDeliveryPolicy: String, Codable, CaseIterable, Sendable {
+    case automatic
+    case preview
+    case copyOnly
+    case excluded
+}
+
 struct ApplicationProfile: Codable, Identifiable, Equatable, Sendable {
     let id: UUID
     let bundleIdentifier: String
     var modeID: UUID
     let source: ProfileSource
     var isEnabled: Bool
+    var deliveryPolicy: ApplicationDeliveryPolicy?
 
     init(
         id: UUID = UUID(),
         bundleIdentifier: String,
         modeID: UUID,
         source: ProfileSource,
-        isEnabled: Bool
+        isEnabled: Bool,
+        deliveryPolicy: ApplicationDeliveryPolicy? = nil
     ) {
         self.id = id
         self.bundleIdentifier = bundleIdentifier
         self.modeID = modeID
         self.source = source
         self.isEnabled = isEnabled
+        self.deliveryPolicy = deliveryPolicy
     }
 }
 
@@ -721,13 +739,21 @@ struct CapabilityMatrix: Equatable, Sendable {
         let isAppleSilicon = false
 #endif
         let version = ProcessInfo.processInfo.operatingSystemVersion
+        var transcriptionProviders: Set<String> = ["openai"]
+        var processingProviders: Set<String> = ["openai-responses"]
+        if version.majorVersion >= 26 {
+            transcriptionProviders.insert("speech-analyzer")
+            if isAppleSilicon {
+                processingProviders.insert("foundation-models")
+            }
+        }
         return CapabilityMatrix(
             operatingSystem: version,
             isAppleSilicon: isAppleSilicon,
             supportsSystemSpeechAnalyzer: version.majorVersion >= 26,
             supportsFoundationModels: version.majorVersion >= 26 && isAppleSilicon,
-            installedTranscriptionProviders: ["openai"],
-            installedProcessingProviders: ["openai-responses"],
+            installedTranscriptionProviders: transcriptionProviders,
+            installedProcessingProviders: processingProviders,
             grantedPermissions: []
         )
     }

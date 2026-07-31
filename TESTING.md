@@ -47,7 +47,7 @@ La cible `PressayTests` couvre :
 - export de diagnostics par liste blanche sans contenu utilisateur ni clé ;
 - fusion de trois releases stables et cinq bêtas dans l’appcast.
 
-La suite contient actuellement **54 tests Swift et 2 tests Python**. Cette suite ne remplace ni les
+La suite contient actuellement **74 tests Swift et 2 tests Python**. Cette suite ne remplace ni les
 tests AX réels ni la matrice interapplications.
 
 ## Vérifications de release automatisées

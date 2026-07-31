@@ -6,7 +6,11 @@ struct PressayApp: App {
     @StateObject private var updateService: UpdateService
 
     init() {
-        AppMigrationService().runIfNeeded()
+        // Hosted macOS unit tests launch the complete app before XCTest is
+        // attached. They must not migrate or unlock production credentials.
+        if !Constants.isRunningTests {
+            AppMigrationService().runIfNeeded()
+        }
         _appState = StateObject(wrappedValue: AppState())
         _updateService = StateObject(wrappedValue: UpdateService())
     }

@@ -5,6 +5,7 @@ struct MenuBarView: View {
     @EnvironmentObject private var updateService: UpdateService
     @Environment(\.openSettings) private var openSettings
     @ObservedObject private var history = HistoryService.shared
+    @ObservedObject private var inbox = VoiceInboxService.shared
     @ObservedObject private var modes = ModeStore.shared
     @AppStorage(Constants.activationModeKey) private var activationMode = ActivationMode.hold.rawValue
 
@@ -93,6 +94,17 @@ struct MenuBarView: View {
             }
 
             Divider()
+
+            if !inbox.entries.isEmpty {
+                Button(action: showInboxWindow) {
+                    Label(
+                        "Voice Inbox · \(inbox.entries.count)",
+                        systemImage: "tray.full"
+                    )
+                }
+                .padding(.horizontal, 4)
+                Divider()
+            }
 
             if let latest = history.entries.first {
                 Button(action: appState.copyLastTranscription) {
@@ -192,6 +204,20 @@ struct MenuBarView: View {
         NSApp.activate(ignoringOtherApps: true)
     }
 
+    private func showInboxWindow() {
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 430, height: 500),
+            styleMask: [.titled, .closable, .resizable],
+            backing: .buffered,
+            defer: false
+        )
+        window.title = "Voice Inbox Pressay"
+        window.contentView = NSHostingView(rootView: VoiceInboxView())
+        window.center()
+        window.makeKeyAndOrderFront(nil)
+        NSApp.activate(ignoringOtherApps: true)
+    }
+
     private var statusIcon: String {
         if appState.isRecording { return "waveform" }
         if appState.isTranscribing { return "ellipsis" }
@@ -211,6 +237,90 @@ struct MenuBarView: View {
         if appState.isTranscribing { return "Transcription en cours…" }
         if !appState.hasAPIKey { return "Clé API à configurer" }
         return "Prêt"
+    }
+}
+
+private struct VoiceInboxView: View {
+    @ObservedObject private var inbox = VoiceInboxService.shared
+
+    var body: some View {
+        VStack(spacing: 0) {
+            HStack {
+                Label("Voice Inbox", systemImage: "tray.full")
+                    .font(.headline)
+                Spacer()
+                if !inbox.entries.isEmpty {
+                    Button("Tout effacer", action: inbox.clearAll)
+                }
+            }
+            .padding()
+            Divider()
+            if let storageError = inbox.storageError {
+                HStack(alignment: .top, spacing: 8) {
+                    Image(systemName: "exclamationmark.triangle.fill")
+                        .foregroundStyle(.orange)
+                    Text(storageError)
+                        .font(.caption)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                    Button(action: inbox.clearStorageError) {
+                        Image(systemName: "xmark")
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel("Fermer l’erreur de stockage")
+                }
+                .padding(10)
+                .background(.orange.opacity(0.08))
+                Divider()
+            }
+            if inbox.entries.isEmpty {
+                ContentUnavailableView(
+                    "Inbox vide",
+                    systemImage: "tray",
+                    description: Text(
+                        "Les dictées réalisées sans champ éditable apparaîtront ici."
+                    )
+                )
+            } else {
+                ScrollView {
+                    LazyVStack(spacing: 8) {
+                        ForEach(inbox.entries) { entry in
+                            HStack(alignment: .top, spacing: 10) {
+                                VStack(alignment: .leading, spacing: 5) {
+                                    Text(entry.text)
+                                        .textSelection(.enabled)
+                                        .frame(
+                                            maxWidth: .infinity,
+                                            alignment: .leading
+                                        )
+                                    Text(entry.date, style: .relative)
+                                        .font(.caption)
+                                        .foregroundStyle(.secondary)
+                                }
+                                Button {
+                                    TextInjector.shared.copyToPasteboard(entry.text)
+                                } label: {
+                                    Image(systemName: "doc.on.doc")
+                                }
+                                .buttonStyle(.plain)
+                                Button(role: .destructive) {
+                                    inbox.delete(entry)
+                                } label: {
+                                    Image(systemName: "trash")
+                                }
+                                .buttonStyle(.plain)
+                            }
+                            .padding(11)
+                            .background(
+                                .secondary.opacity(0.07),
+                                in: RoundedRectangle(cornerRadius: 10)
+                            )
+                        }
+                    }
+                    .padding()
+                }
+            }
+        }
+        .frame(minWidth: 390, minHeight: 420)
     }
 }
 
