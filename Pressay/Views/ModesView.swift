@@ -56,7 +56,9 @@ struct ModesView: View {
         .frame(minWidth: 740, minHeight: 520)
         .onAppear {
             select(selectedModeID)
-            refreshApplications()
+            if DistributionChannel.current.supportsApplicationProfiles {
+                refreshApplications()
+            }
         }
         .onChange(of: selectedModeID) { _, newValue in
             select(newValue)
@@ -121,8 +123,10 @@ struct ModesView: View {
             ScrollView {
                 VStack(alignment: .leading, spacing: 22) {
                     modeEditor(draft)
-                    Divider()
-                    applicationRules
+                    if DistributionChannel.current.supportsApplicationProfiles {
+                        Divider()
+                        applicationRules
+                    }
                 }
                 .padding(24)
             }
@@ -158,7 +162,9 @@ struct ModesView: View {
             if isBuiltIn {
                 LabeledContent("Niveau", value: cleaningLabel(mode.cleaningLevel))
                 LabeledContent("Format", value: outputLabel(mode.outputFormat))
-                modeShortcutRow(mode)
+                if DistributionChannel.current.supportsGlobalShortcuts {
+                    modeShortcutRow(mode)
+                }
                 LabeledContent("Politique fournisseur") {
                     Picker(
                         "",
@@ -252,7 +258,9 @@ struct ModesView: View {
                 .frame(width: 210)
             }
             providerRows(mode, isBuiltIn: false)
-            modeShortcutRow(mode)
+            if DistributionChannel.current.supportsGlobalShortcuts {
+                modeShortcutRow(mode)
+            }
             Text("Instructions du mode")
                 .font(.caption.weight(.semibold))
                 .foregroundStyle(.secondary)
@@ -269,7 +277,9 @@ struct ModesView: View {
                 .frame(minHeight: 70)
                 .padding(8)
                 .background(.primary.opacity(0.035), in: RoundedRectangle(cornerRadius: 9))
-            contextToggles(mode)
+            if DistributionChannel.current.supportsAccessibility {
+                contextToggles(mode)
+            }
             HStack {
                 Label(
                     "Traitement cloud limité aux sources autorisées ci-dessus",

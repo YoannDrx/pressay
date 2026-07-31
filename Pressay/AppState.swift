@@ -5,7 +5,9 @@ import SwiftUI
 final class AppState: ObservableObject {
     @Published var hasAPIKey: Bool
     @Published var hasMicrophonePermission = false
-    @Published var hasAccessibilityPermission = TextInjector.hasAccessibilityPermission()
+    @Published var hasAccessibilityPermission =
+        DistributionChannel.current.supportsAccessibility
+            && TextInjector.hasAccessibilityPermission()
 
     let audioRecorder: AudioRecorder
     let keyboardService: ShortcutRouter
@@ -20,6 +22,7 @@ final class AppState: ObservableObject {
     var lastNotice: String? { sessionCoordinator.lastNotice }
 
     convenience init() {
+        let contextCapturer: ContextCapturing = AccessibilityContextService.shared
         self.init(
             audioRecorder: AudioRecorder(),
             keyboardService: ShortcutRouter(),
@@ -38,7 +41,7 @@ final class AppState: ObservableObject {
                         openAI: OpenAITextProcessingService.shared
                     )
             ),
-            contextCapturer: AccessibilityContextService.shared,
+            contextCapturer: contextCapturer,
             modeResolver: ModeResolverService.shared,
             textDeliverer: TextInjector.shared,
             previewPresenter: TextPreviewController.shared,
@@ -167,13 +170,17 @@ final class AppState: ObservableObject {
         hud.onCancel = { [weak self] in
             self?.sessionCoordinator.cancelCurrentSession()
         }
-        keyboardService.startMonitoring()
+        if DistributionChannel.current.supportsGlobalShortcuts {
+            keyboardService.startMonitoring()
+        }
     }
 
     func refreshPermissions() {
         audioRecorder.refreshPermission()
         hasMicrophonePermission = audioRecorder.hasPermission
-        hasAccessibilityPermission = TextInjector.hasAccessibilityPermission()
+        hasAccessibilityPermission =
+            DistributionChannel.current.supportsAccessibility
+                && TextInjector.hasAccessibilityPermission()
     }
 
     func requestMicrophonePermission() {
@@ -183,6 +190,7 @@ final class AppState: ObservableObject {
     }
 
     func requestAccessibilityPermission() {
+        guard DistributionChannel.current.supportsAccessibility else { return }
         TextInjector.requestAccessibilityPermission()
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.7) { [weak self] in
             self?.refreshPermissions()
@@ -191,6 +199,14 @@ final class AppState: ObservableObject {
 
     func cancelTranscription() {
         sessionCoordinator.cancelProcessing()
+    }
+
+    func toggleCaptureFromInterface() {
+        if isRecording {
+            sessionCoordinator.stopCaptureAndQueue()
+        } else if sessionCoordinator.captureSession == nil {
+            sessionCoordinator.startCapture()
+        }
     }
 
     func copyLastTranscription() {

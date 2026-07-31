@@ -16,6 +16,20 @@ stockage SQLite décrits dans `ROADMAP.md` restent des extensions planifiées.
 - Aucun contrat d’action ne donne directement accès à un exécuteur depuis une
   sortie de modèle.
 
+## Canaux de distribution
+
+`DistributionChannel` sépare deux produits à la compilation. Le canal
+`.direct` active Accessibility, l'injection universelle, les raccourcis globaux,
+les profils d'application et Sparkle. Le canal `.appStore`, construit avec la
+condition `APP_STORE`, remplace ces frontières par des implémentations sans API
+interapplications : capture déclenchée dans l'interface, contexte vide et
+livraison par copie/Inbox.
+
+La variante App Store n'est pas une simple configuration de signature. Son
+binaire ne lie ni Sparkle ni les services AX/Carbon/CGEvent. La règle est
+contrôlée par `scripts/validate-app-store.sh` afin d'éviter qu'une évolution du
+canal direct réintroduise silencieusement une capacité interdite.
+
 ## Pipeline actuel
 
 ```mermaid

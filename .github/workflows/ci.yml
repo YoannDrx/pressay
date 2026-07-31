@@ -36,5 +36,9 @@ jobs:
           -scheme Pressay
           -configuration Debug
           -destination 'platform=macOS'
+      - name: Valider la cible Mac App Store
+        run: scripts/validate-app-store.sh
+      - name: Valider les scripts de publication
+        run: zsh -n scripts/archive-app-store.sh scripts/validate-app-store.sh
       - name: Valider la fusion des appcasts
         run: python3 scripts/test-merge-appcast.py

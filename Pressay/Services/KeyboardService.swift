@@ -1,3 +1,72 @@
+#if APP_STORE
+import Combine
+import Foundation
+
+enum ShortcutAction: Hashable {
+    case dictate
+    case transformSelection
+    case correctLastInsertion
+    case mode(UUID)
+}
+
+enum ShortcutRegistrationResult: Equatable {
+    case registered
+    case conflict(existingOwner: String?)
+    case unsupported
+}
+
+@MainActor
+final class ShortcutRouter: ObservableObject {
+    @Published private(set) var isMonitoring = false
+    @Published private(set) var isHandsFreeActive = false
+    @Published private(set) var transformationShortcutAvailable = false
+    @Published private(set) var correctionShortcutAvailable = false
+    @Published private(set) var lastRegistrationMessage: String?
+    @Published private(set) var isRecordingShortcut = false
+
+    var onShortcutPressed: (() -> Void)?
+    var onShortcutReleased: (() -> Void)?
+    var onCancel: (() -> Void)?
+    var onHandsFreeChanged: ((Bool) -> Void)?
+    var onTransformationShortcut: (() -> Void)?
+    var onCorrectionShortcut: (() -> Void)?
+    var onModeShortcut: ((UUID) -> Void)?
+    var onDictationHotKey: (() -> Void)?
+
+    func startMonitoring() {}
+    func stopMonitoring() {}
+
+    @discardableResult
+    func register(
+        action: ShortcutAction,
+        shortcut: ShortcutDefinition
+    ) -> ShortcutRegistrationResult {
+        lastRegistrationMessage =
+            "Les raccourcis globaux sont disponibles dans la version directe de Pressay."
+        return .unsupported
+    }
+
+    @discardableResult
+    func updateShortcut(
+        action: ShortcutAction,
+        shortcut: ShortcutDefinition
+    ) -> ShortcutRegistrationResult {
+        register(action: action, shortcut: shortcut)
+    }
+
+    func currentShortcut(for action: ShortcutAction) -> ShortcutDefinition? {
+        nil
+    }
+
+    func setShortcutRecording(_ active: Bool) {
+        isRecordingShortcut = active
+    }
+
+    func unregister(action: ShortcutAction) {}
+}
+
+typealias KeyboardService = ShortcutRouter
+#else
 import AppKit
 import Carbon.HIToolbox
 import Foundation
@@ -543,3 +612,4 @@ private extension ShortcutAction {
         }
     }
 }
+#endif

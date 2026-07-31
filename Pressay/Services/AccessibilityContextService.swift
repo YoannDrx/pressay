@@ -1,3 +1,22 @@
+#if APP_STORE
+import Foundation
+
+@MainActor
+final class AccessibilityContextService: ContextCapturing {
+    static let shared = AccessibilityContextService()
+    private init() {}
+
+    func capture() -> ContextCaptureResult {
+        ContextCaptureResult(target: nil, context: .empty)
+    }
+
+    func captureSelectionFallback(
+        from initialCapture: ContextCaptureResult
+    ) async -> ContextCaptureResult {
+        initialCapture
+    }
+}
+#else
 import AppKit
 import ApplicationServices
 import Foundation
@@ -351,3 +370,4 @@ final class AccessibilityContextService: ContextCapturing {
         await ClipboardTransactionCoordinator.shared.captureSelection()
     }
 }
+#endif

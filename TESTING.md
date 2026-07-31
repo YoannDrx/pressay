@@ -47,12 +47,14 @@ La cible `PressayTests` couvre :
 - export de diagnostics par liste blanche sans contenu utilisateur ni clé ;
 - fusion de trois releases stables et cinq bêtas dans l’appcast.
 
-La suite contient actuellement **74 tests Swift et 2 tests Python**. Cette suite ne remplace ni les
+La suite contient actuellement **77 tests Swift et 2 tests Python**. Cette suite ne remplace ni les
 tests AX réels ni la matrice interapplications.
 
 ## Vérifications de release automatisées
 
 ```bash
+scripts/validate-app-store.sh
+zsh -n scripts/archive-app-store.sh scripts/validate-app-store.sh
 RELEASE_TAG=v1.2.0-beta.1 scripts/validate-release.sh
 zsh -n scripts/notarize.sh scripts/validate-release.sh
 python3 -m py_compile scripts/merge-appcast.py
@@ -76,6 +78,11 @@ xcodebuild build \
   ARCHS='arm64 x86_64' ONLY_ACTIVE_ARCH=NO \
   CODE_SIGNING_ALLOWED=NO
 ```
+
+`validate-app-store.sh` construit séparément `Pressay Companion.app` en Release
+universelle, vérifie App Sandbox et le manifeste de confidentialité, puis refuse
+Sparkle et les symboles Accessibility/Carbon/CGEvent. Cette validation statique
+ne remplace pas une archive signée, l'analyse d'App Store Connect ni TestFlight.
 
 Ces commandes valident le code et le paquet universel non signé. Elles ne
 remplacent ni l’archive Developer ID, ni la notarisation, ni Gatekeeper, ni les
