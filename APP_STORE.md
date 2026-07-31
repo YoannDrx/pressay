@@ -11,7 +11,7 @@ Sparkle.
 | Canal | Produit | Bundle ID | Version initiale | Livraison du texte |
 | --- | --- | --- | --- | --- |
 | Direct | `Pressay.app` | `fr.yodev.pressay` | 1.2.2 | Insertion universelle lorsque la cible est vérifiable |
-| Mac App Store | `Pressay Companion.app` | `fr.yodev.pressay.appstore` | 1.0.0 (10001) | Presse-papiers et Voice Inbox |
+| Mac App Store | `Pressay Companion.app` | `fr.yodev.pressay` | 1.2.0 (12001) | Presse-papiers et Voice Inbox |
 
 La variante App Store ne doit jamais promettre la dictée universelle. Elle
 propose une dictée déclenchée depuis la barre des menus, les douze modes, les
@@ -29,9 +29,10 @@ copié ; l'utilisateur le colle où il le souhaite.
 - build Release universel vérifié par `scripts/validate-app-store.sh` ;
 - tests de non-régression de la variante directe conservés.
 
-Le code est prêt pour la phase de signature et de TestFlight. Il n'est pas
-encore publiable tant que l'identifiant, le certificat, le profil et la fiche
-App Store Connect ne sont pas alignés.
+La cible est alignée sur la fiche App Store Connect `6795505605`, qui utilise
+le bundle historique `fr.yodev.pressay`. La distribution directe et la variante
+App Store ne sont jamais installées simultanément : installer l'une remplace
+l'autre, ce qui préserve une identité produit unique dans macOS.
 
 ## Contrôle local
 
@@ -70,30 +71,23 @@ le script ne téléverse et ne soumet rien automatiquement.
 
 ## Pré requis Apple à terminer
 
-1. Dans Certificates, Identifiers & Profiles, vérifier ou créer l'App ID
-   explicite `fr.yodev.pressay.appstore`.
-2. Dans App Store Connect, vérifier que la fiche existante correspond à ce même
-   bundle ID. Un bundle ID associé à une fiche ne peut pas être changé après
-   l'envoi d'un build ; si la fiche `6795505605` porte un autre identifiant, il
-   faut choisir l'identifiant réel avant toute création de profil.
-3. Créer dans Xcode un certificat **Apple Distribution** possédant sa clé privée.
-   Le Keychain local ne contient actuellement qu'un certificat Developer ID.
-4. Laisser Xcode créer automatiquement le profil **Mac App Store Connect**, ou
-   créer manuellement un profil pour l'App ID explicite et le certificat Apple
-   Distribution.
-5. Accepter les contrats encore signalés dans Business. Le statut de commerçant
+1. La fiche `6795505605` et l'App ID explicite `fr.yodev.pressay` sont alignés.
+2. Xcode gère la signature via un certificat Apple Distribution cloud et un
+   profil Mac App Store Connect valable jusqu'au 31 juillet 2027.
+3. Accepter les contrats encore signalés dans Business. Le statut de commerçant
    DSA est déjà vérifié ; les contrats, informations fiscales et bancaires ne
    sont nécessaires que selon les territoires et le modèle économique choisis.
-6. Archiver `Pressay App Store`, exécuter **Validate App**, puis téléverser le
+4. Archiver `Pressay App Store`, exécuter **Validate App**, puis téléverser le
    build vers App Store Connect.
-7. Répondre aux questions de conformité export et attendre le traitement du
+5. Répondre aux questions de conformité export et attendre le traitement du
    build.
-8. Tester au moins une installation via TestFlight sur une session macOS propre.
-9. Associer le build, compléter les métadonnées, puis soumettre à App Review.
+6. Tester au moins une installation via TestFlight sur une session macOS propre.
+7. Associer le build, compléter les métadonnées, puis soumettre à App Review.
 
 Apple documente l'App Sandbox comme une exigence du Mac App Store et exige que
 les mises à jour App Store passent par l'App Store. Le flux direct reste donc un
-produit distinct et ne doit pas être fusionné dans ce bundle.
+artefact distinct, construit avec d'autres entitlements, même si les deux
+éditions partagent l'identité de bundle historique de Pressay.
 
 `Info-AppStore.plist` déclare `ITSAppUsesNonExemptEncryption = false` : le
 build utilise uniquement HTTPS et les primitives CryptoKit fournies par macOS.

@@ -33,15 +33,15 @@ info_plist_path="$(setting INFOPLIST_FILE)"
 conditions="$(setting SWIFT_ACTIVE_COMPILATION_CONDITIONS)"
 sandbox_enabled="$(setting ENABLE_APP_SANDBOX)"
 
-[[ "$bundle_identifier" == "fr.yodev.pressay.appstore" ]] || {
+[[ "$bundle_identifier" == "fr.yodev.pressay" ]] || {
   echo "Bundle ID App Store inattendu: $bundle_identifier" >&2
   exit 1
 }
-[[ "$marketing_version" == "1.0.0" ]] || {
+[[ "$marketing_version" == "1.2.0" ]] || {
   echo "Version App Store inattendue: $marketing_version" >&2
   exit 1
 }
-[[ "$build_number" == <-> && "$build_number" -ge 10001 ]] || {
+[[ "$build_number" == <-> && "$build_number" -ge 12001 ]] || {
   echo "Build App Store invalide: $build_number" >&2
   exit 1
 }

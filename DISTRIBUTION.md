@@ -8,7 +8,10 @@ l'application cible et publier un événement clavier pour y coller le texte.
 Une seconde cible, `Pressay App Store`, produit `Pressay Companion.app` avec App
 Sandbox. Elle n'embarque ni Sparkle, ni raccourci global, ni Accessibility, ni
 injection interapplications. Les deux chaînes de publication ne partagent ni
-bundle ID, ni version, ni mécanisme de mise à jour. Voir
+artefact, ni entitlements, ni mécanisme de mise à jour. Elles utilisent le même
+bundle ID `fr.yodev.pressay`, imposé par la fiche App Store Connect existante :
+installer une édition remplace donc l'autre. Leurs versions peuvent évoluer
+indépendamment. Voir
 [APP_STORE.md](APP_STORE.md) pour la soumission Mac App Store.
 
 Le bundle public est `fr.yodev.pressay`. La version visible et le numéro de build
