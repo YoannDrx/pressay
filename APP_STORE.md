@@ -132,9 +132,9 @@ Description courte à développer dans App Store Connect :
 > transmis. Utilisez votre propre clé API OpenAI, stockée dans le Trousseau, ou
 > téléchargez WhisperKit pour une transcription Fidèle entièrement locale.
 
-Lorsque OpenAI est sélectionné, l'audio est transmis pendant la dictée à
-`gpt-live-transcribe` afin de réduire le délai après le relâchement. WhisperKit
-ne transmet pas l'audio hors du Mac.
+Lorsque OpenAI est sélectionné, le court enregistrement est transmis une fois à
+`gpt-4o-mini-transcribe` au relâchement de la touche. WhisperKit ne transmet pas
+l'audio hors du Mac.
 
 Ajouter sans ambiguïté à la description :
 

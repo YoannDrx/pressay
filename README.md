@@ -231,8 +231,9 @@ L'app a besoin de ces permissions pour fonctionner :
 Dans les réglages, choisis un seul moteur de transcription :
 
 1. **OpenAI** : colle une clé de projet `sk-…`. Pressay la valide avant de
-   l’enregistrer dans le Trousseau macOS. `gpt-live-transcribe` reçoit l’audio
-   pendant la dictée afin de finaliser le texte dès le relâchement de Fn.
+   l’enregistrer dans le Trousseau macOS. Au relâchement de Fn, le court fichier
+   audio est envoyé une seule fois à `gpt-4o-mini-transcribe` avec une échéance
+   réseau stricte.
 2. **WhisperKit local** : télécharge le modèle Small une seule fois. L’audio et
    la transcription restent ensuite sur le Mac, même hors ligne.
 
@@ -250,10 +251,9 @@ gratuit mais occupe de l’espace disque.
    capturées avant l’enregistrement.
 3. L’audio PCM/WAV 24 kHz mono est analysé localement ; le silence n’est jamais
    livré.
-4. Avec OpenAI, les blocs PCM partent vers `gpt-live-transcribe` pendant la
-   capture puis le flux est finalisé au relâchement. Si le WebSocket échoue,
-   Pressay réutilise le WAV avec `gpt-4o-mini-transcribe`, sans changer de
-   fournisseur. WhisperKit reste un chemin local séparé, sans fallback cloud.
+4. Avec OpenAI, le WAV court part une seule fois vers
+   `gpt-4o-mini-transcribe` au relâchement. WhisperKit reste un chemin local
+   séparé, sans fallback cloud.
 5. Le mode résolu choisit entre restitution fidèle et transformation via la
    Responses API avec `store: false`.
 6. Une transformation de sélection attend un aperçu éditable.

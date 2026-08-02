@@ -35,6 +35,10 @@ final class TextInjector: TextDelivering {
         return false
     }
 
+    func injectDictation(text: String, target: TextInjectionTarget?) async -> Bool {
+        await inject(text: text, target: target)
+    }
+
     func copyToPasteboard(_ text: String) {
         lastDeliveryStrategy = .copied
         NSPasteboard.general.clearContents()
@@ -174,6 +178,37 @@ final class TextInjector: TextDelivering {
             return fail(.clipboardPasteFailed)
         }
         return didPaste
+    }
+
+    func injectDictation(text: String, target: TextInjectionTarget?) async -> Bool {
+        let cleanText = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !cleanText.isEmpty else { return fail(.emptyText) }
+        guard TextInjector.hasAccessibilityPermission() else {
+            return fail(.accessibilityNotGranted)
+        }
+        guard let target else { return fail(.missingTarget) }
+        guard !target.snapshot.isSecure else { return fail(.secureTarget) }
+        guard let app = NSRunningApplication(
+            processIdentifier: target.processIdentifier
+        ), !app.isTerminated else {
+            return fail(.targetApplicationUnavailable)
+        }
+
+        lastUndoToken = nil
+        lastDeliveryStrategy = .copied
+        lastDeliveryFailure = nil
+        app.activate(options: [.activateAllWindows])
+        guard await waitForTargetApplication(
+            target.processIdentifier,
+            timeout: .milliseconds(450)
+        ) else {
+            return fail(.targetApplicationNotFrontmost)
+        }
+
+        let didPaste = await ClipboardTransactionCoordinator.shared
+            .pasteDictation(cleanText)
+        lastDeliveryStrategy = didPaste ? .paste : .copied
+        return didPaste ? true : fail(.clipboardPasteFailed)
     }
 
     private func prefersPasteDelivery(for target: TextInjectionTarget) -> Bool {
@@ -381,9 +416,10 @@ final class TextInjector: TextDelivering {
     }
 
     private func waitForTargetApplication(
-        _ processIdentifier: pid_t
+        _ processIdentifier: pid_t,
+        timeout: Duration = .seconds(1)
     ) async -> Bool {
-        let deadline = ContinuousClock.now + .seconds(1)
+        let deadline = ContinuousClock.now + timeout
         while ContinuousClock.now < deadline {
             if NSWorkspace.shared.frontmostApplication?.processIdentifier
                 == processIdentifier {

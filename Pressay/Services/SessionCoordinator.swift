@@ -29,7 +29,6 @@ final class SessionCoordinator: ObservableObject {
         let deliveryPolicy: ApplicationDeliveryPolicy
         let replayOriginalText: String?
         let transcriber: any SpeechTranscribing
-        let realtimeTask: Task<TranscriptionResult, Error>?
     }
 
     private struct ReplayDescriptor {
@@ -74,8 +73,6 @@ final class SessionCoordinator: ObservableObject {
     private var captureMode: ModeDefinition?
     private var captureDeliveryPolicy: ApplicationDeliveryPolicy?
     private var captureTranscriber: (any SpeechTranscribing)?
-    private var captureRealtimeTranscriber: (any RealtimeSpeechTranscribing)?
-    private var captureRealtimeStartTask: Task<Void, Error>?
     private var previewDelivery: PreviewDelivery?
     private var capturePreparationTask: Task<Void, Never>?
     private var targetRecoveryTask: Task<Void, Never>?
@@ -259,17 +256,6 @@ final class SessionCoordinator: ObservableObject {
         deliveryPolicy: ApplicationDeliveryPolicy,
         activeTranscriber: any SpeechTranscribing
     ) {
-        let realtime = activeTranscriber as? any RealtimeSpeechTranscribing
-        if let realtime {
-            realtime.cancelRealtimeTranscription()
-            captureRealtimeTranscriber = realtime
-            captureRealtimeStartTask = Task {
-                try await realtime.startRealtimeTranscription()
-            }
-            (audioCapturer as? PCMChunkProviding)?.onPCMChunk = { data in
-                realtime.appendRealtimeAudio(data)
-            }
-        }
         do {
             try audioCapturer.startRecording()
 
@@ -313,11 +299,6 @@ final class SessionCoordinator: ObservableObject {
                 )
             }
         } catch {
-            (audioCapturer as? PCMChunkProviding)?.onPCMChunk = nil
-            captureRealtimeStartTask?.cancel()
-            captureRealtimeStartTask = nil
-            captureRealtimeTranscriber?.cancelRealtimeTranscription()
-            captureRealtimeTranscriber = nil
             fail(error.localizedDescription)
         }
     }
@@ -335,23 +316,15 @@ final class SessionCoordinator: ObservableObject {
         captureDeliveryPolicy = nil
         let activeTranscriber = captureTranscriber ?? transcriber
         captureTranscriber = nil
-        let realtimeTranscriber = captureRealtimeTranscriber
-        captureRealtimeTranscriber = nil
-        let realtimeStartTask = captureRealtimeStartTask
-        captureRealtimeStartTask = nil
         let target = captureTarget
         captureTarget = nil
 
         guard let audio = audioCapturer.stopRecording() else {
-            (audioCapturer as? PCMChunkProviding)?.onPCMChunk = nil
-            realtimeStartTask?.cancel()
-            realtimeTranscriber?.cancelRealtimeTranscription()
             session.transition(to: .failed("Aucun enregistrement trouvé"))
             lastSession = session
             fail("Aucun enregistrement trouvé")
             return
         }
-        (audioCapturer as? PCMChunkProviding)?.onPCMChunk = nil
 
         sounds.playStopSound()
         session.timings.captureEndedAt = Date()
@@ -361,8 +334,6 @@ final class SessionCoordinator: ObservableObject {
         metrics.record(.capture, duration: audio.duration)
 
         guard audio.containsSpeech else {
-            realtimeStartTask?.cancel()
-            realtimeTranscriber?.cancelRealtimeTranscription()
             audioCapturer.cleanup(url: audio.url)
             _ = session.transition(to: .cancelled)
             lastSession = session
@@ -370,26 +341,6 @@ final class SessionCoordinator: ObservableObject {
             lastNotice = "Aucune parole détectée — rien n’a été collé"
             hud.show(.cancelled, detail: lastNotice, autoHide: true)
             return
-        }
-
-        let realtimeTask: Task<TranscriptionResult, Error>?
-        if let realtimeTranscriber {
-            realtimeTask = Task { [weak self] in
-                do {
-                    try await realtimeStartTask?.value
-                    return try await realtimeTranscriber.finishRealtimeTranscription()
-                } catch {
-                    realtimeTranscriber.cancelRealtimeTranscription()
-                    self?.hud.show(
-                        .transcribing,
-                        detail: "Temps réel indisponible · repli OpenAI",
-                        autoHide: false
-                    )
-                    return try await activeTranscriber.transcribe(audioURL: audio.url)
-                }
-            }
-        } else {
-            realtimeTask = nil
         }
 
         pendingSessions.append(
@@ -400,8 +351,7 @@ final class SessionCoordinator: ObservableObject {
                 mode: mode,
                 deliveryPolicy: deliveryPolicy,
                 replayOriginalText: nil,
-                transcriber: activeTranscriber,
-                realtimeTask: realtimeTask
+                transcriber: activeTranscriber
             )
         )
         if let data = try? Data(contentsOf: audio.url) {
@@ -449,11 +399,6 @@ final class SessionCoordinator: ObservableObject {
             targetRecoveryTask?.cancel()
             targetRecoveryTask = nil
             captureTranscriber = nil
-            captureRealtimeStartTask?.cancel()
-            captureRealtimeStartTask = nil
-            captureRealtimeTranscriber?.cancelRealtimeTranscription()
-            captureRealtimeTranscriber = nil
-            (audioCapturer as? PCMChunkProviding)?.onPCMChunk = nil
             audioCapturer.cleanupCurrentRecording()
             captureSession = nil
             captureTarget = nil
@@ -567,8 +512,7 @@ final class SessionCoordinator: ObservableObject {
                 mode: descriptor.mode,
                 deliveryPolicy: .preview,
                 replayOriginalText: previous.finalText ?? previous.rawText,
-                transcriber: transcriber,
-                realtimeTask: nil
+                transcriber: transcriber
             )
         )
         pendingCount = pendingSessions.count
@@ -631,11 +575,9 @@ final class SessionCoordinator: ObservableObject {
                     autoHide: false
                 )
                 let transcriptionStartedAt = Date()
-                let transcription = if let realtimeTask = item.realtimeTask {
-                    try await realtimeTask.value
-                } else {
-                    try await activeTranscriber.transcribe(audioURL: item.audio.url)
-                }
+                let transcription = try await activeTranscriber.transcribe(
+                    audioURL: item.audio.url
+                )
                 self.metrics.record(
                     .transcription,
                     duration: Date().timeIntervalSince(transcriptionStartedAt)
@@ -963,7 +905,11 @@ final class SessionCoordinator: ObservableObject {
             autoHide: false
         )
         let insertionStartedAt = Date()
-        let inserted = await textDeliverer.inject(text: text, target: item.target)
+        let inserted = if item.session.intent == .dictate {
+            await textDeliverer.injectDictation(text: text, target: item.target)
+        } else {
+            await textDeliverer.inject(text: text, target: item.target)
+        }
         metrics.record(
             .insertion,
             duration: Date().timeIntervalSince(insertionStartedAt)

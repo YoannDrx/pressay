@@ -21,12 +21,10 @@ provider dans les modes ne sont plus exposés dans l’interface.
 
 ### Chemin critique de latence
 
-Le chemin OpenAI nominal est désormais : PCM 24 kHz envoyé à
-`gpt-live-transcribe` pendant l’appui sur Fn → commit au relâchement → texte
-final → transformation OpenAI éventuelle → insertion. Si le WebSocket OpenAI
-échoue, le même enregistrement est envoyé une fois à
-`gpt-4o-mini-transcribe`. Ce repli reste chez OpenAI et ne modifie jamais un
-choix WhisperKit local. La sélection d’un fournisseur de secours a disparu.
+Le chemin OpenAI nominal est désormais : WAV 24 kHz envoyé une seule fois à
+`gpt-4o-mini-transcribe` au relâchement → texte final → transformation OpenAI
+éventuelle → insertion. La tentative WebSocket et son repli en cascade ont été
+retirés. Un choix WhisperKit local ne déclenche toujours aucun envoi cloud.
 
 Le HUD reste visible uniquement pendant le travail réel. Les états terminaux se
 ferment automatiquement en 0,9 seconde par défaut et l’utilisateur conserve

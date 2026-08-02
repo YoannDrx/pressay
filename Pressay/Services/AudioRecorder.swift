@@ -7,7 +7,6 @@ final class AudioRecorder: NSObject, ObservableObject {
     @Published private(set) var isRecording = false
     @Published private(set) var hasPermission = false
     var onLevelUpdate: ((Float) -> Void)?
-    var onPCMChunk: ((Data) -> Void)?
 
     private var audioEngine: AVAudioEngine?
     private var audioConverter: AVAudioConverter?
@@ -87,8 +86,7 @@ final class AudioRecorder: NSObject, ObservableObject {
         audioConverter = converter
         audioFile = file
         recordedFrames = 0
-        // A moderate buffer keeps level updates responsive while avoiding
-        // excessive work on the realtime audio thread.
+        // A moderate buffer keeps recording and level updates responsive.
         input.installTap(onBus: 0, bufferSize: 4_096, format: inputFormat) {
             [weak self] buffer, _ in
             self?.processingQueue.async {
@@ -185,14 +183,6 @@ final class AudioRecorder: NSObject, ObservableObject {
         if Double(recordedFrames) / 24_000 >= Constants.ignoredLeadingAudioDuration {
             powerSamples.append(power)
         }
-        if let samples = output.int16ChannelData?.pointee {
-            onPCMChunk?(
-                Data(
-                    bytes: samples,
-                    count: Int(output.frameLength) * MemoryLayout<Int16>.size
-                )
-            )
-        }
         let normalized = max(0, min(1, (power + 60) / 60))
         onLevelUpdate?(normalized)
     }
@@ -226,4 +216,3 @@ final class AudioRecorder: NSObject, ObservableObject {
 }
 
 extension AudioRecorder: AudioCapturing {}
-extension AudioRecorder: PCMChunkProviding {}

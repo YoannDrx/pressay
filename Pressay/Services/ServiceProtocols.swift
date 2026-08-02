@@ -17,22 +17,11 @@ protocol AudioCapturing: AnyObject {
     func cleanup(url: URL)
 }
 
-protocol PCMChunkProviding: AnyObject {
-    var onPCMChunk: ((Data) -> Void)? { get set }
-}
-
 protocol SpeechTranscribing: AnyObject {
     var identifier: String { get }
     var isReady: Bool { get }
     var locality: ProviderLocality { get }
     func transcribe(audioURL: URL) async throws -> TranscriptionResult
-}
-
-protocol RealtimeSpeechTranscribing: SpeechTranscribing {
-    func startRealtimeTranscription() async throws
-    func appendRealtimeAudio(_ data: Data)
-    func finishRealtimeTranscription() async throws -> TranscriptionResult
-    func cancelRealtimeTranscription()
 }
 
 extension SpeechTranscribing {
@@ -137,6 +126,7 @@ protocol TextDelivering: AnyObject {
     var canUndoLastInsertion: Bool { get }
     var lastDeliveryStrategy: DeliveryStrategy { get }
     var lastDeliveryFailure: DeliveryFailureReason? { get }
+    func injectDictation(text: String, target: TextInjectionTarget?) async -> Bool
     func inject(text: String, target: TextInjectionTarget?) async -> Bool
     func copyToPasteboard(_ text: String)
     func undoLastInsertion() -> Bool
@@ -146,6 +136,9 @@ protocol TextDelivering: AnyObject {
 extension TextDelivering {
     var lastDeliveryStrategy: DeliveryStrategy { .copied }
     var lastDeliveryFailure: DeliveryFailureReason? { nil }
+    func injectDictation(text: String, target: TextInjectionTarget?) async -> Bool {
+        await inject(text: text, target: target)
+    }
     func prepareRecentInsertionForReplacement() -> Bool { false }
 }
 

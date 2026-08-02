@@ -12,6 +12,11 @@ actor ClipboardTransactionCoordinator {
         return false
     }
 
+    func pasteDictation(_ text: String) async -> Bool {
+        await setPermanentString(text)
+        return false
+    }
+
     func setPermanentString(_ text: String) async {
         await MainActor.run {
             let pasteboard = NSPasteboard.general
@@ -98,6 +103,26 @@ actor ClipboardTransactionCoordinator {
         }
         try? await Task.sleep(for: .milliseconds(300))
         await restoreIfUnchanged(initial, expectedChangeCount: pressayChangeCount)
+        return posted
+    }
+
+    func pasteDictation(_ text: String) async -> Bool {
+        // Dictation favors latency and predictability. Keep the dictated text
+        // in the clipboard instead of eagerly loading and restoring every
+        // pasteboard representation owned by another application.
+        guard tryAcquire() else { return false }
+        defer { release() }
+
+        let prepared = await MainActor.run {
+            let pasteboard = NSPasteboard.general
+            pasteboard.clearContents()
+            return pasteboard.setString(text, forType: .string)
+        }
+        guard prepared else { return false }
+        let posted = await MainActor.run {
+            Self.postKeyboardShortcut(keyCode: CGKeyCode(kVK_ANSI_V))
+        }
+        try? await Task.sleep(for: .milliseconds(120))
         return posted
     }
 
