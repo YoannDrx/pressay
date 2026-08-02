@@ -197,11 +197,8 @@ final class TextInjector: TextDelivering {
         lastUndoToken = nil
         lastDeliveryStrategy = .copied
         lastDeliveryFailure = nil
-        app.activate(options: [.activateAllWindows])
-        guard await waitForTargetApplication(
-            target.processIdentifier,
-            timeout: .milliseconds(450)
-        ) else {
+        guard NSWorkspace.shared.frontmostApplication?.processIdentifier
+                == target.processIdentifier else {
             return fail(.targetApplicationNotFrontmost)
         }
 

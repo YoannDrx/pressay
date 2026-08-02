@@ -165,13 +165,13 @@ Dans les préférences, tu peux choisir le français, l'anglais ou la détection
 Le raccourci peut être Fn/Globe, Option droite ou Commande droite. Le mode
 « Maintenir » convient aux messages courts ; le mode « Bascule » permet les longues
 dictées. Une double pression active la capture mains libres. Un HUD discret
-indique le niveau micro, la durée, la langue, le mode et la file.
+indique le niveau micro, la durée, la langue et le mode.
 
-### File d'attente et annulation
-Tu peux commencer une nouvelle dictée pendant que la précédente est transcrite.
-Chaque résultat conserve l'application cible d'origine, et l'appel en cours peut
-être annulé avec Échap ou depuis le HUD. Après une insertion compatible, le HUD
-propose une annulation locale pendant quelques secondes.
+### Annulation et délai maximum
+Pressay traite une seule dictée à la fois. L’appel en cours peut être annulé avec
+Échap ou depuis le HUD, et une transcription cloud fidèle est interrompue après
+10 secondes au lieu de laisser le HUD bloqué. Après une insertion compatible, le
+HUD propose une annulation locale pendant quelques secondes.
 
 ### Modes contextuels
 
@@ -249,18 +249,18 @@ gratuit mais occupe de l’espace disque.
 1. `ShortcutRouter` demande au `SessionCoordinator` de créer une `VoiceSession`.
 2. La cible AX, la sélection et les seules sources de contexte autorisées sont
    capturées avant l’enregistrement.
-3. L’audio PCM/WAV 24 kHz mono est analysé localement ; le silence n’est jamais
+3. L’audio M4A 16 kHz mono est analysé localement ; le silence n’est jamais
    livré.
-4. Avec OpenAI, le WAV court part une seule fois vers
+4. Avec OpenAI, le M4A court part une seule fois vers
    `gpt-4o-mini-transcribe` au relâchement. WhisperKit reste un chemin local
    séparé, sans fallback cloud.
 5. Le mode résolu choisit entre restitution fidèle et transformation via la
    Responses API avec `store: false`.
 6. Une transformation de sélection attend un aperçu éditable.
-7. `TextInjector` revérifie l’application, l’élément et le hash de sélection ;
-   il insère ou copie le résultat si la cible n’est plus sûre.
-8. Le presse-papiers précédent est restauré sauf modification concurrente, et
-   une insertion AX compatible reçoit un jeton d’annulation temporaire.
+7. Une dictée simple colle directement si l’application initiale est toujours
+   au premier plan ; les transformations conservent la validation AX stricte.
+8. Si la cible n’est plus sûre, le texte reste dans le presse-papiers au lieu
+   d’être envoyé à la mauvaise application.
 
 Les types de domaine et les frontières de services sont détaillés dans
 [ARCHITECTURE.md](ARCHITECTURE.md).

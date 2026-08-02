@@ -2115,6 +2115,36 @@ final class SessionCoordinatorTests: XCTestCase {
         XCTAssertEqual(delivery.insertedTexts, ["Résultat OpenAI"])
     }
 
+    func testASecondDictationIsNotQueuedWhileTranscriptionIsRunning() async throws {
+        let audio = MockAudioCapturer(result: speechResult())
+        let transcriber = MockSpeechTranscriber(
+            text: "Résultat lent",
+            delay: .seconds(2)
+        )
+        let coordinator = makeCoordinator(
+            audio: audio,
+            transcriber: transcriber,
+            context: MockContextCapturer(result: .init(target: nil, context: .empty)),
+            delivery: MockTextDeliverer(shouldInsert: true),
+            history: MockHistoryRepository()
+        )
+
+        coordinator.startCapture()
+        coordinator.stopCaptureAndQueue()
+        for _ in 0..<100 where !coordinator.isTranscribing {
+            try await Task.sleep(for: .milliseconds(5))
+        }
+
+        audio.didStart = false
+        coordinator.startCapture()
+
+        XCTAssertNil(coordinator.captureSession)
+        XCTAssertFalse(audio.didStart)
+        XCTAssertEqual(coordinator.pendingCount, 0)
+        coordinator.cancelProcessing()
+        try await waitUntilCancelled(coordinator)
+    }
+
 #if false // Removed with the Deepgram streaming provider.
     func testLiveTranscriptionStreamsAudioAndSkipsBatchRequest() async throws {
         let audio = MockAudioCapturer(result: speechResult())
@@ -2883,22 +2913,26 @@ private final class MockSpeechTranscriber: SpeechTranscribing {
     let isReady: Bool
     let locality: ProviderLocality
     let text: String
+    let delay: Duration
     var callCount = 0
 
     init(
         text: String,
         isReady: Bool = true,
         identifier: String = "mock",
-        locality: ProviderLocality = .cloud
+        locality: ProviderLocality = .cloud,
+        delay: Duration = .zero
     ) {
         self.text = text
         self.isReady = isReady
         self.identifier = identifier
         self.locality = locality
+        self.delay = delay
     }
 
     func transcribe(audioURL: URL) async throws -> TranscriptionResult {
         callCount += 1
+        try await Task.sleep(for: delay)
         return TranscriptionResult(text: text, averageLogProbability: 0)
     }
 }

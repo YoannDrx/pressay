@@ -21,16 +21,17 @@ provider dans les modes ne sont plus exposés dans l’interface.
 
 ### Chemin critique de latence
 
-Le chemin OpenAI nominal est désormais : WAV 24 kHz envoyé une seule fois à
+Le chemin OpenAI nominal est désormais : M4A 16 kHz mono envoyé une seule fois à
 `gpt-4o-mini-transcribe` au relâchement → texte final → transformation OpenAI
 éventuelle → insertion. La tentative WebSocket et son repli en cascade ont été
-retirés. Un choix WhisperKit local ne déclenche toujours aucun envoi cloud.
+retirés, et aucune file d’attente ne retient les dictées. Un choix WhisperKit
+local ne déclenche toujours aucun envoi cloud.
 
 Le HUD reste visible uniquement pendant le travail réel. Les états terminaux se
 ferment automatiquement en 0,9 seconde par défaut et l’utilisateur conserve
-Échap pour annuler la tâche. Le modèle WhisperKit reste chargé en mémoire après
-la première utilisation afin que les dictées suivantes évitent le coût de
-chargement Core ML.
+Échap pour annuler la tâche. Une dictée OpenAI fidèle a une échéance ferme de dix
+secondes. Le modèle WhisperKit reste chargé en mémoire après la première
+utilisation afin que les dictées suivantes évitent le coût de chargement Core ML.
 
 ### Écarts corrigés par rapport à Paseru/whisper#1
 

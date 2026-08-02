@@ -67,8 +67,9 @@ final class SessionCoordinator: ObservableObject {
     private let hud: HUDPresenting
     private let replayBuffer: ReplayBuffer
 
-    private var pendingSessions: [PendingSession] = []
     private var processingTask: Task<Void, Never>?
+    private var processingDeadlineTask: Task<Void, Never>?
+    private var timedOutSessionID: UUID?
     private var captureTarget: TextInjectionTarget?
     private var captureMode: ModeDefinition?
     private var captureDeliveryPolicy: ApplicationDeliveryPolicy?
@@ -130,6 +131,7 @@ final class SessionCoordinator: ObservableObject {
         explicitModeID: UUID? = nil
     ) {
         guard captureSession == nil else { return }
+        guard processingTask == nil, pendingPreview == nil else { return }
         guard audioCapturer.hasPermission else {
             fail("Autorise le microphone dans les préférences")
             return
@@ -343,16 +345,14 @@ final class SessionCoordinator: ObservableObject {
             return
         }
 
-        pendingSessions.append(
-            PendingSession(
-                session: session,
-                audio: audio,
-                target: target ?? textTarget(for: session),
-                mode: mode,
-                deliveryPolicy: deliveryPolicy,
-                replayOriginalText: nil,
-                transcriber: activeTranscriber
-            )
+        let item = PendingSession(
+            session: session,
+            audio: audio,
+            target: target ?? textTarget(for: session),
+            mode: mode,
+            deliveryPolicy: deliveryPolicy,
+            replayOriginalText: nil,
+            transcriber: activeTranscriber
         )
         if let data = try? Data(contentsOf: audio.url) {
             replayBuffer.retain(data, for: session.id)
@@ -365,8 +365,8 @@ final class SessionCoordinator: ObservableObject {
             )
             trimReplayDescriptors()
         }
-        pendingCount = pendingSessions.count
-        processNextSession()
+        pendingCount = 0
+        process(item)
     }
 
     private func updateCaptureMode(_ modeID: UUID) {
@@ -420,6 +420,9 @@ final class SessionCoordinator: ObservableObject {
 
     func cancelProcessing() {
         guard processingTask != nil else { return }
+        processingDeadlineTask?.cancel()
+        processingDeadlineTask = nil
+        timedOutSessionID = nil
         processingTask?.cancel()
         lastNotice = "Traitement annulé"
         lastError = nil
@@ -465,6 +468,7 @@ final class SessionCoordinator: ObservableObject {
     }
 
     func retranscribeLastResult() {
+        guard processingTask == nil, pendingPreview == nil else { return }
         guard let previous = lastSession,
               let data = replayBuffer.audio(for: previous.id),
               let descriptor = replayDescriptors[previous.id] else {
@@ -504,19 +508,17 @@ final class SessionCoordinator: ObservableObject {
         )
         replayBuffer.retain(data, for: session.id)
         replayDescriptors[session.id] = descriptor
-        pendingSessions.append(
-            PendingSession(
-                session: session,
-                audio: audio,
-                target: descriptor.target,
-                mode: descriptor.mode,
-                deliveryPolicy: .preview,
-                replayOriginalText: previous.finalText ?? previous.rawText,
-                transcriber: transcriber
-            )
+        let item = PendingSession(
+            session: session,
+            audio: audio,
+            target: descriptor.target,
+            mode: descriptor.mode,
+            deliveryPolicy: .preview,
+            replayOriginalText: previous.finalText ?? previous.rawText,
+            transcriber: transcriber
         )
-        pendingCount = pendingSessions.count
-        processNextSession()
+        pendingCount = 0
+        process(item)
     }
 
     func compareRawAndFinalResult() {
@@ -543,27 +545,26 @@ final class SessionCoordinator: ObservableObject {
         )
     }
 
-    private func processNextSession() {
-        guard processingTask == nil,
-              pendingPreview == nil,
-              !pendingSessions.isEmpty else {
-            return
-        }
-        var item = pendingSessions.removeFirst()
-        pendingCount = pendingSessions.count
+    private func process(_ pendingItem: PendingSession) {
+        guard processingTask == nil, pendingPreview == nil else { return }
+        var item = pendingItem
+        let sessionID = item.session.id
+        let deadlineSeconds = processingDeadlineSeconds(for: item)
+        pendingCount = 0
         item.session.timings.transcriptionStartedAt = Date()
         _ = item.session.transition(to: .transcribing)
         processingSession = item.session
-        hud.show(.transcribing, detail: queueDetail, autoHide: false)
+        hud.show(.transcribing, detail: nil, autoHide: false)
 
         processingTask = Task { [weak self] in
             guard let self else { return }
             defer {
+                self.processingDeadlineTask?.cancel()
+                self.processingDeadlineTask = nil
                 self.audioCapturer.cleanup(url: item.audio.url)
                 self.processingTask = nil
                 if self.pendingPreview?.sessionID != item.session.id {
                     self.processingSession = nil
-                    self.processNextSession()
                 }
             }
 
@@ -623,6 +624,25 @@ final class SessionCoordinator: ObservableObject {
             } catch {
                 self.finish(item: &item, with: error)
             }
+        }
+        processingDeadlineTask = Task { [weak self] in
+            do {
+                try await Task.sleep(for: .seconds(deadlineSeconds))
+            } catch {
+                return
+            }
+            guard let self,
+                  self.processingSession?.id == sessionID,
+                  self.processingTask != nil else { return }
+            self.timedOutSessionID = sessionID
+            self.lastError = "Transcription interrompue : délai dépassé"
+            self.lastNotice = nil
+            self.hud.show(
+                .cancelled,
+                detail: self.lastError,
+                autoHide: true
+            )
+            self.processingTask?.cancel()
         }
     }
 
@@ -828,7 +848,6 @@ final class SessionCoordinator: ObservableObject {
             defer {
                 self.processingTask = nil
                 self.processingSession = nil
-                self.processNextSession()
             }
             let insertionStartedAt = Date()
             let inserted = await self.textDeliverer.inject(
@@ -867,7 +886,6 @@ final class SessionCoordinator: ObservableObject {
         lastError = nil
         lastNotice = "Transformation annulée"
         hud.show(.cancelled, detail: lastNotice, autoHide: true)
-        processNextSession()
     }
 
     private func deliver(
@@ -1080,7 +1098,14 @@ final class SessionCoordinator: ObservableObject {
     }
 
     private func finish(item: inout PendingSession, with error: Error) {
-        if Task.isCancelled
+        if timedOutSessionID == item.session.id {
+            timedOutSessionID = nil
+            let message = "Transcription interrompue : délai dépassé"
+            _ = item.session.transition(to: .failed(message))
+            lastError = message
+            lastNotice = nil
+            sounds.playErrorSound()
+        } else if Task.isCancelled
             || error is CancellationError
             || (error as? URLError)?.code == .cancelled {
             _ = item.session.transition(to: .cancelled)
@@ -1126,8 +1151,9 @@ final class SessionCoordinator: ObservableObject {
         return "\(languageLabel) · \(modeName)"
     }
 
-    private var queueDetail: String? {
-        pendingCount > 0 ? "\(pendingCount) en attente" : nil
+    private func processingDeadlineSeconds(for item: PendingSession) -> Int {
+        if item.transcriber.locality == .local { return 30 }
+        return item.mode.cleaningLevel == .faithful ? 10 : 20
     }
 
     private enum CoordinatorError: LocalizedError {

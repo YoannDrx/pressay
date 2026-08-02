@@ -54,20 +54,16 @@ final class TranscriptionService: SpeechTranscribing {
             let configuration = URLSessionConfiguration.ephemeral
             // Dictation is an interactive path. A stalled request should fail
             // quickly so the HUD never stays in “Transcription” for minutes.
-            configuration.timeoutIntervalForRequest = 4
-            configuration.timeoutIntervalForResource = 6
+            configuration.timeoutIntervalForRequest = 8
+            configuration.timeoutIntervalForResource = 10
+            configuration.waitsForConnectivity = false
             configuration.requestCachePolicy = .reloadIgnoringLocalCacheData
             self.session = URLSession(configuration: configuration)
         }
     }
 
     private struct TranscriptionResponse: Decodable {
-        struct LogProbability: Decodable {
-            let logprob: Double
-        }
-
         let text: String
-        let logprobs: [LogProbability]?
     }
 
     private struct ErrorResponse: Decodable {
@@ -112,11 +108,7 @@ final class TranscriptionService: SpeechTranscribing {
             vocabulary: vocabulary,
             prompt: prompt
         )
-        let average = decoded.logprobs.flatMap { probabilities -> Double? in
-            guard !probabilities.isEmpty else { return nil }
-            return probabilities.map(\.logprob).reduce(0, +) / Double(probabilities.count)
-        }
-        return TranscriptionResult(text: cleanText, averageLogProbability: average)
+        return TranscriptionResult(text: cleanText, averageLogProbability: nil)
     }
 
     func validateAPIKey(_ apiKey: String) async -> Bool {
@@ -152,7 +144,6 @@ final class TranscriptionService: SpeechTranscribing {
         )
         body.appendField(name: "model", value: model)
         body.appendField(name: "response_format", value: "json")
-        body.appendField(name: "include[]", value: "logprobs")
         body.appendField(name: "temperature", value: "0")
 
         if !language.isEmpty {
@@ -191,6 +182,7 @@ final class TranscriptionService: SpeechTranscribing {
         }
         var request = URLRequest(url: url)
         request.httpMethod = "POST"
+        request.timeoutInterval = 8
         request.setValue("Bearer \(apiKey)", forHTTPHeaderField: "Authorization")
         request.setValue("multipart/form-data; boundary=\(boundary)", forHTTPHeaderField: "Content-Type")
         return request
