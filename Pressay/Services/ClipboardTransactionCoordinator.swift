@@ -33,10 +33,8 @@ actor ClipboardTransactionCoordinator {
     }
 
     private var isBusy = false
-    private var waiters: [CheckedContinuation<Void, Never>] = []
-
     func captureSelection() async -> String? {
-        await acquire()
+        guard tryAcquire() else { return nil }
         defer { release() }
 
         let initial = await MainActor.run { snapshot(NSPasteboard.general) }
@@ -77,7 +75,10 @@ actor ClipboardTransactionCoordinator {
     }
 
     func paste(_ text: String) async -> Bool {
-        await acquire()
+        // A stale or concurrent clipboard transaction must never hold a
+        // dictated result hostage. Failing fast routes the text to Pressay's
+        // permanent copy fallback instead of waiting without a deadline.
+        guard tryAcquire() else { return false }
         defer { release() }
 
         let initial = await MainActor.run { snapshot(NSPasteboard.general) }
@@ -101,8 +102,10 @@ actor ClipboardTransactionCoordinator {
     }
 
     func setPermanentString(_ text: String) async {
-        await acquire()
-        defer { release() }
+        let ownsTransaction = tryAcquire()
+        defer {
+            if ownsTransaction { release() }
+        }
         await MainActor.run {
             let pasteboard = NSPasteboard.general
             pasteboard.clearContents()
@@ -134,22 +137,14 @@ actor ClipboardTransactionCoordinator {
         }
     }
 
-    private func acquire() async {
-        if !isBusy {
-            isBusy = true
-            return
-        }
-        await withCheckedContinuation { continuation in
-            waiters.append(continuation)
-        }
+    private func tryAcquire() -> Bool {
+        guard !isBusy else { return false }
+        isBusy = true
+        return true
     }
 
     private func release() {
-        if waiters.isEmpty {
-            isBusy = false
-        } else {
-            waiters.removeFirst().resume()
-        }
+        isBusy = false
     }
 
     @MainActor

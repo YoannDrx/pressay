@@ -52,8 +52,10 @@ final class TranscriptionService: SpeechTranscribing {
             self.session = session
         } else {
             let configuration = URLSessionConfiguration.ephemeral
-            configuration.timeoutIntervalForRequest = 45
-            configuration.timeoutIntervalForResource = 120
+            // Dictation is an interactive path. A stalled request should fail
+            // quickly so the HUD never stays in “Transcription” for minutes.
+            configuration.timeoutIntervalForRequest = 15
+            configuration.timeoutIntervalForResource = 30
             configuration.requestCachePolicy = .reloadIgnoringLocalCacheData
             self.session = URLSession(configuration: configuration)
         }
@@ -142,7 +144,12 @@ final class TranscriptionService: SpeechTranscribing {
         prompt: String?
     ) throws -> (url: URL, boundary: String) {
         var body = MultipartFormData()
-        try body.appendFile(name: "file", filename: "audio.m4a", mimeType: "audio/m4a", url: audioURL)
+        try body.appendFile(
+            name: "file",
+            filename: "audio.\(audioURL.pathExtension)",
+            mimeType: Self.audioMIMEType(for: audioURL),
+            url: audioURL
+        )
         body.appendField(name: "model", value: model)
         body.appendField(name: "response_format", value: "json")
         body.appendField(name: "include[]", value: "logprobs")
@@ -168,6 +175,14 @@ final class TranscriptionService: SpeechTranscribing {
         body.appendField(name: "model", value: Constants.defaultTranscriptionModel)
         body.appendField(name: "language", value: "fr")
         return (try body.writeToTemporaryFile(), body.boundary)
+    }
+
+    private static func audioMIMEType(for url: URL) -> String {
+        switch url.pathExtension.lowercased() {
+        case "wav": "audio/wav"
+        case "flac": "audio/flac"
+        default: "audio/mp4"
+        }
     }
 
     private func makeRequest(apiKey: String, boundary: String) throws -> URLRequest {

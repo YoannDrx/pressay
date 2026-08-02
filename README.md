@@ -27,12 +27,11 @@ la sélection initiale, affiche Original/Proposition, puis revérifie la cible e
 la sélection avant le remplacement. Si elles ont changé, le résultat est copié
 au lieu d’être collé au mauvais endroit.
 
-La version publique 1.2 utilise la clé OpenAI personnelle de l’utilisateur :
-l’endpoint audio pour la transcription et la Responses API pour les modes de
-transformation. Le socle source contient des fournisseurs SpeechAnalyzer et
-Foundation Models compilés uniquement avec un SDK compatible ; ils ne font pas
-partie des capacités garanties de la 1.2 et restent désactivés tant que le
-corpus qualité FR/EN n’a pas validé la release locale 1.3.
+La version publique fonctionne sans compte Pressay. La transcription propose
+deux chemins explicites : OpenAI avec une clé API personnelle, ou WhisperKit
+entièrement sur le Mac après téléchargement du modèle local. Les modes de
+réécriture utilisent uniquement OpenAI ; le mode Fidèle peut donc rester 100 %
+local avec WhisperKit.
 
 ## Télécharger et installer
 
@@ -50,7 +49,7 @@ Les détails et la checklist de soumission sont dans
 ### Prérequis
 
 - macOS 14 (Sonoma) ou plus récent
-- Une clé API OpenAI ([créer un compte ici](https://platform.openai.com/api-keys))
+- Une clé API OpenAI ou le modèle WhisperKit téléchargé dans les réglages
 - Un Mac Intel ou Apple Silicon
 
 ### Étapes
@@ -59,7 +58,7 @@ Les détails et la checklist de soumission sont dans
    [dernière release](https://github.com/YoannDrx/pressay/releases/latest).
 2. Ouvre le DMG et glisse **Pressay** dans **Applications**.
 3. Lance Pressay depuis Applications.
-4. Configure ta clé API depuis les réglages.
+4. Configure ta clé OpenAI ou télécharge le modèle WhisperKit local.
 5. Accorde les permissions **Microphone** et **Accessibilité** demandées par macOS.
 
 La release publique est signée avec un certificat Developer ID, notarialisée par
@@ -87,10 +86,10 @@ bêta recevront aussi cette version stable.
 
 3. **Compile et lance** (Cmd + R)
 
-4. **Configure ta clé API**
+4. **Configure un moteur de transcription**
    - Clique sur l'icône Pressay dans la barre de menu
    - Va dans les réglages
-   - Entre ta clé API OpenAI (commence par `sk-...`)
+   - Ajoute une clé OpenAI ou télécharge le modèle WhisperKit local
 
 5. **Accorde les permissions**
    - **Microphone** : pour enregistrer ta voix
@@ -143,7 +142,9 @@ Maintiens **Fn**, parle, relâche. Le texte apparaît. Simple.
 
 ### Historique privé
 L'historique est optionnel, chiffré sur le Mac avec AES-256-GCM et peut être
-conservé 24 heures, 7 jours ou 30 jours.
+conservé 24 heures, 7 jours ou 30 jours. Il conserve le brut/final et les
+métadonnées utiles, permet recherche, filtres, favoris, tags, export Markdown ou
+JSON et retraitement dans un autre mode sans écraser l’original.
 
 - Clique sur l'icône dans la barre de menu
 - Sélectionne "Historique"
@@ -203,7 +204,10 @@ compatible avec l’intention.
 Le résultat peut être corrigé à la voix tant que sa cible reste vérifiable. Si
 aucun champ éditable n’est disponible, Pressay peut conserver le résultat dans
 une Voice Inbox activée explicitement, chiffrée localement et soumise à une
-rétention indépendante. Une politique par application permet aussi de choisir
+rétention indépendante. Elle structure localement titres, projets, tags, tâches
+et dates, propose des vues Aujourd’hui/À traiter/Archivé et prépare des brouillons
+de note, rappel ou événement dans un journal chiffré avec aperçu et validation.
+Une politique par application permet aussi de choisir
 l’injection automatique, l’aperçu, la copie seule ou l’exclusion complète.
 
 ### HUD configurable
@@ -222,29 +226,30 @@ L'app a besoin de ces permissions pour fonctionner :
 | **Microphone** | Pour enregistrer ta voix |
 | **Accessibilité** | Pour coller le texte automatiquement dans n'importe quelle app |
 
-## Clé API OpenAI
+## OpenAI ou WhisperKit local
 
-Tu as besoin d'une clé API OpenAI pour utiliser Pressay :
+Dans les réglages, choisis un seul moteur de transcription :
 
-1. Va sur [platform.openai.com/api-keys](https://platform.openai.com/api-keys)
-2. Crée un compte ou connecte-toi
-3. Crée une nouvelle clé API
-4. Copie la clé (elle commence par `sk-...`)
-5. Colle-la dans les réglages de Pressay
+1. **OpenAI** : colle une clé de projet `sk-…`. Pressay la valide avant de
+   l’enregistrer dans le Trousseau macOS.
+2. **WhisperKit local** : télécharge le modèle Small une seule fois. L’audio et
+   la transcription restent ensuite sur le Mac, même hors ligne.
+
+Les modes de transformation utilisent OpenAI. Pour une dictée intégralement
+locale, utilise WhisperKit avec le mode Fidèle.
 
 **Note** : Le téléchargement de Pressay est gratuit, mais l'utilisation de l'API
-OpenAI peut être facturée directement par OpenAI. Consulte les
-[tarifs OpenAI](https://openai.com/api/pricing/) pour les prix actuels.
-
-Ta clé API est stockée de façon sécurisée dans le Keychain de macOS (le même endroit où sont stockés tes mots de passe).
+d’OpenAI peut être facturée directement par OpenAI. Le modèle WhisperKit est
+gratuit mais occupe de l’espace disque.
 
 ## Comment ça fonctionne techniquement ?
 
 1. `ShortcutRouter` demande au `SessionCoordinator` de créer une `VoiceSession`.
 2. La cible AX, la sélection et les seules sources de contexte autorisées sont
    capturées avant l’enregistrement.
-3. L’audio M4A 16 kHz mono est analysé localement ; le silence n’est pas envoyé.
-4. `TranscriptionService` produit le texte brut via l’endpoint audio OpenAI.
+3. L’audio WAV 16 kHz mono est analysé localement ; le silence n’est jamais traité.
+4. Le routeur appelle soit `TranscriptionService` pour OpenAI, soit
+   `WhisperKitTranscriptionService` sur le Mac, sans fallback silencieux.
 5. Le mode résolu choisit entre restitution fidèle et transformation via la
    Responses API avec `store: false`.
 6. Une transformation de sélection attend un aperçu éditable.
@@ -258,7 +263,9 @@ Les types de domaine et les frontières de services sont détaillés dans
 
 ## Confidentialité
 
-- **Audio** : envoyé à OpenAI uniquement lorsqu'une voix est détectée, puis supprimé localement
+- **Audio** : envoyé à OpenAI uniquement si ce moteur est choisi et qu’une voix
+  est détectée ; avec WhisperKit, il reste sur le Mac ; le fichier temporaire
+  est ensuite supprimé
 - **Transformation** : le texte et les sources autorisées sont envoyés à OpenAI
   uniquement pour un mode non fidèle ; la requête désactive le stockage de
   réponse avec `store: false`

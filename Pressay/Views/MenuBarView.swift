@@ -1,13 +1,14 @@
 import SwiftUI
+import UniformTypeIdentifiers
 
 struct MenuBarView: View {
     @EnvironmentObject private var appState: AppState
     @EnvironmentObject private var updateService: UpdateService
-    @Environment(\.openSettings) private var openSettings
     @ObservedObject private var history = HistoryService.shared
     @ObservedObject private var inbox = VoiceInboxService.shared
+    @ObservedObject private var actionJournal = ActionJournalService.shared
     @ObservedObject private var modes = ModeStore.shared
-    @AppStorage(Constants.activationModeKey) private var activationMode = ActivationMode.hold.rawValue
+    @AppStorage(Constants.activationModeKey) private var activationMode = Constants.defaultActivationMode
 
     var body: some View {
         VStack(alignment: .leading, spacing: 11) {
@@ -126,6 +127,17 @@ struct MenuBarView: View {
                 Divider()
             }
 
+            if !actionJournal.pendingEntries.isEmpty {
+                Button(action: showActionCenterWindow) {
+                    Label(
+                        "Actions à valider · \(actionJournal.pendingEntries.count)",
+                        systemImage: "checkmark.shield"
+                    )
+                }
+                .padding(.horizontal, 4)
+                Divider()
+            }
+
             if let latest = history.entries.first {
                 Button(action: appState.copyLastTranscription) {
                     Label("Copier la dernière dictée", systemImage: "doc.on.doc")
@@ -153,13 +165,16 @@ struct MenuBarView: View {
             Button {
                 if DistributionChannel.current == .appStore {
                     #if APP_STORE
-                    AppStoreMainWindowController.shared.show(
+                    SettingsWindowController.shared.show(
                         appState: appState,
                         updateService: updateService
                     )
                     #endif
                 } else {
-                    openSettings()
+                    SettingsWindowController.shared.show(
+                        appState: appState,
+                        updateService: updateService
+                    )
                 }
             } label: {
                 Label("Réglages…", systemImage: "slider.horizontal.3")
@@ -226,8 +241,8 @@ struct MenuBarView: View {
 
     private func showHistoryWindow() {
         let window = NSWindow(
-            contentRect: NSRect(x: 0, y: 0, width: 390, height: 460),
-            styleMask: [.titled, .closable],
+            contentRect: NSRect(x: 0, y: 0, width: 680, height: 620),
+            styleMask: [.titled, .closable, .resizable],
             backing: .buffered,
             defer: false
         )
@@ -240,13 +255,27 @@ struct MenuBarView: View {
 
     private func showInboxWindow() {
         let window = NSWindow(
-            contentRect: NSRect(x: 0, y: 0, width: 430, height: 500),
+            contentRect: NSRect(x: 0, y: 0, width: 620, height: 620),
             styleMask: [.titled, .closable, .resizable],
             backing: .buffered,
             defer: false
         )
         window.title = "Voice Inbox Pressay"
         window.contentView = NSHostingView(rootView: VoiceInboxView())
+        window.center()
+        window.makeKeyAndOrderFront(nil)
+        NSApp.activate(ignoringOtherApps: true)
+    }
+
+    private func showActionCenterWindow() {
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 620, height: 560),
+            styleMask: [.titled, .closable, .resizable],
+            backing: .buffered,
+            defer: false
+        )
+        window.title = "Actions Pressay"
+        window.contentView = NSHostingView(rootView: ActionCenterView())
         window.center()
         window.makeKeyAndOrderFront(nil)
         NSApp.activate(ignoringOtherApps: true)
@@ -274,17 +303,59 @@ struct MenuBarView: View {
     }
 }
 
-private struct VoiceInboxView: View {
+private enum VoiceInboxFilter: String, CaseIterable, Identifiable {
+    case toProcess
+    case today
+    case archived
+    case all
+
+    var id: String { rawValue }
+    var label: String {
+        switch self {
+        case .toProcess: "À traiter"
+        case .today: "Aujourd’hui"
+        case .archived: "Archivé"
+        case .all: "Tout"
+        }
+    }
+}
+
+struct VoiceInboxView: View {
     @ObservedObject private var inbox = VoiceInboxService.shared
+    @ObservedObject private var actionJournal = ActionJournalService.shared
+    @State private var searchText = ""
+    @State private var filter: VoiceInboxFilter = .toProcess
 
     var body: some View {
         VStack(spacing: 0) {
-            HStack {
-                Label("Voice Inbox", systemImage: "tray.full")
-                    .font(.headline)
-                Spacer()
-                if !inbox.entries.isEmpty {
-                    Button("Tout effacer", action: inbox.clearAll)
+            VStack(spacing: 10) {
+                HStack {
+                    Label("Voice Inbox", systemImage: "tray.full")
+                        .font(.headline)
+                    Text("\(inbox.entries.filter { $0.status == .inbox }.count) à traiter")
+                        .font(.caption.monospacedDigit())
+                        .foregroundStyle(.secondary)
+                    Spacer()
+                    Button {
+                        exportMarkdown()
+                    } label: {
+                        Label("Exporter", systemImage: "square.and.arrow.up")
+                    }
+                    .disabled(inbox.entries.isEmpty)
+                    if !inbox.entries.isEmpty {
+                        Button("Tout effacer", role: .destructive, action: inbox.clearAll)
+                    }
+                }
+                HStack {
+                    TextField("Rechercher dans l’Inbox", text: $searchText)
+                        .textFieldStyle(.roundedBorder)
+                    Picker("Vue", selection: $filter) {
+                        ForEach(VoiceInboxFilter.allCases) { item in
+                            Text(item.label).tag(item)
+                        }
+                    }
+                    .labelsHidden()
+                    .frame(width: 125)
                 }
             }
             .padding()
@@ -314,34 +385,105 @@ private struct VoiceInboxView: View {
                         "Les dictées réalisées sans champ éditable apparaîtront ici."
                     )
                 )
+            } else if filteredEntries.isEmpty {
+                ContentUnavailableView.search(text: searchText)
             } else {
                 ScrollView {
                     LazyVStack(spacing: 8) {
-                        ForEach(inbox.entries) { entry in
-                            HStack(alignment: .top, spacing: 10) {
-                                VStack(alignment: .leading, spacing: 5) {
-                                    Text(entry.text)
-                                        .textSelection(.enabled)
-                                        .frame(
-                                            maxWidth: .infinity,
-                                            alignment: .leading
-                                        )
-                                    Text(entry.date, style: .relative)
-                                        .font(.caption)
-                                        .foregroundStyle(.secondary)
+                        ForEach(filteredEntries) { entry in
+                            VStack(alignment: .leading, spacing: 8) {
+                                HStack(alignment: .top, spacing: 10) {
+                                    VStack(alignment: .leading, spacing: 4) {
+                                        Text(entry.title)
+                                            .font(.system(size: 13, weight: .semibold))
+                                        Text(entry.text)
+                                            .font(.system(size: 12))
+                                            .lineLimit(4)
+                                            .foregroundStyle(.secondary)
+                                            .textSelection(.enabled)
+                                            .frame(maxWidth: .infinity, alignment: .leading)
+                                        Text(entry.date, style: .relative)
+                                            .font(.caption)
+                                            .foregroundStyle(.tertiary)
+                                    }
+                                    Button {
+                                        TextInjector.shared.copyToPasteboard(entry.text)
+                                    } label: {
+                                        Image(systemName: "doc.on.doc")
+                                    }
+                                    .buttonStyle(.plain)
+                                    .help("Copier")
+                                    Menu {
+                                        Button("Note Markdown") {
+                                            actionJournal.propose(
+                                                VoiceInboxActionFactory.note(from: entry)
+                                            )
+                                        }
+                                        Button("Rappel") {
+                                            actionJournal.propose(
+                                                VoiceInboxActionFactory.reminder(from: entry)
+                                            )
+                                        }
+                                        if let calendar = VoiceInboxActionFactory.calendar(from: entry) {
+                                            Button("Événement calendrier") {
+                                                actionJournal.propose(calendar)
+                                            }
+                                        }
+                                    } label: {
+                                        Image(systemName: "wand.and.stars")
+                                    }
+                                    .menuStyle(.borderlessButton)
+                                    .fixedSize()
+                                    .help("Préparer une action")
+                                    Button {
+                                        inbox.toggleArchived(entry)
+                                    } label: {
+                                        Image(systemName: entry.status == .archived ? "tray.and.arrow.up" : "archivebox")
+                                    }
+                                    .buttonStyle(.plain)
+                                    .help(entry.status == .archived ? "Remettre à traiter" : "Archiver")
+                                    Button(role: .destructive) {
+                                        inbox.delete(entry)
+                                    } label: {
+                                        Image(systemName: "trash")
+                                    }
+                                    .buttonStyle(.plain)
                                 }
-                                Button {
-                                    TextInjector.shared.copyToPasteboard(entry.text)
-                                } label: {
-                                    Image(systemName: "doc.on.doc")
+
+                                if entry.project != nil || !entry.tags.isEmpty {
+                                    HStack(spacing: 6) {
+                                        if let project = entry.project {
+                                            Label(project, systemImage: "folder")
+                                                .font(.caption2)
+                                                .foregroundStyle(.blue)
+                                        }
+                                        ForEach(entry.tags.filter { $0 != entry.project }, id: \.self) { tag in
+                                            Text("#\(tag)")
+                                                .font(.caption2)
+                                                .foregroundStyle(.secondary)
+                                        }
+                                    }
                                 }
-                                .buttonStyle(.plain)
-                                Button(role: .destructive) {
-                                    inbox.delete(entry)
-                                } label: {
-                                    Image(systemName: "trash")
+
+                                if !entry.tasks.isEmpty {
+                                    VStack(alignment: .leading, spacing: 3) {
+                                        ForEach(entry.tasks, id: \.self) { task in
+                                            Label(task, systemImage: "square")
+                                                .font(.caption)
+                                        }
+                                    }
                                 }
-                                .buttonStyle(.plain)
+
+                                if !entry.detectedDates.isEmpty {
+                                    HStack(spacing: 5) {
+                                        Image(systemName: "calendar")
+                                        ForEach(entry.detectedDates, id: \.self) { date in
+                                            Text(date, format: .dateTime.day().month().year())
+                                        }
+                                    }
+                                    .font(.caption2)
+                                    .foregroundStyle(.purple)
+                                }
                             }
                             .padding(11)
                             .background(
@@ -354,7 +496,170 @@ private struct VoiceInboxView: View {
                 }
             }
         }
-        .frame(minWidth: 390, minHeight: 420)
+        .frame(minWidth: 520, idealWidth: 620, minHeight: 480, idealHeight: 620)
+    }
+
+    private var filteredEntries: [VoiceInboxEntry] {
+        inbox.entries.filter { entry in
+            let matchesFilter: Bool
+            switch filter {
+            case .toProcess: matchesFilter = entry.status == .inbox
+            case .today: matchesFilter = Calendar.current.isDateInToday(entry.date)
+            case .archived: matchesFilter = entry.status == .archived
+            case .all: matchesFilter = true
+            }
+            guard matchesFilter else { return false }
+            let query = searchText.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !query.isEmpty else { return true }
+            return [
+                entry.title,
+                entry.text,
+                entry.project ?? "",
+                entry.tags.joined(separator: " "),
+                entry.tasks.joined(separator: " ")
+            ].joined(separator: " ").localizedCaseInsensitiveContains(query)
+        }
+    }
+
+    private func exportMarkdown() {
+        let panel = NSSavePanel()
+        panel.nameFieldStringValue = "pressay-voice-inbox.md"
+        panel.allowedContentTypes = [UTType(filenameExtension: "md") ?? .plainText]
+        panel.canCreateDirectories = true
+        panel.begin { response in
+            guard response == .OK, let url = panel.url else { return }
+            try? Data(inbox.markdownExport().utf8).write(to: url, options: .atomic)
+        }
+    }
+}
+
+struct ActionCenterView: View {
+    @ObservedObject private var journal = ActionJournalService.shared
+    @State private var showsCompleted = false
+
+    var body: some View {
+        VStack(spacing: 0) {
+            HStack {
+                Label("Actions sûres", systemImage: "checkmark.shield")
+                    .font(.headline)
+                Text("Aucune action externe n’est lancée sans validation")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                Spacer()
+                Toggle("Journal", isOn: $showsCompleted)
+                    .toggleStyle(.switch)
+                    .controlSize(.small)
+                Button("Nettoyer", action: journal.clearCompleted)
+                    .disabled(journal.entries.allSatisfy { $0.status == .proposed })
+            }
+            .padding()
+            Divider()
+
+            if visibleEntries.isEmpty {
+                ContentUnavailableView(
+                    showsCompleted ? "Journal vide" : "Aucune action à valider",
+                    systemImage: "checkmark.shield",
+                    description: Text("Prépare une note, un rappel ou un événement depuis la Voice Inbox.")
+                )
+            } else {
+                ScrollView {
+                    LazyVStack(spacing: 10) {
+                        ForEach(visibleEntries) { entry in
+                            VStack(alignment: .leading, spacing: 9) {
+                                HStack {
+                                    Image(systemName: symbol(for: entry.proposal.kind))
+                                        .foregroundStyle(color(for: entry.status))
+                                    Text(entry.proposal.summary)
+                                        .font(.system(size: 13, weight: .semibold))
+                                    Spacer()
+                                    Text(statusLabel(entry.status))
+                                        .font(.caption2.weight(.medium))
+                                        .foregroundStyle(color(for: entry.status))
+                                }
+                                if let preview = entry.proposal.preview {
+                                    Text(preview)
+                                        .font(.system(size: 11, design: .monospaced))
+                                        .lineLimit(8)
+                                        .textSelection(.enabled)
+                                        .frame(maxWidth: .infinity, alignment: .leading)
+                                        .padding(8)
+                                        .background(.black.opacity(0.035), in: RoundedRectangle(cornerRadius: 7))
+                                }
+                                if let result = entry.resultSummary {
+                                    Text(result)
+                                        .font(.caption)
+                                        .foregroundStyle(.secondary)
+                                }
+                                if entry.status == .proposed {
+                                    HStack {
+                                        Label(
+                                            riskLabel(entry.proposal.risk),
+                                            systemImage: "eye"
+                                        )
+                                        .font(.caption)
+                                        .foregroundStyle(.secondary)
+                                        Spacer()
+                                        Button("Refuser", role: .destructive) {
+                                            journal.reject(entry)
+                                        }
+                                        Button("Valider") {
+                                            journal.execute(entry)
+                                        }
+                                        .buttonStyle(.borderedProminent)
+                                    }
+                                }
+                            }
+                            .padding(12)
+                            .background(.secondary.opacity(0.07), in: RoundedRectangle(cornerRadius: 10))
+                        }
+                    }
+                    .padding()
+                }
+            }
+        }
+        .frame(minWidth: 560, minHeight: 480)
+    }
+
+    private var visibleEntries: [ActionJournalEntry] {
+        showsCompleted ? journal.entries : journal.pendingEntries
+    }
+
+    private func symbol(for kind: ActionKind) -> String {
+        switch kind {
+        case .createNoteDraft: "note.text"
+        case .createReminderDraft: "checklist"
+        case .createCalendarDraft: "calendar"
+        case .prepareTerminalCommand: "terminal"
+        case .openURL: "link"
+        default: "wand.and.stars"
+        }
+    }
+
+    private func color(for status: ActionJournalStatus) -> Color {
+        switch status {
+        case .proposed: .blue
+        case .executed: .green
+        case .rejected: .secondary
+        case .failed: .orange
+        }
+    }
+
+    private func statusLabel(_ status: ActionJournalStatus) -> String {
+        switch status {
+        case .proposed: "À valider"
+        case .executed: "Exécutée"
+        case .rejected: "Refusée"
+        case .failed: "Échec"
+        }
+    }
+
+    private func riskLabel(_ risk: ActionRisk) -> String {
+        switch risk {
+        case .automatic: "Sans effet externe"
+        case .preview: "Aperçu obligatoire"
+        case .confirmationRequired: "Confirmation obligatoire"
+        case .forbidden: "Interdite"
+        }
     }
 }
 

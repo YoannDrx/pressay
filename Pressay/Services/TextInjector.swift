@@ -111,7 +111,14 @@ final class TextInjector: TextDelivering {
         }
         guard let target else { return fail(.missingTarget) }
         guard !target.snapshot.isSecure else { return fail(.secureTarget) }
-        guard target.snapshot.isEditable else {
+        guard let app = NSRunningApplication(
+            processIdentifier: target.processIdentifier
+        ),
+              !app.isTerminated else {
+            return fail(.targetApplicationUnavailable)
+        }
+        let prefersPaste = prefersPasteDelivery(for: target)
+        guard target.snapshot.isEditable || prefersPaste else {
             logger.error(
                 """
                 Non-editable AX target: role=\(target.snapshot.elementRole ?? "nil", privacy: .public), \
@@ -126,12 +133,6 @@ final class TextInjector: TextDelivering {
         lastDeliveryStrategy = .copied
         lastDeliveryFailure = nil
 
-        guard let app = NSRunningApplication(
-            processIdentifier: target.processIdentifier
-        ),
-              !app.isTerminated else {
-            return fail(.targetApplicationUnavailable)
-        }
         app.activate(options: [.activateAllWindows])
         guard await waitForTargetApplication(target.processIdentifier) else {
             return fail(.targetApplicationNotFrontmost)
@@ -139,32 +140,34 @@ final class TextInjector: TextDelivering {
         guard windowStillMatches(target) else {
             return fail(.targetWindowChanged)
         }
-        guard focusedElementStillMatches(target) else {
+        guard let activeTarget = matchingFocusedTarget(
+            target,
+            allowsPasteOnlyTarget: prefersPaste
+        ) else {
             return false
         }
-        guard await selectionStillMatches(target) else {
+        guard await selectionStillMatches(activeTarget) else {
             return fail(.selectionChanged)
         }
 
-        let prefersPaste = prefersPasteDelivery(for: target)
-        if target.snapshot.canWriteSelectedText,
+        if activeTarget.snapshot.canWriteSelectedText,
            !prefersPaste,
-           let element = target.focusedElement,
+           let element = activeTarget.focusedElement,
            AXUIElementSetAttributeValue(
                element,
                kAXSelectedTextAttribute as CFString,
                cleanText as CFString
            ) == .success {
-            rememberUndo(for: target, insertedText: cleanText)
+            rememberUndo(for: activeTarget, insertedText: cleanText)
             lastDeliveryStrategy = .accessibilityReplacement
             return true
         }
 
         let didPaste = await ClipboardTransactionCoordinator.shared.paste(cleanText)
         if didPaste,
-           target.focusedElement != nil,
-           target.selectionRange != nil {
-            rememberUndo(for: target, insertedText: cleanText)
+           activeTarget.focusedElement != nil,
+           activeTarget.selectionRange != nil {
+            rememberUndo(for: activeTarget, insertedText: cleanText)
         }
         lastDeliveryStrategy = didPaste ? .paste : .copied
         if !didPaste {
@@ -288,11 +291,19 @@ final class TextInjector: TextDelivering {
         _ target: TextInjectionTarget,
         recordsFailure: Bool = true
     ) -> Bool {
+        matchingFocusedTarget(target, recordsFailure: recordsFailure) != nil
+    }
+
+    private func matchingFocusedTarget(
+        _ target: TextInjectionTarget,
+        recordsFailure: Bool = true,
+        allowsPasteOnlyTarget: Bool = false
+    ) -> TextInjectionTarget? {
         guard let originalElement = target.focusedElement else {
             if recordsFailure {
                 _ = fail(.focusedElementUnavailable)
             }
-            return false
+            return nil
         }
         let appElement = AXUIElementCreateApplication(target.processIdentifier)
         var currentValue: CFTypeRef?
@@ -306,11 +317,11 @@ final class TextInjector: TextDelivering {
             if recordsFailure {
                 _ = fail(.focusedElementUnavailable)
             }
-            return false
+            return nil
         }
         let currentElement = unsafeBitCast(currentValue, to: AXUIElement.self)
         if CFEqual(currentElement, originalElement) {
-            return true
+            return target
         }
         let role = copiedString(
             attribute: kAXRoleAttribute,
@@ -354,12 +365,19 @@ final class TextInjector: TextDelivering {
                 reportsEditable: reportsEditable,
                 canWriteSelectedText: canWriteSelectedText,
                 canWriteValue: canWriteValue
-            )
+            ),
+            allowsPasteOnlyTarget: allowsPasteOnlyTarget
         )
         if !matches, recordsFailure {
             _ = fail(.focusedElementChanged)
         }
-        return matches
+        guard matches else { return nil }
+        return TextInjectionTarget(
+            snapshot: target.snapshot,
+            focusedElement: currentElement,
+            selectionRange: target.selectionRange,
+            selectedText: target.selectedText
+        )
     }
 
     private func waitForTargetApplication(
@@ -657,10 +675,11 @@ enum FocusedElementValidator {
         currentRole: String?,
         currentSubrole: String?,
         currentIsSecure: Bool,
-        currentIsEditable: Bool
+        currentIsEditable: Bool,
+        allowsPasteOnlyTarget: Bool = false
     ) -> Bool {
         guard !currentIsSecure,
-              currentIsEditable,
+              currentIsEditable || allowsPasteOnlyTarget,
               currentRole == snapshot.elementRole,
               currentSubrole == snapshot.elementSubrole else {
             return false

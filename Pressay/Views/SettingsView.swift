@@ -1,4 +1,5 @@
 import AppKit
+import ServiceManagement
 import SwiftUI
 
 struct SettingsView: View {
@@ -6,11 +7,15 @@ struct SettingsView: View {
     @EnvironmentObject private var updateService: UpdateService
     @ObservedObject private var metrics = PerformanceMetricsService.shared
     @ObservedObject private var modes = ModeStore.shared
+    @ObservedObject private var launchAtLogin = LaunchAtLoginService.shared
+    @ObservedObject private var localTranscription = WhisperKitTranscriptionService.shared
 
     @State private var apiKeyInput = ""
-    @State private var isValidating = false
-    @State private var validationMessage: ValidationMessage?
+    @State private var isValidatingAPIKey = false
+    @State private var apiKeyValidationMessage: ValidationMessage?
     @State private var diagnosticsMessage: String?
+    @State private var selectedPage = SettingsPage.general
+    @State private var settingsSearch = ""
 
     @AppStorage(Constants.transcriptionLanguageKey)
     private var language = Constants.defaultTranscriptionLanguage
@@ -18,12 +23,14 @@ struct SettingsView: View {
     private var model = Constants.defaultTranscriptionModel
     @AppStorage(Constants.processingModelKey)
     private var processingModel = Constants.defaultProcessingModel
+    @AppStorage(Constants.transcriptionEngineKey)
+    private var transcriptionEngine = TranscriptionEngine.openAI.rawValue
     @AppStorage(Constants.vocabularyProfileKey)
     private var vocabularyProfile = "development"
     @AppStorage(Constants.technicalVocabularyKey)
     private var customVocabulary = ""
     @AppStorage(Constants.activationModeKey)
-    private var activationMode = ActivationMode.hold.rawValue
+    private var activationMode = Constants.defaultActivationMode
     @AppStorage(Constants.historyEnabledKey)
     private var historyEnabled = true
     @AppStorage(Constants.historyRetentionDaysKey)
@@ -44,29 +51,30 @@ struct SettingsView: View {
     private var hudShowsResultActions = true
 
     var body: some View {
-        VStack(spacing: 0) {
-            header
-            ScrollView(showsIndicators: false) {
-                VStack(spacing: 18) {
-                    permissionsSection
-                    apiSection
-                    recognitionSection
-                    hudSection
-                    modesSection
-                    if DistributionChannel.current.supportsGlobalShortcuts {
-                        shortcutSection
-                    }
-                    privacySection
-                    if DistributionChannel.current.usesSparkle {
-                        updatesSection
-                    }
-                    aboutSection
+        HStack(spacing: 0) {
+            VStack(spacing: 12) {
+                TextField("Rechercher", text: $settingsSearch)
+                    .textFieldStyle(.roundedBorder)
+                    .padding(.horizontal, 12)
+                    .padding(.top, 14)
+                List(filteredPages, selection: $selectedPage) { page in
+                    Label(page.label, systemImage: page.icon)
+                        .tag(page)
                 }
-                .padding(24)
+                .listStyle(.sidebar)
             }
-            footer
+            .frame(width: 190)
+            Divider()
+            VStack(spacing: 0) {
+                header
+                ScrollView(showsIndicators: false) {
+                    selectedPageContent
+                        .padding(24)
+                }
+                footer
+            }
         }
-        .frame(width: 520, height: 820)
+        .frame(minWidth: 700, idealWidth: 820, minHeight: 640, idealHeight: 760)
         .background(Color(nsColor: .windowBackgroundColor))
         .onAppear { appState.refreshPermissions() }
         .onReceive(
@@ -78,6 +86,50 @@ struct SettingsView: View {
         .onChange(of: historyRetentionDays) { _, _ in HistoryService.shared.applyPreferences() }
         .onChange(of: inboxEnabled) { _, _ in VoiceInboxService.shared.applyPreferences() }
         .onChange(of: inboxRetentionDays) { _, _ in VoiceInboxService.shared.applyPreferences() }
+    }
+
+    @ViewBuilder
+    private var selectedPageContent: some View {
+        VStack(spacing: 18) {
+            switch selectedPage {
+            case .general:
+                permissionsSection
+                launchAtLoginSection
+                recognitionSection
+                hudSection
+            case .providers:
+                providersSection
+            case .modes:
+                modesSection
+            case .shortcuts:
+                shortcutSection
+            case .data:
+                privacySection
+            case .updates:
+                if DistributionChannel.current.usesSparkle { updatesSection }
+            case .about:
+                aboutSection
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .topLeading)
+    }
+
+    private var availablePages: [SettingsPage] {
+        SettingsPage.allCases.filter { page in
+            if page == .shortcuts {
+                return DistributionChannel.current.supportsGlobalShortcuts
+            }
+            if page == .updates { return DistributionChannel.current.usesSparkle }
+            return true
+        }
+    }
+
+    private var filteredPages: [SettingsPage] {
+        let query = settingsSearch.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !query.isEmpty else { return availablePages }
+        return availablePages.filter {
+            $0.searchTerms.localizedCaseInsensitiveContains(query)
+        }
     }
 
     private var header: some View {
@@ -139,42 +191,180 @@ struct SettingsView: View {
         }
     }
 
-    private var apiSection: some View {
-        SettingsSection(title: "API OPENAI", icon: "key.fill") {
-            VStack(alignment: .leading, spacing: 11) {
-                HStack(spacing: 9) {
-                    SecureField("sk-…", text: $apiKeyInput)
-                        .textFieldStyle(.roundedBorder)
-                    Button(isValidating ? "Validation…" : "Valider") { validateKey() }
-                        .disabled(apiKeyInput.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || isValidating)
-                }
-                HStack {
-                    Label(
-                        appState.hasAPIKey ? "Clé vérifiée dans le Trousseau" : "Clé non configurée",
-                        systemImage: appState.hasAPIKey ? "checkmark.circle.fill" : "exclamationmark.circle.fill"
+    private var launchAtLoginSection: some View {
+        SettingsSection(title: "OUVERTURE", icon: "power") {
+            VStack(alignment: .leading, spacing: 8) {
+                Toggle(
+                    "Lancer Pressay à l’ouverture de session",
+                    isOn: Binding(
+                        get: { launchAtLogin.isEnabled },
+                        set: { launchAtLogin.setEnabled($0) }
                     )
-                    .foregroundStyle(appState.hasAPIKey ? .green : .orange)
-                    .font(.system(size: 11, weight: .medium))
-                    Spacer()
-                    if appState.hasAPIKey {
-                        Button("Réinitialiser", action: appState.clearAPIKey)
-                            .buttonStyle(.plain)
-                            .foregroundStyle(.secondary)
-                    }
-                    Link("Créer une clé ↗", destination: URL(string: "https://platform.openai.com/api-keys")!)
-                        .font(.system(size: 11))
-                }
-                if let validationMessage {
-                    Text(validationMessage.text)
-                        .font(.system(size: 10))
-                        .foregroundStyle(validationMessage.success ? .green : .orange)
-                }
-                Text("La validation teste la transcription. Les modes de transformation exigent aussi l’accès à la Responses API.")
+                )
+                .font(.system(size: 12, weight: .medium))
+                Text("Pressay reste disponible dans la barre des menus après le démarrage du Mac.")
                     .font(.system(size: 10))
                     .foregroundStyle(.secondary)
+                if let error = launchAtLogin.lastError {
+                    Text(error)
+                        .font(.system(size: 10))
+                        .foregroundStyle(.orange)
+                }
             }
         }
     }
+
+    private var providersSection: some View {
+        SettingsSection(title: "TRANSCRIPTION", icon: "waveform") {
+            VStack(alignment: .leading, spacing: 13) {
+                Text("Deux chemins simples : OpenAI avec ta clé, ou WhisperKit entièrement local.")
+                    .font(.system(size: 10))
+                    .foregroundStyle(.secondary)
+
+                Picker("Moteur", selection: $transcriptionEngine) {
+                    ForEach(TranscriptionEngine.allCases) { engine in
+                        Text(engine.label).tag(engine.rawValue)
+                    }
+                }
+                .pickerStyle(.segmented)
+
+                Text(
+                    TranscriptionEngine(rawValue: transcriptionEngine)?.detail
+                        ?? TranscriptionEngine.openAI.detail
+                )
+                .font(.system(size: 10))
+                .foregroundStyle(.secondary)
+
+                Divider().opacity(0.45)
+                if transcriptionEngine == TranscriptionEngine.openAI.rawValue {
+                    openAICredentialRow
+                } else {
+                    VStack(alignment: .leading, spacing: 9) {
+                        HStack {
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text("Modèle local WhisperKit")
+                                    .font(.system(size: 12, weight: .semibold))
+                                Text(WhisperKitTranscriptionService.modelLabel)
+                                    .font(.system(size: 10))
+                                    .foregroundStyle(.secondary)
+                            }
+                            Spacer()
+                            localModelStatus
+                        }
+
+                        localModelActions
+                        Text("Le premier chargement peut prendre quelques secondes. Les dictées suivantes réutilisent le modèle déjà en mémoire.")
+                            .font(.system(size: 10))
+                            .foregroundStyle(.secondary)
+                    }
+                }
+            }
+        }
+    }
+
+    private var openAICredentialRow: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("OpenAI")
+                        .font(.system(size: 12, weight: .semibold))
+                    Text("Transcription et transformations de texte")
+                        .font(.system(size: 10))
+                        .foregroundStyle(.secondary)
+                }
+                Spacer()
+                Label(
+                    appState.hasAPIKey ? "Configuré" : "Non configuré",
+                    systemImage: appState.hasAPIKey
+                        ? "checkmark.circle.fill"
+                        : "circle.dashed"
+                )
+                .font(.system(size: 10, weight: .medium))
+                .foregroundStyle(appState.hasAPIKey ? .green : .secondary)
+            }
+            HStack(spacing: 9) {
+                SecureField("sk-…", text: $apiKeyInput)
+                    .textFieldStyle(.roundedBorder)
+                Button(isValidatingAPIKey ? "Validation…" : "Valider") {
+                    validateOpenAIKey()
+                }
+                .disabled(
+                    apiKeyInput.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                        || isValidatingAPIKey
+                )
+            }
+            HStack {
+                if appState.hasAPIKey {
+                    Button("Supprimer la clé") {
+                        appState.clearAPIKey()
+                        apiKeyValidationMessage = nil
+                    }
+                    .buttonStyle(.plain)
+                    .foregroundStyle(.secondary)
+                }
+                Spacer()
+                Link(
+                    "Créer une clé ↗",
+                    destination: URL(string: "https://platform.openai.com/api-keys")!
+                )
+                .font(.system(size: 10))
+            }
+            if let apiKeyValidationMessage {
+                Text(apiKeyValidationMessage.text)
+                    .font(.system(size: 10))
+                    .foregroundStyle(apiKeyValidationMessage.success ? .green : .orange)
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var localModelStatus: some View {
+        switch localTranscription.modelState {
+        case .notDownloaded:
+            Label("À télécharger", systemImage: "arrow.down.circle")
+                .foregroundStyle(.secondary)
+        case .downloading(let progress):
+            Text("\(Int(progress * 100)) %")
+                .foregroundStyle(.blue)
+        case .loading:
+            Label("Chargement…", systemImage: "cpu")
+                .foregroundStyle(.blue)
+        case .ready:
+            Label("Prêt", systemImage: "checkmark.circle.fill")
+                .foregroundStyle(.green)
+        case .failed:
+            Label("Erreur", systemImage: "exclamationmark.triangle.fill")
+                .foregroundStyle(.orange)
+        }
+    }
+
+    @ViewBuilder
+    private var localModelActions: some View {
+        switch localTranscription.modelState {
+        case .notDownloaded, .failed:
+            Button("Télécharger le modèle local") {
+                Task { await localTranscription.downloadModel() }
+            }
+            .buttonStyle(.borderedProminent)
+        case .downloading(let progress):
+            ProgressView(value: progress)
+        case .loading:
+            ProgressView()
+                .controlSize(.small)
+        case .ready:
+            Button("Supprimer le modèle") {
+                do {
+                    try localTranscription.removeModel()
+                    transcriptionEngine = TranscriptionEngine.openAI.rawValue
+                } catch {
+                    diagnosticsMessage = error.localizedDescription
+                }
+            }
+            .buttonStyle(.plain)
+            .foregroundStyle(.secondary)
+        }
+    }
+
 
     private var recognitionSection: some View {
         SettingsSection(title: "RECONNAISSANCE", icon: "waveform.badge.magnifyingglass") {
@@ -400,6 +590,23 @@ struct SettingsView: View {
                             .font(.system(size: 10))
                     }
                     .id(metrics.revision)
+                    if let trace = metrics.recentSessionTraces().first {
+                        Divider().opacity(0.35)
+                        VStack(alignment: .leading, spacing: 5) {
+                            HStack {
+                                Text("Dernière dictée")
+                                    .font(.system(size: 10, weight: .semibold))
+                                Spacer()
+                                Text(trace.transcriptionProvider)
+                                    .font(.system(size: 9, weight: .medium, design: .rounded))
+                                    .foregroundStyle(.secondary)
+                            }
+                            Text(traceSummary(trace))
+                            .font(.system(size: 9, design: .rounded))
+                            .foregroundStyle(.secondary)
+                        }
+                        .id("trace-\(metrics.revision)")
+                    }
                 }
                 Divider().opacity(0.45)
                 HStack {
@@ -529,17 +736,19 @@ struct SettingsView: View {
         )
     }
 
-    private func validateKey() {
+    private func validateOpenAIKey() {
         let key = apiKeyInput.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !key.isEmpty else { return }
-        isValidating = true
-        validationMessage = nil
+        isValidatingAPIKey = true
+        apiKeyValidationMessage = nil
         Task {
             let valid = await appState.updateAPIKey(key)
-            isValidating = false
-            validationMessage = ValidationMessage(
+            isValidatingAPIKey = false
+            apiKeyValidationMessage = ValidationMessage(
                 success: valid,
-                text: valid ? "Clé vérifiée et enregistrée." : "La clé ou son droit de transcription est invalide."
+                text: valid
+                    ? "Clé vérifiée et enregistrée dans le Trousseau."
+                    : "Clé invalide ou accès API indisponible."
             )
             if valid { apiKeyInput = "" }
         }
@@ -548,6 +757,18 @@ struct SettingsView: View {
     private func metricText(_ step: MetricStep) -> String {
         guard let value = metrics.average(for: step) else { return "—" }
         return value < 1 ? "\(Int(value * 1_000)) ms" : String(format: "%.1f s", value)
+    }
+
+    private func traceSummary(_ trace: SessionPerformanceTrace) -> String {
+        let audio = compactDuration(trace.audioDurationSeconds)
+        let transcription = compactDuration(trace.transcriptionSeconds)
+        let processing = compactDuration(trace.processingSeconds)
+        let insertion = compactDuration(trace.insertionSeconds)
+        return "Audio \(audio) · API \(transcription) · Traitement \(processing) · Insertion \(insertion)"
+    }
+
+    private func compactDuration(_ value: TimeInterval) -> String {
+        value < 1 ? "\(Int(value * 1_000)) ms" : String(format: "%.1f s", value)
     }
 
     private func exportDiagnostics() {
@@ -587,6 +808,84 @@ struct SettingsView: View {
     }
 }
 
+private enum SettingsPage: String, CaseIterable, Identifiable {
+    case general
+    case providers
+    case modes
+    case shortcuts
+    case data
+    case updates
+    case about
+
+    var id: String { rawValue }
+
+    var label: String {
+        switch self {
+        case .general: "Général"
+        case .providers: "Fournisseurs"
+        case .modes: "Modes"
+        case .shortcuts: "Raccourcis"
+        case .data: "Données"
+        case .updates: "Mises à jour"
+        case .about: "À propos"
+        }
+    }
+
+    var icon: String {
+        switch self {
+        case .general: "gearshape"
+        case .providers: "key.fill"
+        case .modes: "slider.horizontal.3"
+        case .shortcuts: "keyboard"
+        case .data: "lock.shield"
+        case .updates: "arrow.triangle.2.circlepath"
+        case .about: "info.circle"
+        }
+    }
+
+    var searchTerms: String {
+        switch self {
+        case .general: "général microphone accessibilité langue reconnaissance HUD démarrage ouverture"
+        case .providers: "transcription OpenAI WhisperKit local clé API hors ligne"
+        case .modes: "modes profils applications fidèle propre email message"
+        case .shortcuts: "raccourcis clavier fn globe maintenir bascule"
+        case .data: "données confidentialité historique inbox métriques diagnostic export"
+        case .updates: "mises à jour beta version sparkle"
+        case .about: "à propos version confidentialité support"
+        }
+    }
+}
+
+@MainActor
+private final class LaunchAtLoginService: ObservableObject {
+    static let shared = LaunchAtLoginService()
+
+    @Published private(set) var isEnabled = false
+    @Published private(set) var lastError: String?
+
+    private init() {
+        refresh()
+    }
+
+    func setEnabled(_ enabled: Bool) {
+        do {
+            if enabled {
+                try SMAppService.mainApp.register()
+            } else {
+                try SMAppService.mainApp.unregister()
+            }
+            lastError = nil
+        } catch {
+            lastError = "Impossible de modifier l’ouverture automatique : \(error.localizedDescription)"
+        }
+        refresh()
+    }
+
+    private func refresh() {
+        isEnabled = SMAppService.mainApp.status == .enabled
+    }
+}
+
 struct SettingsSection<Content: View>: View {
     let title: String
     let icon: String
@@ -605,6 +904,7 @@ struct SettingsSection<Content: View>: View {
                 .foregroundStyle(.secondary)
             content
                 .padding(15)
+                .frame(maxWidth: .infinity, alignment: .leading)
                 .background(
                     Color(nsColor: .controlBackgroundColor).opacity(0.5),
                     in: RoundedRectangle(cornerRadius: 12, style: .continuous)
@@ -614,6 +914,7 @@ struct SettingsSection<Content: View>: View {
                         .stroke(.primary.opacity(0.06), lineWidth: 1)
                 )
         }
+        .frame(maxWidth: .infinity, alignment: .leading)
     }
 }
 

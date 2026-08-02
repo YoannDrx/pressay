@@ -14,12 +14,12 @@ enum Constants {
     static let keychainAPIKeyAccount = "openai-api-key"
     static let keychainHistoryKeyAccount = "history-encryption-key"
     static let keychainInboxKeyAccount = "inbox-encryption-key"
+    static let keychainActionJournalKeyAccount = "action-journal-encryption-key"
     static let identityMigrationCompletedKey = "pressay-identity-migration-v1-completed"
     static let applicationSupportDirectoryName = "Pressay"
     static let legacyApplicationSupportDirectoryName = "Whisper"
     static let openAITranscriptionURL = "https://api.openai.com/v1/audio/transcriptions"
     static let openAIResponsesURL = "https://api.openai.com/v1/responses"
-
     static let transcriptionLanguageKey = "transcription-language"
     static let transcriptionModelKey = "transcription-model"
     static let technicalVocabularyKey = "technical-vocabulary"
@@ -31,12 +31,15 @@ enum Constants {
     static let processingModelKey = "processing-model"
     static let selectedModeIDKey = "selected-mode-id"
     static let cloudDisclosureSignaturesKey = "cloud-disclosure-signatures-v1"
+    static let transcriptionEngineKey = "transcription-engine-v1"
+    static let whisperKitModelPathKey = "whisperkit-model-path-v1"
     static let includeBetaUpdatesKey = "include-beta-updates"
     static let historyEnabledKey = "history-enabled"
     static let historyRetentionDaysKey = "history-retention-days"
     static let inboxEnabledKey = "voice-inbox-enabled"
     static let inboxRetentionDaysKey = "voice-inbox-retention-days"
     static let metricsEnabledKey = "local-metrics-enabled"
+    static let onboardingCompletedKey = "onboarding-completed-v1"
     static let hudPositionKey = "hud-position"
     static let hudSizeKey = "hud-size"
     static let hudResultDurationKey = "hud-result-duration"
@@ -52,6 +55,7 @@ enum Constants {
         activationModeKey,
         processingModelKey,
         selectedModeIDKey,
+        transcriptionEngineKey,
         includeBetaUpdatesKey,
         historyEnabledKey,
         historyRetentionDaysKey,
@@ -64,6 +68,7 @@ enum Constants {
         hudShowsResultActionsKey
     ]
     static let defaultTranscriptionLanguage = "fr"
+    static let defaultActivationMode = ActivationMode.hold.rawValue
     static let defaultTranscriptionModel = "gpt-4o-mini-transcribe"
     static let defaultProcessingModel = "gpt-5.6-luna"
     static let defaultTechnicalVocabulary = """
@@ -172,6 +177,29 @@ enum ActivationMode: String, CaseIterable, Identifiable {
         switch self {
         case .hold: return "Maintenir"
         case .toggle: return "Bascule"
+        }
+    }
+}
+
+enum TranscriptionEngine: String, CaseIterable, Identifiable {
+    case openAI = "openai"
+    case whisperKit = "whisperkit"
+
+    var id: String { rawValue }
+
+    var label: String {
+        switch self {
+        case .openAI: "OpenAI"
+        case .whisperKit: "WhisperKit local"
+        }
+    }
+
+    var detail: String {
+        switch self {
+        case .openAI:
+            "Transcription cloud rapide avec ta clé API OpenAI."
+        case .whisperKit:
+            "Transcription hors ligne sur ce Mac ; l’audio ne quitte pas l’appareil."
         }
     }
 }

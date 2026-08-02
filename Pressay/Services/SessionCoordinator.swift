@@ -28,6 +28,7 @@ final class SessionCoordinator: ObservableObject {
         let mode: ModeDefinition
         let deliveryPolicy: ApplicationDeliveryPolicy
         let replayOriginalText: String?
+        let transcriber: any SpeechTranscribing
     }
 
     private struct ReplayDescriptor {
@@ -71,8 +72,10 @@ final class SessionCoordinator: ObservableObject {
     private var captureTarget: TextInjectionTarget?
     private var captureMode: ModeDefinition?
     private var captureDeliveryPolicy: ApplicationDeliveryPolicy?
+    private var captureTranscriber: (any SpeechTranscribing)?
     private var previewDelivery: PreviewDelivery?
     private var capturePreparationTask: Task<Void, Never>?
+    private var targetRecoveryTask: Task<Void, Never>?
     private var replayDescriptors: [UUID: ReplayDescriptor] = [:]
 
     init(
@@ -146,8 +149,9 @@ final class SessionCoordinator: ObservableObject {
             fail("Pressay est désactivé pour cette application")
             return
         }
+        let activeTranscriber: any SpeechTranscribing
         do {
-            let activeTranscriber = try transcriptionRouter?
+            activeTranscriber = try transcriptionRouter?
                 .provider(for: mode, capabilities: capabilities)
                 ?? transcriber
             guard activeTranscriber.isReady else {
@@ -190,6 +194,11 @@ final class SessionCoordinator: ObservableObject {
                     capturedContext: fallback,
                     mode: mode,
                     intent: intent,
+                    deliveryPolicy: deliveryPolicy,
+                    activeTranscriber: activeTranscriber
+                )
+                self.recoverCaptureTargetIfNeeded(
+                    from: fallback,
                     deliveryPolicy: deliveryPolicy
                 )
             }
@@ -199,15 +208,53 @@ final class SessionCoordinator: ObservableObject {
             capturedContext: capturedContext,
             mode: mode,
             intent: intent,
+            deliveryPolicy: deliveryPolicy,
+            activeTranscriber: activeTranscriber
+        )
+        recoverCaptureTargetIfNeeded(
+            from: capturedContext,
             deliveryPolicy: deliveryPolicy
         )
+    }
+
+    private func recoverCaptureTargetIfNeeded(
+        from initialCapture: ContextCaptureResult,
+        deliveryPolicy: ApplicationDeliveryPolicy
+    ) {
+        guard deliveryPolicy != .copyOnly,
+              let initialTarget = initialCapture.target,
+              !initialTarget.snapshot.isSecure,
+              !initialTarget.snapshot.isEditable,
+              let sessionID = captureSession?.id else {
+            return
+        }
+        targetRecoveryTask?.cancel()
+        targetRecoveryTask = Task { [weak self] in
+            guard let self else { return }
+            let recovered = await self.contextCapturer.recoverEditableTarget(
+                from: initialCapture
+            )
+            guard !Task.isCancelled,
+                  recovered.target?.snapshot.isEditable == true,
+                  var session = self.captureSession,
+                  session.id == sessionID else {
+                self.targetRecoveryTask = nil
+                return
+            }
+            self.captureTarget = recovered.target
+            session.target = recovered.target?.snapshot
+            session.context = recovered.context
+            self.captureSession = session
+            self.targetRecoveryTask = nil
+        }
     }
 
     private func beginCapture(
         capturedContext: ContextCaptureResult,
         mode: ModeDefinition,
         intent: VoiceIntent,
-        deliveryPolicy: ApplicationDeliveryPolicy
+        deliveryPolicy: ApplicationDeliveryPolicy,
+        activeTranscriber: any SpeechTranscribing
     ) {
         do {
             try audioCapturer.startRecording()
@@ -225,6 +272,7 @@ final class SessionCoordinator: ObservableObject {
             captureTarget = capturedContext.target
             captureMode = mode
             captureDeliveryPolicy = deliveryPolicy
+            captureTranscriber = activeTranscriber
             captureSession = session
             lastError = nil
             lastNotice = nil
@@ -262,8 +310,12 @@ final class SessionCoordinator: ObservableObject {
             return
         }
         captureSession = nil
+        targetRecoveryTask?.cancel()
+        targetRecoveryTask = nil
         captureMode = nil
         captureDeliveryPolicy = nil
+        let activeTranscriber = captureTranscriber ?? transcriber
+        captureTranscriber = nil
         let target = captureTarget
         captureTarget = nil
 
@@ -298,7 +350,8 @@ final class SessionCoordinator: ObservableObject {
                 target: target ?? textTarget(for: session),
                 mode: mode,
                 deliveryPolicy: deliveryPolicy,
-                replayOriginalText: nil
+                replayOriginalText: nil,
+                transcriber: activeTranscriber
             )
         )
         if let data = try? Data(contentsOf: audio.url) {
@@ -343,6 +396,9 @@ final class SessionCoordinator: ObservableObject {
             return
         }
         if var session = captureSession {
+            targetRecoveryTask?.cancel()
+            targetRecoveryTask = nil
+            captureTranscriber = nil
             audioCapturer.cleanupCurrentRecording()
             captureSession = nil
             captureTarget = nil
@@ -455,7 +511,8 @@ final class SessionCoordinator: ObservableObject {
                 target: descriptor.target,
                 mode: descriptor.mode,
                 deliveryPolicy: .preview,
-                replayOriginalText: previous.finalText ?? previous.rawText
+                replayOriginalText: previous.finalText ?? previous.rawText,
+                transcriber: transcriber
             )
         )
         pendingCount = pendingSessions.count
@@ -511,9 +568,7 @@ final class SessionCoordinator: ObservableObject {
             }
 
             do {
-                let activeTranscriber = try self.transcriptionRouter?
-                    .provider(for: item.mode, capabilities: self.capabilities)
-                    ?? self.transcriber
+                let activeTranscriber = item.transcriber
                 self.hud.show(
                     .transcribing,
                     detail: "\(activeTranscriber.locality == .local ? "Local" : "Cloud") · \(activeTranscriber.identifier)",
@@ -888,6 +943,16 @@ final class SessionCoordinator: ObservableObject {
             .total,
             duration: Date().timeIntervalSince(session.timings.createdAt)
         )
+        metrics.recordSession(
+            performanceTrace(
+                session: session,
+                audioDuration: audioDuration,
+                transcriptionProvider: transcriptionProviderIdentifier
+                    ?? transcriber.identifier,
+                processingProvider: processingProvider,
+                inserted: inserted
+            )
+        )
         lastSession = session
         let undoDeadline = inserted && textDeliverer.canUndoLastInsertion
             ? Date().addingTimeInterval(8)
@@ -953,6 +1018,48 @@ final class SessionCoordinator: ObservableObject {
             onCorrect: { [weak self] in self?.startCorrectionCapture() }
         )
         hud.show(inserted ? .success : .copied, detail: lastNotice, autoHide: true)
+    }
+
+    private func performanceTrace(
+        session: VoiceSession,
+        audioDuration: TimeInterval,
+        transcriptionProvider: String,
+        processingProvider: String?,
+        inserted: Bool
+    ) -> SessionPerformanceTrace {
+        let timings = session.timings
+        return SessionPerformanceTrace(
+            id: session.id,
+            createdAt: timings.createdAt,
+            audioDurationSeconds: audioDuration,
+            transcriptionProvider: transcriptionProvider,
+            processingProvider: processingProvider,
+            transcriptionSeconds: duration(
+                from: timings.transcriptionStartedAt,
+                to: timings.transcriptionEndedAt
+            ),
+            processingSeconds: duration(
+                from: timings.transcriptionEndedAt,
+                to: timings.processingEndedAt
+            ),
+            insertionSeconds: duration(
+                from: timings.processingEndedAt,
+                to: timings.deliveryEndedAt
+            ),
+            totalSeconds: duration(
+                from: timings.createdAt,
+                to: timings.deliveryEndedAt
+            ),
+            deliveryStatus: inserted ? .inserted : .copied,
+            deliveryFailure: inserted
+                ? nil
+                : textDeliverer.lastDeliveryFailure?.rawValue
+        )
+    }
+
+    private func duration(from start: Date?, to end: Date?) -> TimeInterval {
+        guard let start, let end else { return 0 }
+        return max(0, end.timeIntervalSince(start))
     }
 
     private func trimReplayDescriptors() {

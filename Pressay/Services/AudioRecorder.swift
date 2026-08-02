@@ -8,10 +8,16 @@ final class AudioRecorder: NSObject, ObservableObject {
     @Published private(set) var hasPermission = false
     var onLevelUpdate: ((Float) -> Void)?
 
-    private var audioRecorder: AVAudioRecorder?
+    private var audioEngine: AVAudioEngine?
+    private var audioConverter: AVAudioConverter?
+    private var audioFile: AVAudioFile?
     private var recordingURL: URL?
-    private var meteringTimer: Timer?
     private var powerSamples: [Float] = []
+    private var recordedFrames: AVAudioFramePosition = 0
+    private let processingQueue = DispatchQueue(
+        label: "fr.yodev.pressay.audio-processing",
+        qos: .userInteractive
+    )
 
     override init() {
         super.init()
@@ -42,7 +48,7 @@ final class AudioRecorder: NSObject, ObservableObject {
 
     private func getRecordingURL() -> URL {
         let tempDir = FileManager.default.temporaryDirectory
-        return tempDir.appendingPathComponent("pressay_recording_\(UUID().uuidString).m4a")
+        return tempDir.appendingPathComponent("pressay_recording_\(UUID().uuidString).wav")
     }
 
     func startRecording() throws {
@@ -55,39 +61,59 @@ final class AudioRecorder: NSObject, ObservableObject {
         let url = getRecordingURL()
         recordingURL = url
 
-        let settings: [String: Any] = [
-            AVFormatIDKey: Int(kAudioFormatMPEG4AAC),
-            AVSampleRateKey: 16000, // 16kHz recommandé pour Pressay
-            AVNumberOfChannelsKey: 1, // Mono
-            AVEncoderAudioQualityKey: AVAudioQuality.high.rawValue
-        ]
-
-        audioRecorder = try AVAudioRecorder(url: url, settings: settings)
-        audioRecorder?.delegate = self
-        audioRecorder?.isMeteringEnabled = true
-
-        guard audioRecorder?.record() == true else {
-            cleanupCurrentRecording()
+        guard let targetFormat = AVAudioFormat(
+            commonFormat: .pcmFormatInt16,
+            sampleRate: 16_000,
+            channels: 1,
+            interleaved: true
+        ) else { throw RecordingError.recordingFailed }
+        let engine = AVAudioEngine()
+        let input = engine.inputNode
+        let inputFormat = input.outputFormat(forBus: 0)
+        guard inputFormat.sampleRate > 0,
+              inputFormat.channelCount > 0,
+              let converter = AVAudioConverter(from: inputFormat, to: targetFormat) else {
             throw RecordingError.recordingFailed
         }
+        let file = try AVAudioFile(
+            forWriting: url,
+            settings: targetFormat.settings,
+            commonFormat: .pcmFormatInt16,
+            interleaved: true
+        )
+
+        audioEngine = engine
+        audioConverter = converter
+        audioFile = file
+        recordedFrames = 0
+        // A moderate buffer keeps level updates responsive while avoiding
+        // excessive work on the realtime audio thread.
+        input.installTap(onBus: 0, bufferSize: 4_096, format: inputFormat) {
+            [weak self] buffer, _ in
+            self?.processingQueue.async {
+                self?.process(buffer, targetFormat: targetFormat)
+            }
+        }
+        engine.prepare()
+        try engine.start()
 
         powerSamples = []
         onLevelUpdate?(0)
-        startMetering()
         isRecording = true
     }
 
     func stopRecording() -> CapturedAudio? {
-        guard let recorder = audioRecorder, let recordingURL else {
+        guard let engine = audioEngine, let recordingURL else {
             return nil
         }
-
-        sampleAudioLevel()
-        let duration = recorder.currentTime
-        recorder.stop()
-        stopMetering()
+        engine.inputNode.removeTap(onBus: 0)
+        engine.stop()
+        processingQueue.sync {}
+        let duration = Double(recordedFrames) / 16_000
         isRecording = false
-        audioRecorder = nil
+        audioEngine = nil
+        audioConverter = nil
+        audioFile = nil
         self.recordingURL = nil
         let detection = SpeechDetectionPolicy.analyze(powers: powerSamples, duration: duration)
         powerSamples = []
@@ -101,9 +127,14 @@ final class AudioRecorder: NSObject, ObservableObject {
     }
 
     func cleanupCurrentRecording() {
-        stopMetering()
-        audioRecorder?.stop()
-        audioRecorder = nil
+        if let engine = audioEngine {
+            engine.inputNode.removeTap(onBus: 0)
+            engine.stop()
+        }
+        processingQueue.sync {}
+        audioEngine = nil
+        audioConverter = nil
+        audioFile = nil
         isRecording = false
 
         if let url = recordingURL {
@@ -119,29 +150,55 @@ final class AudioRecorder: NSObject, ObservableObject {
         try? FileManager.default.removeItem(at: url)
     }
 
-    private func startMetering() {
-        let timer = Timer(timeInterval: Constants.audioMeteringInterval, repeats: true) { [weak self] _ in
-            self?.sampleAudioLevel()
+    private func process(_ inputBuffer: AVAudioPCMBuffer, targetFormat: AVAudioFormat) {
+        guard let converter = audioConverter,
+              let audioFile,
+              let output = AVAudioPCMBuffer(
+                pcmFormat: targetFormat,
+                frameCapacity: AVAudioFrameCount(
+                    ceil(Double(inputBuffer.frameLength) * 16_000 / inputBuffer.format.sampleRate)
+                ) + 32
+              ) else { return }
+        var supplied = false
+        var conversionError: NSError?
+        let status = converter.convert(to: output, error: &conversionError) {
+            _, statusPointer in
+            if supplied {
+                statusPointer.pointee = .noDataNow
+                return nil
+            }
+            supplied = true
+            statusPointer.pointee = .haveData
+            return inputBuffer
         }
-        RunLoop.main.add(timer, forMode: .common)
-        meteringTimer = timer
-    }
-
-    private func stopMetering() {
-        meteringTimer?.invalidate()
-        meteringTimer = nil
-    }
-
-    private func sampleAudioLevel() {
-        guard let recorder = audioRecorder, recorder.isRecording else { return }
-
-        recorder.updateMeters()
-        guard recorder.currentTime >= Constants.ignoredLeadingAudioDuration else { return }
-
-        let power = recorder.averagePower(forChannel: 0)
-        powerSamples.append(power)
+        guard conversionError == nil,
+              status != .error,
+              output.frameLength > 0 else { return }
+        do {
+            try audioFile.write(from: output)
+        } catch {
+            return
+        }
+        recordedFrames += AVAudioFramePosition(output.frameLength)
+        let power = averagePower(from: output)
+        if Double(recordedFrames) / 16_000 >= Constants.ignoredLeadingAudioDuration {
+            powerSamples.append(power)
+        }
         let normalized = max(0, min(1, (power + 60) / 60))
         onLevelUpdate?(normalized)
+    }
+
+    private func averagePower(from buffer: AVAudioPCMBuffer) -> Float {
+        guard let samples = buffer.int16ChannelData?.pointee else { return -80 }
+        let count = Int(buffer.frameLength)
+        guard count > 0 else { return -80 }
+        var sum: Double = 0
+        for index in 0..<count {
+            let normalized = Double(samples[index]) / Double(Int16.max)
+            sum += normalized * normalized
+        }
+        let rms = sqrt(sum / Double(count))
+        return rms > 0 ? Float(20 * log10(rms)) : -80
     }
 
     enum RecordingError: LocalizedError {
@@ -160,17 +217,3 @@ final class AudioRecorder: NSObject, ObservableObject {
 }
 
 extension AudioRecorder: AudioCapturing {}
-
-extension AudioRecorder: AVAudioRecorderDelegate {
-    func audioRecorderDidFinishRecording(_ recorder: AVAudioRecorder, successfully flag: Bool) {
-        if !flag {
-            print("Enregistrement terminé avec erreur")
-        }
-    }
-
-    func audioRecorderEncodeErrorDidOccur(_ recorder: AVAudioRecorder, error: Error?) {
-        if let error = error {
-            print("Erreur d'encodage: \(error.localizedDescription)")
-        }
-    }
-}

@@ -10,11 +10,18 @@ final class AccessibilityContextService: ContextCapturing {
         ContextCaptureResult(target: nil, context: .empty)
     }
 
+    func recoverEditableTarget(
+        from initialCapture: ContextCaptureResult
+    ) async -> ContextCaptureResult {
+        initialCapture
+    }
+
     func captureSelectionFallback(
         from initialCapture: ContextCaptureResult
     ) async -> ContextCaptureResult {
         initialCapture
     }
+
 }
 #else
 import AppKit
@@ -133,6 +140,36 @@ final class AccessibilityContextService: ContextCapturing {
         return ContextCaptureResult(target: target, context: context)
     }
 
+    func recoverEditableTarget(
+        from initialCapture: ContextCaptureResult
+    ) async -> ContextCaptureResult {
+        guard let initialTarget = initialCapture.target,
+              !initialTarget.snapshot.isSecure,
+              !initialTarget.snapshot.isEditable else {
+            return initialCapture
+        }
+
+        for _ in 0..<8 {
+            try? await Task.sleep(for: .milliseconds(35))
+            guard !Task.isCancelled,
+                  NSWorkspace.shared.frontmostApplication?.processIdentifier
+                    == initialTarget.processIdentifier else {
+                return initialCapture
+            }
+            let candidate = capture()
+            guard targetIdentityMatches(
+                initial: initialTarget.snapshot,
+                candidate: candidate.target?.snapshot
+            ) else {
+                continue
+            }
+            if candidate.target?.snapshot.isEditable == true {
+                return candidate
+            }
+        }
+        return initialCapture
+    }
+
     func captureSelectionFallback(
         from initialCapture: ContextCaptureResult
     ) async -> ContextCaptureResult {
@@ -205,6 +242,22 @@ final class AccessibilityContextService: ContextCapturing {
             before.isEmpty ? nil : before,
             after.isEmpty ? nil : after
         )
+    }
+
+    private func targetIdentityMatches(
+        initial: TargetSnapshot,
+        candidate: TargetSnapshot?
+    ) -> Bool {
+        guard let candidate,
+              candidate.processIdentifier == initial.processIdentifier,
+              candidate.bundleIdentifier == initial.bundleIdentifier else {
+            return false
+        }
+        if let initialWindowIdentifier = initial.windowIdentifier,
+           let candidateWindowIdentifier = candidate.windowIdentifier {
+            return initialWindowIdentifier == candidateWindowIdentifier
+        }
+        return candidate.windowTitle == initial.windowTitle
     }
 
     private func copiedElement(attribute: String, from element: AXUIElement?) -> AXUIElement? {

@@ -2,7 +2,7 @@
 
 Démarrez une dictée, parlez naturellement puis récupérez le résultat dans le presse-papiers. Le mode Fidèle conserve votre formulation. Les modes Propre, Message, Email, Prompt IA, Note, Compte rendu, Ticket, Commit, Traduction, Résumé et Tâches adaptent le texte à votre besoin. Vous pouvez aussi créer vos propres modes et choisir leur style.
 
-Pressay utilise votre propre clé API OpenAI, conservée dans le Trousseau macOS. L’audio et, pour les modes de transformation, le texte nécessaire sont envoyés directement à OpenAI. Les frais d’usage éventuels sont facturés directement par OpenAI. Pressay n’exploite aucune télémétrie distante et ne crée pas de compte utilisateur. Votre historique est stocké localement et chiffré sur votre Mac ; vous pouvez l’exclure ou le supprimer depuis les réglages.
+Choisissez OpenAI avec votre propre clé API, conservée dans le Trousseau macOS, ou WhisperKit pour transcrire entièrement sur votre Mac après téléchargement explicite du modèle local. Les modes de transformation utilisent OpenAI ; le mode Fidèle avec WhisperKit fonctionne hors ligne. Pressay n’exploite aucune télémétrie distante et ne demande aucun compte Pressay. Votre historique est stocké localement et chiffré sur votre Mac ; vous pouvez l’exclure ou le supprimer depuis les réglages.
 
 Cette édition Mac App Store fonctionne dans App Sandbox. Pour respecter ce modèle de sécurité, elle copie le résultat dans le presse-papiers et ne contrôle pas les autres applications pour y insérer automatiquement le texte. La Voice Inbox locale peut conserver les résultats que vous choisissez. La distribution directe disponible sur le site Pressay propose séparément le collage universel et demande l’autorisation Accessibilité.
 
@@ -11,7 +11,7 @@ Fonctionnalités principales :
 • Douze modes de rédaction intégrés
 • Modes personnalisés
 • Historique local chiffré et Voice Inbox optionnelle
-• Clé API personnelle stockée dans le Trousseau
+• OpenAI ou WhisperKit local, sans fallback silencieux
 • Aucune télémétrie distante par défaut
 • Interface entièrement pilotable au clavier";
 "keywords" = "dictée,vocal,transcription,texte,productivité,notes,reformulation,traduction,IA,macOS";

@@ -165,17 +165,6 @@ struct ModesView: View {
                 if DistributionChannel.current.supportsGlobalShortcuts {
                     modeShortcutRow(mode)
                 }
-                LabeledContent("Politique fournisseur") {
-                    Picker(
-                        "",
-                        selection: builtInPolicyBinding(mode)
-                    ) {
-                        providerPolicyOptions
-                    }
-                    .labelsHidden()
-                    .frame(width: 220)
-                }
-                providerRows(mode, isBuiltIn: true)
                 Text(mode.prompt.isEmpty ? "Transcription fidèle, sans réécriture." : mode.prompt)
                     .font(.body)
                     .textSelection(.enabled)
@@ -244,20 +233,6 @@ struct ModesView: View {
                 .labelsHidden()
                 .frame(width: 210)
             }
-            LabeledContent("Politique fournisseur") {
-                Picker(
-                    "",
-                    selection: draftBinding(
-                        \.providerPolicy,
-                        fallback: mode.providerPolicy
-                    )
-                ) {
-                    providerPolicyOptions
-                }
-                .labelsHidden()
-                .frame(width: 210)
-            }
-            providerRows(mode, isBuiltIn: false)
             if DistributionChannel.current.supportsGlobalShortcuts {
                 modeShortcutRow(mode)
             }
@@ -540,110 +515,6 @@ struct ModesView: View {
         )
     }
 
-    private func builtInPolicyBinding(_ mode: ModeDefinition) -> Binding<ProviderPolicy> {
-        Binding(
-            get: { store.mode(withID: mode.id)?.providerPolicy ?? mode.providerPolicy },
-            set: { store.setProviderPolicyOverride(modeID: mode.id, policy: $0) }
-        )
-    }
-
-    @ViewBuilder
-    private func providerRows(
-        _ mode: ModeDefinition,
-        isBuiltIn: Bool
-    ) -> some View {
-        LabeledContent("Transcription") {
-            Picker(
-                "",
-                selection: transcriptionProviderBinding(
-                    mode,
-                    isBuiltIn: isBuiltIn
-                )
-            ) {
-                Text("Automatique").tag("")
-                Text("OpenAI · Cloud").tag("openai")
-                if CapabilityMatrix.current.supportsSystemSpeechAnalyzer {
-                    Text("Apple · Local").tag("speech-analyzer")
-                }
-            }
-            .labelsHidden()
-            .frame(width: 220)
-        }
-        if mode.cleaningLevel != .faithful
-            || mode.intent == .transformSelection {
-            LabeledContent("Transformation") {
-                Picker(
-                    "",
-                    selection: processingProviderBinding(
-                        mode,
-                        isBuiltIn: isBuiltIn
-                    )
-                ) {
-                    Text("Automatique").tag("")
-                    Text("OpenAI · Cloud").tag("openai-responses")
-                    if CapabilityMatrix.current.supportsFoundationModels {
-                        Text("Apple Intelligence · Local")
-                            .tag("foundation-models")
-                    }
-                }
-                .labelsHidden()
-                .frame(width: 220)
-            }
-        }
-    }
-
-    private func transcriptionProviderBinding(
-        _ mode: ModeDefinition,
-        isBuiltIn: Bool
-    ) -> Binding<String> {
-        Binding(
-            get: {
-                (isBuiltIn
-                    ? store.mode(withID: mode.id)?.transcriptionProviderID
-                    : draft?.transcriptionProviderID) ?? ""
-            },
-            set: { providerID in
-                let value = providerID.isEmpty ? nil : providerID
-                if isBuiltIn {
-                    store.setTranscriptionProviderOverride(
-                        modeID: mode.id,
-                        providerID: value
-                    )
-                    draft = store.mode(withID: mode.id)
-                } else if var updated = draft {
-                    updated.transcriptionProviderID = value
-                    draft = updated
-                }
-            }
-        )
-    }
-
-    private func processingProviderBinding(
-        _ mode: ModeDefinition,
-        isBuiltIn: Bool
-    ) -> Binding<String> {
-        Binding(
-            get: {
-                (isBuiltIn
-                    ? store.mode(withID: mode.id)?.processingProviderID
-                    : draft?.processingProviderID) ?? ""
-            },
-            set: { providerID in
-                let value = providerID.isEmpty ? nil : providerID
-                if isBuiltIn {
-                    store.setProcessingProviderOverride(
-                        modeID: mode.id,
-                        providerID: value
-                    )
-                    draft = store.mode(withID: mode.id)
-                } else if var updated = draft {
-                    updated.processingProviderID = value
-                    draft = updated
-                }
-            }
-        )
-    }
-
     private func optionalLanguageBinding(_ mode: ModeDefinition) -> Binding<String> {
         Binding(
             get: { draft?.transcriptionLanguage ?? "" },
@@ -653,14 +524,6 @@ struct ModesView: View {
                 draft = updated
             }
         )
-    }
-
-    @ViewBuilder
-    private var providerPolicyOptions: some View {
-        Text("Local uniquement").tag(ProviderPolicy.localOnly)
-        Text("Préférer le local").tag(ProviderPolicy.preferLocal)
-        Text("Demander avant le cloud").tag(ProviderPolicy.askBeforeCloud)
-        Text("Cloud autorisé").tag(ProviderPolicy.cloudAllowed)
     }
 
     private var availableSuggestions: [ApplicationProfileSuggestion] {
