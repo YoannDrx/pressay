@@ -48,18 +48,11 @@ final class TranscriptionService: SpeechTranscribing {
     var isReady: Bool { KeychainHelper.shared.hasAPIKey }
 
     init(session: URLSession? = nil) {
-        if let session {
-            self.session = session
-        } else {
-            let configuration = URLSessionConfiguration.ephemeral
-            // Dictation is an interactive path. A stalled request should fail
-            // quickly so the HUD never stays in “Transcription” for minutes.
-            configuration.timeoutIntervalForRequest = 8
-            configuration.timeoutIntervalForResource = 10
-            configuration.waitsForConnectivity = false
-            configuration.requestCachePolicy = .reloadIgnoringLocalCacheData
-            self.session = URLSession(configuration: configuration)
-        }
+        // Keep the cloud path identical to the deliberately small reference
+        // implementation: one in-memory request on the shared session. The
+        // previous upload task could spend many seconds waiting to stream a
+        // temporary multipart file even for a tiny dictation.
+        self.session = session ?? .shared
     }
 
     private struct TranscriptionResponse: Decodable {
@@ -88,19 +81,19 @@ final class TranscriptionService: SpeechTranscribing {
             : transcriptionPrompt(vocabulary: vocabulary, language: language)
         let model = preferences.string(forKey: Constants.transcriptionModelKey)
             ?? Constants.defaultTranscriptionModel
-        let bodyURL = try makeBodyFile(
+        let body = try makeBody(
             audioURL: audioURL,
             model: model,
             language: language,
             prompt: prompt
         )
-        defer { try? FileManager.default.removeItem(at: bodyURL.url) }
 
-        let request = try makeRequest(
+        var request = try makeRequest(
             apiKey: apiKey,
-            boundary: bodyURL.boundary
+            boundary: body.boundary
         )
-        let (data, response) = try await session.upload(for: request, fromFile: bodyURL.url)
+        request.httpBody = body.data
+        let (data, response) = try await session.data(for: request)
         try Task.checkCancellation()
         let decoded = try decodeResponse(data: data, response: response)
         let cleanText = try TranscriptionResponseValidator.validated(
@@ -114,58 +107,58 @@ final class TranscriptionService: SpeechTranscribing {
     func validateAPIKey(_ apiKey: String) async -> Bool {
         guard apiKey.hasPrefix("sk-") else { return false }
 
+        guard let url = URL(string: "https://api.openai.com/v1/models") else {
+            return false
+        }
+        var request = URLRequest(url: url)
+        request.timeoutInterval = 8
+        request.setValue("Bearer \(apiKey)", forHTTPHeaderField: "Authorization")
         do {
-            let body = try makeValidationBody()
-            defer { try? FileManager.default.removeItem(at: body.url) }
-            let request = try makeRequest(apiKey: apiKey, boundary: body.boundary)
-            let (_, response) = try await session.upload(for: request, fromFile: body.url)
-            guard let http = response as? HTTPURLResponse else { return false }
-
-            // Un audio silencieux minimal peut être accepté ou rejeté comme illisible.
-            // Dans les deux cas l'authentification et le droit sur l'endpoint ont été testés.
-            return http.statusCode != 401 && http.statusCode != 403 && http.statusCode < 500
+            let (_, response) = try await session.data(for: request)
+            return (response as? HTTPURLResponse)?.statusCode == 200
         } catch {
             return false
         }
     }
 
-    private func makeBodyFile(
+    private func makeBody(
         audioURL: URL,
         model: String,
         language: String,
         prompt: String?
-    ) throws -> (url: URL, boundary: String) {
-        var body = MultipartFormData()
-        try body.appendFile(
+    ) throws -> (data: Data, boundary: String) {
+        let boundary = UUID().uuidString
+        let audioData = try Data(contentsOf: audioURL, options: .mappedIfSafe)
+        var data = Data()
+        data.appendMultipartFile(
+            boundary: boundary,
             name: "file",
             filename: "audio.\(audioURL.pathExtension)",
             mimeType: Self.audioMIMEType(for: audioURL),
-            url: audioURL
+            contents: audioData
         )
-        body.appendField(name: "model", value: model)
-        body.appendField(name: "response_format", value: "json")
-        body.appendField(name: "temperature", value: "0")
-
+        data.appendMultipartField(boundary: boundary, name: "model", value: model)
+        data.appendMultipartField(
+            boundary: boundary,
+            name: "response_format",
+            value: "json"
+        )
         if !language.isEmpty {
-            body.appendField(name: "language", value: language)
+            data.appendMultipartField(
+                boundary: boundary,
+                name: "language",
+                value: language
+            )
         }
         if let prompt {
-            body.appendField(name: "prompt", value: prompt)
+            data.appendMultipartField(
+                boundary: boundary,
+                name: "prompt",
+                value: prompt
+            )
         }
-        return (try body.writeToTemporaryFile(), body.boundary)
-    }
-
-    private func makeValidationBody() throws -> (url: URL, boundary: String) {
-        var body = MultipartFormData()
-        body.appendFile(
-            name: "file",
-            filename: "validation.wav",
-            mimeType: "audio/wav",
-            data: Self.silentWAV
-        )
-        body.appendField(name: "model", value: Constants.defaultTranscriptionModel)
-        body.appendField(name: "language", value: "fr")
-        return (try body.writeToTemporaryFile(), body.boundary)
+        data.appendUTF8("--\(boundary)--\r\n")
+        return (data, boundary)
     }
 
     private static func audioMIMEType(for url: URL) -> String {
@@ -224,30 +217,6 @@ final class TranscriptionService: SpeechTranscribing {
         return "Dictée naturelle avec une ponctuation fidèle. Le vocabulaire technique peut inclure : \(vocabulary)."
     }
 
-    private static let silentWAV: Data = {
-        let sampleRate: UInt32 = 16_000
-        let samples = Data(repeating: 0, count: 1_600 * 2)
-        var data = Data()
-        func append<T>(_ value: T) {
-            var littleEndian = value
-            withUnsafeBytes(of: &littleEndian) { data.append(contentsOf: $0) }
-        }
-        data.append(Data("RIFF".utf8))
-        append(UInt32(36 + samples.count).littleEndian)
-        data.append(Data("WAVEfmt ".utf8))
-        append(UInt32(16).littleEndian)
-        append(UInt16(1).littleEndian)
-        append(UInt16(1).littleEndian)
-        append(sampleRate.littleEndian)
-        append(UInt32(sampleRate * 2).littleEndian)
-        append(UInt16(2).littleEndian)
-        append(UInt16(16).littleEndian)
-        data.append(Data("data".utf8))
-        append(UInt32(samples.count).littleEndian)
-        data.append(samples)
-        return data
-    }()
-
     enum TranscriptionError: LocalizedError, Equatable {
         case noAPIKey
         case invalidURL
@@ -272,5 +241,37 @@ final class TranscriptionService: SpeechTranscribing {
                 return "Erreur HTTP : \(code)"
             }
         }
+    }
+}
+
+private extension Data {
+    mutating func appendUTF8(_ string: String) {
+        append(contentsOf: string.utf8)
+    }
+
+    mutating func appendMultipartField(
+        boundary: String,
+        name: String,
+        value: String
+    ) {
+        appendUTF8("--\(boundary)\r\n")
+        appendUTF8("Content-Disposition: form-data; name=\"\(name)\"\r\n\r\n")
+        appendUTF8("\(value)\r\n")
+    }
+
+    mutating func appendMultipartFile(
+        boundary: String,
+        name: String,
+        filename: String,
+        mimeType: String,
+        contents: Data
+    ) {
+        appendUTF8("--\(boundary)\r\n")
+        appendUTF8(
+            "Content-Disposition: form-data; name=\"\(name)\"; filename=\"\(filename)\"\r\n"
+        )
+        appendUTF8("Content-Type: \(mimeType)\r\n\r\n")
+        append(contents)
+        appendUTF8("\r\n")
     }
 }

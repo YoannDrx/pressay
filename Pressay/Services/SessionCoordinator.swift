@@ -354,7 +354,10 @@ final class SessionCoordinator: ObservableObject {
             replayOriginalText: nil,
             transcriber: activeTranscriber
         )
-        if let data = try? Data(contentsOf: audio.url) {
+        // Replay and comparison are useful for advanced modes, but loading and
+        // retaining the audio is not part of instant faithful dictation.
+        if !isInstantDictation(item),
+           let data = try? Data(contentsOf: audio.url) {
             replayBuffer.retain(data, for: session.id)
             replayDescriptors[session.id] = ReplayDescriptor(
                 target: target ?? textTarget(for: session),
@@ -547,6 +550,10 @@ final class SessionCoordinator: ObservableObject {
 
     private func process(_ pendingItem: PendingSession) {
         guard processingTask == nil, pendingPreview == nil else { return }
+        if isInstantDictation(pendingItem) {
+            processInstantDictation(pendingItem)
+            return
+        }
         var item = pendingItem
         let sessionID = item.session.id
         let deadlineSeconds = processingDeadlineSeconds(for: item)
@@ -644,6 +651,106 @@ final class SessionCoordinator: ObservableObject {
             )
             self.processingTask?.cancel()
         }
+    }
+
+    /// The default Fn path intentionally mirrors the original small app:
+    /// transcribe once, paste once, finish. Modes that rewrite text continue
+    /// through the richer coordinator below.
+    private func processInstantDictation(_ pendingItem: PendingSession) {
+        var item = pendingItem
+        let sessionID = item.session.id
+        pendingCount = 0
+        item.session.timings.transcriptionStartedAt = Date()
+        _ = item.session.transition(to: .transcribing)
+        processingSession = item.session
+        hud.show(
+            .transcribing,
+            detail: item.transcriber.locality == .local ? "Local" : "OpenAI",
+            autoHide: false
+        )
+
+        processingTask = Task { [weak self] in
+            guard let self else { return }
+            defer {
+                self.processingDeadlineTask?.cancel()
+                self.processingDeadlineTask = nil
+                self.audioCapturer.cleanup(url: item.audio.url)
+                self.processingTask = nil
+                self.processingSession = nil
+            }
+
+            do {
+                let transcriptionStartedAt = Date()
+                let transcription = try await item.transcriber.transcribe(
+                    audioURL: item.audio.url
+                )
+                self.metrics.record(
+                    .transcription,
+                    duration: Date().timeIntervalSince(transcriptionStartedAt)
+                )
+                try Task.checkCancellation()
+
+                item.session.timings.transcriptionEndedAt = Date()
+                item.session.timings.processingEndedAt = Date()
+                item.session.rawText = transcription.text
+                item.session.finalText = transcription.text
+                _ = item.session.transition(to: .processing)
+                _ = item.session.transition(to: .delivering)
+                self.processingSession = item.session
+
+                let insertionStartedAt = Date()
+                let inserted = await self.textDeliverer.injectDictation(
+                    text: transcription.text,
+                    target: item.target
+                )
+                self.metrics.record(
+                    .insertion,
+                    duration: Date().timeIntervalSince(insertionStartedAt)
+                )
+
+                item.session.timings.deliveryEndedAt = Date()
+                _ = item.session.transition(to: .completed)
+                self.complete(
+                    session: item.session,
+                    rawText: transcription.text,
+                    finalText: transcription.text,
+                    processingProvider: nil,
+                    transcriptionProviderIdentifier: item.transcriber.identifier,
+                    contextManifest: [],
+                    audioDuration: item.audio.duration,
+                    inserted: inserted,
+                    lowConfidence: transcription.isLowConfidence
+                )
+            } catch {
+                self.finish(item: &item, with: error)
+            }
+        }
+        processingDeadlineTask = Task { [weak self] in
+            do {
+                try await Task.sleep(for: .seconds(8))
+            } catch {
+                return
+            }
+            guard let self,
+                  self.processingSession?.id == sessionID,
+                  self.processingTask != nil else { return }
+            self.timedOutSessionID = sessionID
+            self.lastError = "Transcription interrompue : délai dépassé"
+            self.lastNotice = nil
+            self.hud.show(
+                .cancelled,
+                detail: self.lastError,
+                autoHide: true
+            )
+            self.processingTask?.cancel()
+        }
+    }
+
+    private func isInstantDictation(_ item: PendingSession) -> Bool {
+        item.session.intent == .dictate
+            && item.mode.cleaningLevel == .faithful
+            && item.deliveryPolicy == .automatic
+            && item.replayOriginalText == nil
     }
 
     private func processText(

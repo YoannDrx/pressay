@@ -202,10 +202,38 @@ final class TextInjector: TextDelivering {
             return fail(.targetApplicationNotFrontmost)
         }
 
-        let didPaste = await ClipboardTransactionCoordinator.shared
-            .pasteDictation(cleanText)
+        // The Fn path does not need a clipboard transaction, restoration or
+        // target revalidation. Put the result on the pasteboard and post Cmd+V
+        // immediately, like the original Whisper app.
+        let pasteboard = NSPasteboard.general
+        pasteboard.clearContents()
+        guard pasteboard.setString(cleanText, forType: .string) else {
+            return fail(.clipboardPasteFailed)
+        }
+        let didPaste = Self.postPasteShortcut()
         lastDeliveryStrategy = didPaste ? .paste : .copied
         return didPaste ? true : fail(.clipboardPasteFailed)
+    }
+
+    private static func postPasteShortcut() -> Bool {
+        guard let source = CGEventSource(stateID: .hidSystemState),
+              let keyDown = CGEvent(
+                keyboardEventSource: source,
+                virtualKey: CGKeyCode(kVK_ANSI_V),
+                keyDown: true
+              ),
+              let keyUp = CGEvent(
+                keyboardEventSource: source,
+                virtualKey: CGKeyCode(kVK_ANSI_V),
+                keyDown: false
+              ) else {
+            return false
+        }
+        keyDown.flags = .maskCommand
+        keyUp.flags = .maskCommand
+        keyDown.post(tap: .cghidEventTap)
+        keyUp.post(tap: .cghidEventTap)
+        return true
     }
 
     private func prefersPasteDelivery(for target: TextInjectionTarget) -> Bool {
