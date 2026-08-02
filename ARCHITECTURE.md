@@ -185,6 +185,12 @@ global et explicite ; aucun fallback silencieux ne peut envoyer au cloud une
 dictée prévue en local. Les politiques historiques des modes ne peuvent que
 forcer le chemin local.
 
+Pour OpenAI, `TranscriptionService` ouvre une session WebSocket
+`gpt-live-transcribe` au début de la capture, envoie le PCM 24 kHz au fil de la
+parole et commit le tour au relâchement. Un échec de transport utilise le WAV
+déjà présent avec `gpt-4o-mini-transcribe` ; ce repli de transport reste chez le
+même fournisseur et est signalé dans le HUD.
+
 `WhisperKitTranscriptionService` télécharge à la demande une seule variante
 épinglée (`small_216MB`) dans `Application Support/Pressay/WhisperKit`, expose
 une progression claire et conserve le modèle chargé après la première dictée.

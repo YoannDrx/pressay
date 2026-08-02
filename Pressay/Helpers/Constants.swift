@@ -197,7 +197,7 @@ enum TranscriptionEngine: String, CaseIterable, Identifiable {
     var detail: String {
         switch self {
         case .openAI:
-            "Transcription cloud rapide avec ta clé API OpenAI."
+            "Transcription gpt-live-transcribe pendant que tu parles, avec ta clé OpenAI."
         case .whisperKit:
             "Transcription hors ligne sur ce Mac ; l’audio ne quitte pas l’appareil."
         }

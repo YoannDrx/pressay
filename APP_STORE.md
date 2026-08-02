@@ -11,7 +11,7 @@ Sparkle.
 | Canal | Produit | Bundle ID | Version initiale | Livraison du texte |
 | --- | --- | --- | --- | --- |
 | Direct | `Pressay.app` | `fr.yodev.pressay` | 1.2.2 | Insertion universelle lorsque la cible est vérifiable |
-| Mac App Store | `Pressay Companion.app` | `fr.yodev.pressay` | 1.2.0 (12004) | Presse-papiers et Voice Inbox |
+| Mac App Store | `Pressay Companion.app` | `fr.yodev.pressay` | 1.2.0 (12005) | Presse-papiers et Voice Inbox |
 
 La variante App Store ne doit jamais promettre la dictée universelle. Elle
 propose une dictée déclenchée depuis la barre des menus, les douze modes, les
@@ -31,7 +31,7 @@ copié ; l'utilisateur le colle où il le souhaite.
 - archive 1.2.0 (12001) signée, téléversée et acceptée par Apple en
   `BETA_INTERNAL_TESTING` ; le candidat source suivant porte désormais le build
   unique 12002, désormais obsolète ;
-- les paquets 12002 et 12003 sont obsolètes ; le candidat source 12004 remplace
+- les paquets 12002 à 12004 sont obsolètes ; le candidat source 12005 remplace
   le routage multi-provider par OpenAI + WhisperKit local et doit recevoir une
   nouvelle archive avant téléversement ;
 - textes français publiés dans App Store Connect ;
@@ -132,6 +132,10 @@ Description courte à développer dans App Store Connect :
 > transmis. Utilisez votre propre clé API OpenAI, stockée dans le Trousseau, ou
 > téléchargez WhisperKit pour une transcription Fidèle entièrement locale.
 
+Lorsque OpenAI est sélectionné, l'audio est transmis pendant la dictée à
+`gpt-live-transcribe` afin de réduire le délai après le relâchement. WhisperKit
+ne transmet pas l'audio hors du Mac.
+
 Ajouter sans ambiguïté à la description :
 
 > En raison des règles de sécurité du Mac App Store, cette édition copie le
@@ -176,7 +180,7 @@ Réponses prudentes pour le premier build :
 - finalité : **App Functionality** uniquement ;
 - données non utilisées pour le tracking ;
 - données potentiellement liées au compte OpenAI par la clé API ; le build
-  12004 ne les lie pas à une identité Pressay ;
+  12005 ne les lie pas à une identité Pressay ;
 - aucune publicité, analytique distante, crash reporter tiers ou marketing ;
 - clé API conservée dans le Trousseau et jamais envoyée à Yodev ;
 - historique et Inbox conservés localement et chiffrés.

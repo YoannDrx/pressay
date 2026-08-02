@@ -2082,6 +2082,71 @@ final class SessionCoordinatorTests: XCTestCase {
         XCTAssertEqual(deliveredTarget.snapshot, recovered.snapshot)
     }
 
+    func testOpenAIRealtimeStreamsAudioAndSkipsBatchRequest() async throws {
+        let audio = MockAudioCapturer(result: speechResult())
+        let realtime = MockRealtimeSpeechTranscriber(text: "Résultat temps réel")
+        let delivery = MockTextDeliverer(shouldInsert: true)
+        let coordinator = makeCoordinator(
+            audio: audio,
+            transcriber: realtime,
+            context: MockContextCapturer(
+                result: .init(
+                    target: makeTarget(
+                        processIdentifier: 4321,
+                        bundleIdentifier: "com.example.editor"
+                    ),
+                    context: .empty
+                )
+            ),
+            delivery: delivery,
+            history: MockHistoryRepository()
+        )
+
+        coordinator.startCapture()
+        audio.onPCMChunk?(Data([1, 2, 3, 4]))
+        coordinator.stopCaptureAndQueue()
+        try await waitUntilFinished(coordinator)
+
+        XCTAssertEqual(realtime.startCount, 1)
+        XCTAssertEqual(realtime.finishCount, 1)
+        XCTAssertEqual(realtime.batchCallCount, 0)
+        XCTAssertEqual(realtime.receivedAudio, Data([1, 2, 3, 4]))
+        XCTAssertEqual(delivery.insertedTexts, ["Résultat temps réel"])
+    }
+
+    func testOpenAIRealtimeFailureUsesOpenAIBatchFallback() async throws {
+        let audio = MockAudioCapturer(result: speechResult())
+        let realtime = MockRealtimeSpeechTranscriber(
+            text: "Inutilisé",
+            shouldFailRealtime: true
+        )
+        let delivery = MockTextDeliverer(shouldInsert: true)
+        let coordinator = makeCoordinator(
+            audio: audio,
+            transcriber: realtime,
+            context: MockContextCapturer(
+                result: .init(
+                    target: makeTarget(
+                        processIdentifier: 4321,
+                        bundleIdentifier: "com.example.editor"
+                    ),
+                    context: .empty
+                )
+            ),
+            delivery: delivery,
+            history: MockHistoryRepository()
+        )
+
+        coordinator.startCapture()
+        audio.onPCMChunk?(Data([1, 2]))
+        coordinator.stopCaptureAndQueue()
+        try await waitUntilFinished(coordinator)
+
+        XCTAssertEqual(realtime.finishCount, 1)
+        XCTAssertEqual(realtime.batchCallCount, 1)
+        XCTAssertEqual(delivery.insertedTexts, ["Fallback batch"])
+    }
+
 #if false // Removed with the Deepgram streaming provider.
     func testLiveTranscriptionStreamsAudioAndSkipsBatchRequest() async throws {
         let audio = MockAudioCapturer(result: speechResult())
@@ -2816,10 +2881,10 @@ final class SessionCoordinatorTests: XCTestCase {
     }
 }
 
-private final class MockAudioCapturer: AudioCapturing {
+private final class MockAudioCapturer: AudioCapturing, PCMChunkProviding {
     var hasPermission = true
     var onLevelUpdate: ((Float) -> Void)?
-    var onAudioChunk: ((Data) -> Void)?
+    var onPCMChunk: ((Data) -> Void)?
     var result: CapturedAudio?
     var didStart = false
     var didCleanupCurrentRecording = false
@@ -2868,6 +2933,51 @@ private final class MockSpeechTranscriber: SpeechTranscribing {
     func transcribe(audioURL: URL) async throws -> TranscriptionResult {
         callCount += 1
         return TranscriptionResult(text: text, averageLogProbability: 0)
+    }
+}
+
+private final class MockRealtimeSpeechTranscriber: RealtimeSpeechTranscribing {
+    private struct RealtimeFailure: Error {}
+
+    let identifier = "openai"
+    let isReady = true
+    let locality: ProviderLocality = .cloud
+    let text: String
+    let shouldFailRealtime: Bool
+    var startCount = 0
+    var finishCount = 0
+    var batchCallCount = 0
+    var cancelCount = 0
+    var receivedAudio = Data()
+
+    init(text: String, shouldFailRealtime: Bool = false) {
+        self.text = text
+        self.shouldFailRealtime = shouldFailRealtime
+    }
+
+    func startRealtimeTranscription() async throws {
+        startCount += 1
+    }
+
+    func appendRealtimeAudio(_ data: Data) {
+        receivedAudio.append(data)
+    }
+
+    func finishRealtimeTranscription() async throws -> TranscriptionResult {
+        finishCount += 1
+        if shouldFailRealtime {
+            throw RealtimeFailure()
+        }
+        return TranscriptionResult(text: text, averageLogProbability: nil)
+    }
+
+    func cancelRealtimeTranscription() {
+        cancelCount += 1
+    }
+
+    func transcribe(audioURL: URL) async throws -> TranscriptionResult {
+        batchCallCount += 1
+        return TranscriptionResult(text: "Fallback batch", averageLogProbability: nil)
     }
 }
 

@@ -7,6 +7,7 @@ final class AudioRecorder: NSObject, ObservableObject {
     @Published private(set) var isRecording = false
     @Published private(set) var hasPermission = false
     var onLevelUpdate: ((Float) -> Void)?
+    var onPCMChunk: ((Data) -> Void)?
 
     private var audioEngine: AVAudioEngine?
     private var audioConverter: AVAudioConverter?
@@ -63,7 +64,7 @@ final class AudioRecorder: NSObject, ObservableObject {
 
         guard let targetFormat = AVAudioFormat(
             commonFormat: .pcmFormatInt16,
-            sampleRate: 16_000,
+            sampleRate: 24_000,
             channels: 1,
             interleaved: true
         ) else { throw RecordingError.recordingFailed }
@@ -109,7 +110,7 @@ final class AudioRecorder: NSObject, ObservableObject {
         engine.inputNode.removeTap(onBus: 0)
         engine.stop()
         processingQueue.sync {}
-        let duration = Double(recordedFrames) / 16_000
+        let duration = Double(recordedFrames) / 24_000
         isRecording = false
         audioEngine = nil
         audioConverter = nil
@@ -156,7 +157,7 @@ final class AudioRecorder: NSObject, ObservableObject {
               let output = AVAudioPCMBuffer(
                 pcmFormat: targetFormat,
                 frameCapacity: AVAudioFrameCount(
-                    ceil(Double(inputBuffer.frameLength) * 16_000 / inputBuffer.format.sampleRate)
+                    ceil(Double(inputBuffer.frameLength) * 24_000 / inputBuffer.format.sampleRate)
                 ) + 32
               ) else { return }
         var supplied = false
@@ -181,8 +182,16 @@ final class AudioRecorder: NSObject, ObservableObject {
         }
         recordedFrames += AVAudioFramePosition(output.frameLength)
         let power = averagePower(from: output)
-        if Double(recordedFrames) / 16_000 >= Constants.ignoredLeadingAudioDuration {
+        if Double(recordedFrames) / 24_000 >= Constants.ignoredLeadingAudioDuration {
             powerSamples.append(power)
+        }
+        if let samples = output.int16ChannelData?.pointee {
+            onPCMChunk?(
+                Data(
+                    bytes: samples,
+                    count: Int(output.frameLength) * MemoryLayout<Int16>.size
+                )
+            )
         }
         let normalized = max(0, min(1, (power + 60) / 60))
         onLevelUpdate?(normalized)
@@ -217,3 +226,4 @@ final class AudioRecorder: NSObject, ObservableObject {
 }
 
 extension AudioRecorder: AudioCapturing {}
+extension AudioRecorder: PCMChunkProviding {}

@@ -17,11 +17,22 @@ protocol AudioCapturing: AnyObject {
     func cleanup(url: URL)
 }
 
+protocol PCMChunkProviding: AnyObject {
+    var onPCMChunk: ((Data) -> Void)? { get set }
+}
+
 protocol SpeechTranscribing: AnyObject {
     var identifier: String { get }
     var isReady: Bool { get }
     var locality: ProviderLocality { get }
     func transcribe(audioURL: URL) async throws -> TranscriptionResult
+}
+
+protocol RealtimeSpeechTranscribing: SpeechTranscribing {
+    func startRealtimeTranscription() async throws
+    func appendRealtimeAudio(_ data: Data)
+    func finishRealtimeTranscription() async throws -> TranscriptionResult
+    func cancelRealtimeTranscription()
 }
 
 extension SpeechTranscribing {

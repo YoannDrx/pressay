@@ -14,8 +14,8 @@ Publier d'abord Pressay comme produit **gratuit et BYOK**, sans compte requis :
   insertion sûre, raccourcis globaux et mises à jour Sparkle ;
 - le Mac App Store distribue Pressay Companion dans App Sandbox, avec copie dans
   le presse-papiers et Voice Inbox, sans Accessibilité ni Sparkle ;
-- OpenAI couvre transcription et transformation ; WhisperKit couvre la
-  transcription locale hors ligne ;
+- OpenAI couvre la transcription temps réel et la transformation ; WhisperKit
+  couvre la transcription locale hors ligne ;
 - le compte, le cloud géré et les achats restent invisibles ou inactifs tant que
   leur environnement de production et leurs parcours de suppression ne sont pas
   terminés.
@@ -25,7 +25,7 @@ risque StoreKit, les coûts d'inférence de Pressay ou une dépendance au backen
 
 ## État des deux canaux
 
-| Gate | Direct 1.2.2 (12101) | Mac App Store 1.2.0 (12004) |
+| Gate | Direct 1.2.2 (12101) | Mac App Store 1.2.0 (12005) |
 | --- | --- | --- |
 | Bundle | `fr.yodev.pressay` | `fr.yodev.pressay` |
 | Architectures | `arm64 + x86_64` | `arm64 + x86_64` |
@@ -33,7 +33,7 @@ risque StoreKit, les coûts d'inférence de Pressay ou une dépendance au backen
 | Mise à jour | Sparkle signé | Mac App Store uniquement |
 | Confidentialité | manifeste inclus | manifeste inclus |
 | Automatisation | DMG, notarisation, checksum, appcast | archive et export App Store |
-| État externe | 1.2.2 reste à taguer après QA | 12001 est en TestFlight interne ; 12002/12003 sont obsolètes ; 12004 doit être archivé et téléversé |
+| État externe | 1.2.2 reste à taguer après QA | 12001 est en TestFlight interne ; 12002 à 12004 sont obsolètes ; 12005 doit être archivé et téléversé |
 
 La gate locale complète est :
 
@@ -48,11 +48,11 @@ vérifie les captures et métadonnées, puis teste les scripts d'appcast.
 ## Actions externes restantes — Mac App Store
 
 1. Consolider et relire les changements depuis un commit identifié, puis créer
-   une nouvelle archive signée 12004. L’ancien paquet 12003 ne correspond plus
+   une nouvelle archive signée 12005. Les anciens paquets ne correspondent plus
    au moteur de transcription livré.
-2. Téléverser 12004 avec Xcode Organizer ou Transporter. Ne jamais
-   réutiliser les builds 12001/12002/12003.
-3. Installer 12004 depuis TestFlight sur un compte macOS propre et tester :
+2. Téléverser 12005 avec Xcode Organizer ou Transporter. Ne jamais
+   réutiliser les builds 12001 à 12004.
+3. Installer 12005 depuis TestFlight sur un compte macOS propre et tester :
    microphone refusé/accordé, réseau hors ligne, clé invalide, OpenAI,
    WhisperKit, historique désactivé et suppression de la Voice Inbox.
 4. Refaire les trois captures 1440 × 900 si l'écran Fournisseurs visible a

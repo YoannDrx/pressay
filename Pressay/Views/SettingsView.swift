@@ -268,7 +268,7 @@ struct SettingsView: View {
                 VStack(alignment: .leading, spacing: 2) {
                     Text("OpenAI")
                         .font(.system(size: 12, weight: .semibold))
-                    Text("Transcription et transformations de texte")
+                    Text("gpt-live-transcribe · latence minimale")
                         .font(.system(size: 10))
                         .foregroundStyle(.secondary)
                 }

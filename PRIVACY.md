@@ -8,9 +8,11 @@ contient aucun outil publicitaire, traqueur ou service de télémétrie distant.
 ## Données traitées
 
 - **Audio** : l'enregistrement reste dans un fichier temporaire sur le Mac. Si
-  OpenAI est choisi, il n'est envoyé à OpenAI qu'après détection locale d'une
-  activité vocale. Si WhisperKit est choisi, il ne quitte pas le Mac. Le fichier
-  est supprimé après la réponse ou l'annulation.
+  OpenAI est choisi, des blocs PCM sont envoyés à OpenAI pendant la dictée pour
+  permettre la transcription temps réel ; le contrôle local du silence empêche
+  toujours la livraison d'un résultat vide. Si WhisperKit est choisi, l'audio
+  ne quitte pas le Mac. Le fichier temporaire est supprimé après la réponse ou
+  l'annulation.
 - **Texte transcrit** : il est produit par OpenAI ou WhisperKit, puis inséré dans
   l'application choisie et, si l'historique est activé, conservé uniquement sur
   le Mac.

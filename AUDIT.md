@@ -21,10 +21,12 @@ provider dans les modes ne sont plus exposés dans l’interface.
 
 ### Chemin critique de latence
 
-Le chemin nominal est désormais : événement de relâchement → fermeture du WAV
-16 kHz mono → transcription batch unique → transformation OpenAI éventuelle →
-insertion. Le WebSocket Deepgram, son flush, son timeout, son fallback batch et
-la sélection d’un fournisseur de secours ont été retirés du coordinateur.
+Le chemin OpenAI nominal est désormais : PCM 24 kHz envoyé à
+`gpt-live-transcribe` pendant l’appui sur Fn → commit au relâchement → texte
+final → transformation OpenAI éventuelle → insertion. Si le WebSocket OpenAI
+échoue, le même enregistrement est envoyé une fois à
+`gpt-4o-mini-transcribe`. Ce repli reste chez OpenAI et ne modifie jamais un
+choix WhisperKit local. La sélection d’un fournisseur de secours a disparu.
 
 Le HUD reste visible uniquement pendant le travail réel. Les états terminaux se
 ferment automatiquement en 0,9 seconde par défaut et l’utilisateur conserve
@@ -51,7 +53,7 @@ capture dans sa propre interface et copie le résultat dans le presse-papiers.
 
 Le modèle WhisperKit est une ressource Core ML non exécutable, téléchargée à la
 demande et supprimable. Les notes App Review doivent le préciser. Avant
-soumission, il reste impératif de produire l’archive 12004, de la tester via
+soumission, il reste impératif de produire l’archive 12005, de la tester via
 TestFlight sur un Mac propre et de refaire les captures montrant le nouvel écran
 OpenAI/WhisperKit.
 
