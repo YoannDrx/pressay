@@ -82,6 +82,16 @@ enum TranscriptionResponseValidator {
     }
 }
 
+enum InstantDictationTextNormalizer {
+    static func normalized(_ text: String) -> String {
+        text.components(separatedBy: .newlines)
+            .map { $0.trimmingCharacters(in: .whitespaces) }
+            .filter { !$0.isEmpty }
+            .joined(separator: " ")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+}
+
 final class TranscriptionService: SpeechTranscribing {
     static let shared = TranscriptionService()
 
@@ -200,14 +210,9 @@ final class TranscriptionService: SpeechTranscribing {
             name: "response_format",
             value: "json"
         )
-        if TranscriptionRequestPolicy.supportsVoiceActivityDetection(
+        if TranscriptionRequestPolicy.supportsLogProbabilities(
             model: model
         ) {
-            data.appendMultipartField(
-                boundary: boundary,
-                name: "chunking_strategy",
-                value: "auto"
-            )
             data.appendMultipartField(
                 boundary: boundary,
                 name: "include[]",
@@ -328,7 +333,7 @@ final class TranscriptionService: SpeechTranscribing {
 }
 
 enum TranscriptionRequestPolicy {
-    static func supportsVoiceActivityDetection(model: String) -> Bool {
+    static func supportsLogProbabilities(model: String) -> Bool {
         model.hasPrefix("gpt-4o-")
             && model.contains("transcribe")
             && !model.contains("diarize")

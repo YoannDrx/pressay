@@ -693,9 +693,11 @@ final class SessionCoordinator: ObservableObject {
                     duration: Date().timeIntervalSince(transcriptionStartedAt)
                 )
                 try Task.checkCancellation()
-                let transcriptionText = try TranscriptionResponseValidator.validated(
-                    transcription.text,
-                    vocabulary: ""
+                let transcriptionText = InstantDictationTextNormalizer.normalized(
+                    try TranscriptionResponseValidator.validated(
+                        transcription.text,
+                        vocabulary: ""
+                    )
                 )
 
                 item.session.timings.transcriptionEndedAt = Date()

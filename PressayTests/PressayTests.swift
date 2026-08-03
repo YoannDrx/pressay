@@ -200,9 +200,9 @@ final class TranscriptionResponseValidatorTests: XCTestCase {
 }
 
 final class TranscriptionRequestPolicyTests: XCTestCase {
-    func testGPT4oMiniTranscribeUsesServerVoiceActivityDetection() {
+    func testGPT4oMiniTranscribeSupportsLogProbabilities() {
         XCTAssertTrue(
-            TranscriptionRequestPolicy.supportsVoiceActivityDetection(
+            TranscriptionRequestPolicy.supportsLogProbabilities(
                 model: "gpt-4o-mini-transcribe"
             )
         )
@@ -210,9 +210,36 @@ final class TranscriptionRequestPolicyTests: XCTestCase {
 
     func testWhisperDoesNotReceiveUnsupportedGPT4oOptions() {
         XCTAssertFalse(
-            TranscriptionRequestPolicy.supportsVoiceActivityDetection(
+            TranscriptionRequestPolicy.supportsLogProbabilities(
                 model: "whisper-1"
             )
+        )
+    }
+}
+
+final class InstantDictationTextNormalizerTests: XCTestCase {
+    func testLineBreaksBecomeSpaces() {
+        XCTAssertEqual(
+            InstantDictationTextNormalizer.normalized(
+                "Première phrase.\nDeuxième phrase.\r\nTroisième phrase."
+            ),
+            "Première phrase. Deuxième phrase. Troisième phrase."
+        )
+    }
+
+    func testBlankLinesAndSurroundingSpacesAreRemoved() {
+        XCTAssertEqual(
+            InstantDictationTextNormalizer.normalized(
+                "  Première phrase.  \n\n  Deuxième phrase.  "
+            ),
+            "Première phrase. Deuxième phrase."
+        )
+    }
+
+    func testTextWithoutLineBreaksKeepsItsInternalSpacing() {
+        XCTAssertEqual(
+            InstantDictationTextNormalizer.normalized("Une  phrase fidèle."),
+            "Une  phrase fidèle."
         )
     }
 }
@@ -2231,6 +2258,41 @@ final class SessionCoordinatorTests: XCTestCase {
         XCTAssertEqual(delivery.insertedTexts, [dictatedText])
         XCTAssertEqual(history.records.first?.rawText, dictatedText)
         XCTAssertEqual(history.records.first?.finalText, dictatedText)
+    }
+
+    func testInstantDictationInsertsTranscriptionAsOneParagraph() async throws {
+        let delivery = MockTextDeliverer(shouldInsert: true)
+        let history = MockHistoryRepository()
+        let coordinator = makeCoordinator(
+            audio: MockAudioCapturer(result: speechResult()),
+            transcriber: MockSpeechTranscriber(
+                text: "Première phrase.\nDeuxième phrase.\n\nTroisième phrase."
+            ),
+            context: MockContextCapturer(
+                result: ContextCaptureResult(
+                    target: makeTarget(
+                        processIdentifier: 4321,
+                        bundleIdentifier: "com.openai.codex"
+                    ),
+                    context: ContextSnapshot(
+                        applicationBundleIdentifier: "com.openai.codex",
+                        applicationName: "Codex",
+                        sources: [.application]
+                    )
+                )
+            ),
+            delivery: delivery,
+            history: history
+        )
+
+        coordinator.startCapture()
+        coordinator.stopCaptureAndQueue()
+        try await waitUntilFinished(coordinator)
+
+        let expected = "Première phrase. Deuxième phrase. Troisième phrase."
+        XCTAssertEqual(delivery.insertedTexts, [expected])
+        XCTAssertEqual(history.records.first?.rawText, expected)
+        XCTAssertEqual(history.records.first?.finalText, expected)
     }
 
     func testNonEditableInitialTargetIsRecoveredWhileRecording() async throws {
