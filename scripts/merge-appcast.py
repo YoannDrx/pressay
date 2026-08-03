@@ -11,12 +11,17 @@ ET.register_namespace("sparkle", SPARKLE)
 
 def version(item: ET.Element) -> int:
     enclosure = item.find("enclosure")
-    if enclosure is None:
-        return -1
-    value = enclosure.attrib.get(f"{{{SPARKLE}}}version", "-1")
+    value = (
+        enclosure.attrib.get(f"{{{SPARKLE}}}version")
+        if enclosure is not None
+        else None
+    )
+    if not value:
+        version_node = item.find(f"{{{SPARKLE}}}version")
+        value = version_node.text if version_node is not None else None
     try:
-        return int(value)
-    except ValueError:
+        return int(value or "")
+    except (TypeError, ValueError):
         return -1
 
 

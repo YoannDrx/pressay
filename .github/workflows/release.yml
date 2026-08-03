@@ -47,8 +47,10 @@ jobs:
           -configuration Debug
           CODE_SIGNING_ALLOWED=NO
           ONLY_ACTIVE_ARCH=NO
-      - name: Valider la fusion des appcasts
-        run: python3 scripts/test-merge-appcast.py
+      - name: Valider les appcasts
+        run: |
+          python3 scripts/test-latest-appcast-build.py
+          python3 scripts/test-merge-appcast.py
       - name: Analyse statique
         run: >-
           xcodebuild analyze

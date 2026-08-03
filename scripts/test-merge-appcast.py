@@ -15,7 +15,9 @@ SPEC.loader.exec_module(MODULE)
 SPARKLE = "http://www.andymatuschak.org/xml-namespaces/sparkle"
 
 
-def appcast(items: list[tuple[int, str]]) -> str:
+def appcast(
+    items: list[tuple[int, str]], *, version_as_element: bool = False
+) -> str:
     rows = []
     for build, channel in items:
         channel_xml = (
@@ -28,9 +30,10 @@ def appcast(items: list[tuple[int, str]]) -> str:
             <item>
               {channel_xml}
               <title>Build {build}</title>
+              {f'<sparkle:version>{build}</sparkle:version>' if version_as_element else ''}
               <enclosure
                 url="https://example.com/{build}.dmg"
-                sparkle:version="{build}"
+                {' ' if version_as_element else f'sparkle:version="{build}"'}
                 sparkle:edSignature="signature-{build}" />
             </item>
             """
@@ -129,6 +132,35 @@ class MergeAppcastTests(unittest.TestCase):
             )
             assert item is not None
             self.assertEqual(MODULE.channel(item), "beta")
+
+    def test_retains_items_using_sparkle_version_elements(self) -> None:
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder)
+            current = root / "current.xml"
+            new = root / "new.xml"
+            output = root / "output.xml"
+            current.write_text(appcast([(12101, "stable")], version_as_element=True))
+            new.write_text(appcast([(12102, "stable")], version_as_element=True))
+
+            previous_argv = list(__import__("sys").argv)
+            __import__("sys").argv = [
+                str(SCRIPT),
+                "--current",
+                str(current),
+                "--new",
+                str(new),
+                "--output",
+                str(output),
+                "--channel",
+                "stable",
+            ]
+            try:
+                MODULE.main()
+            finally:
+                __import__("sys").argv = previous_argv
+
+            items = ET.parse(output).getroot().findall("./channel/item")
+            self.assertEqual([MODULE.version(item) for item in items], [12102, 12101])
 
 
 if __name__ == "__main__":
