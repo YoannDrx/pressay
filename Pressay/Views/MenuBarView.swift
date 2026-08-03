@@ -9,9 +9,14 @@ struct MenuBarView: View {
     @ObservedObject private var actionJournal = ActionJournalService.shared
     @ObservedObject private var modes = ModeStore.shared
     @AppStorage(Constants.activationModeKey) private var activationMode = Constants.defaultActivationMode
+    private let onRequestClose: () -> Void
+
+    init(onRequestClose: @escaping () -> Void = {}) {
+        self.onRequestClose = onRequestClose
+    }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 11) {
+        VStack(alignment: .leading, spacing: 0) {
             HStack(spacing: 10) {
                 ZStack {
                     Circle()
@@ -33,174 +38,218 @@ struct MenuBarView: View {
                         .background(.blue.opacity(0.14), in: Circle())
                 }
             }
-            .padding(.horizontal)
-            .padding(.top, 9)
-
-            Text(shortcutInstruction)
-                .font(.system(size: 11))
-                .foregroundStyle(.secondary)
-                .padding(.horizontal)
-
-            if !DistributionChannel.current.supportsGlobalShortcuts {
-                Button(action: appState.toggleCaptureFromInterface) {
-                    Label(
-                        appState.isRecording ? "Terminer la dictée" : "Démarrer une dictée",
-                        systemImage: appState.isRecording ? "stop.fill" : "mic.fill"
-                    )
-                    .frame(maxWidth: .infinity)
-                }
-                .buttonStyle(.borderedProminent)
-                .controlSize(.large)
-                .keyboardShortcut(.space, modifiers: [])
-                .padding(.horizontal)
-            }
-
-            HStack(spacing: 8) {
-                Label("Mode", systemImage: selectedMode.symbolName)
-                    .font(.system(size: 11, weight: .medium))
-                Spacer()
-                Picker("", selection: selectedModeBinding) {
-                    ForEach(modes.visibleModes) { mode in
-                        Text(mode.name).tag(mode.id)
-                    }
-                }
-                .labelsHidden()
-                .frame(width: 150)
-            }
-            .padding(.horizontal)
-
-            if DistributionChannel.current.supportsSelectionTransformation,
-               appState.keyboardService.transformationShortcutAvailable {
-                Label(
-                    "Transformer la sélection : \(transformationShortcutName)",
-                    systemImage: "wand.and.stars"
-                )
-                .font(.system(size: 10))
-                .foregroundStyle(.secondary)
-                .padding(.horizontal)
-            }
-
-            Button {
-                ModesWindowController.shared.show(
-                    shortcutRouter: appState.keyboardService
-                )
-            } label: {
-                Label(
-                    DistributionChannel.current.supportsApplicationProfiles
-                        ? "Gérer les modes et profils…"
-                        : "Gérer les modes…",
-                    systemImage: "slider.horizontal.3"
-                )
-            }
-            .padding(.horizontal, 4)
-
-            if let message = appState.lastError ?? appState.lastNotice {
-                Label(
-                    message,
-                    systemImage: appState.lastError == nil
-                        ? "checkmark.circle.fill"
-                        : "exclamationmark.triangle.fill"
-                )
-                .font(.caption)
-                .foregroundStyle(appState.lastError == nil ? .green : .orange)
-                .fixedSize(horizontal: false, vertical: true)
-                .padding(.horizontal)
-            }
-
-            if appState.isTranscribing {
-                Button(action: appState.cancelTranscription) {
-                    Label("Annuler la transcription", systemImage: "xmark.circle")
-                }
-                .padding(.horizontal, 4)
-            }
+            .padding(.horizontal, 16)
+            .padding(.vertical, 14)
 
             Divider()
 
-            if !inbox.entries.isEmpty {
-                Button(action: showInboxWindow) {
-                    Label(
-                        "Voice Inbox · \(inbox.entries.count)",
-                        systemImage: "tray.full"
-                    )
-                }
-                .padding(.horizontal, 4)
-                Divider()
-            }
+            VStack(alignment: .leading, spacing: 12) {
+                Label(shortcutInstruction, systemImage: "keyboard")
+                    .font(.system(size: 11))
+                    .foregroundStyle(.secondary)
 
-            if !actionJournal.pendingEntries.isEmpty {
-                Button(action: showActionCenterWindow) {
-                    Label(
-                        "Actions à valider · \(actionJournal.pendingEntries.count)",
-                        systemImage: "checkmark.shield"
-                    )
+                if !DistributionChannel.current.supportsGlobalShortcuts {
+                    Button(action: appState.toggleCaptureFromInterface) {
+                        Label(
+                            appState.isRecording ? "Terminer la dictée" : "Démarrer une dictée",
+                            systemImage: appState.isRecording ? "stop.fill" : "mic.fill"
+                        )
+                        .frame(maxWidth: .infinity)
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .controlSize(.large)
+                    .keyboardShortcut(.space, modifiers: [])
                 }
-                .padding(.horizontal, 4)
-                Divider()
-            }
 
-            if let latest = history.entries.first {
-                Button(action: appState.copyLastTranscription) {
-                    Label("Copier la dernière dictée", systemImage: "doc.on.doc")
-                }
-                .padding(.horizontal, 4)
-                .help(latest.text)
-
-                Menu {
-                    ForEach(history.entries.prefix(6)) { entry in
-                        Button {
-                            TextInjector.shared.copyToPasteboard(entry.text)
-                        } label: {
-                            Text(preview(entry.text))
+                HStack(spacing: 8) {
+                    Label("Mode", systemImage: selectedMode.symbolName)
+                        .font(.system(size: 11, weight: .medium))
+                    Spacer()
+                    Picker("", selection: selectedModeBinding) {
+                        ForEach(modes.visibleModes) { mode in
+                            Text(mode.name).tag(mode.id)
                         }
                     }
+                    .labelsHidden()
+                    .frame(width: 156)
+                }
+                .padding(10)
+                .background(
+                    .secondary.opacity(0.07),
+                    in: RoundedRectangle(cornerRadius: 10)
+                )
+
+                if DistributionChannel.current.supportsSelectionTransformation,
+                   appState.keyboardService.transformationShortcutAvailable {
+                    Label(
+                        "Transformer la sélection : \(transformationShortcutName)",
+                        systemImage: "wand.and.stars"
+                    )
+                    .font(.system(size: 10))
+                    .foregroundStyle(.secondary)
+                }
+
+                if let message = appState.lastError ?? appState.lastNotice {
+                    Label(
+                        message,
+                        systemImage: appState.lastError == nil
+                            ? "checkmark.circle.fill"
+                            : "exclamationmark.triangle.fill"
+                    )
+                    .font(.caption)
+                    .foregroundStyle(appState.lastError == nil ? .green : .orange)
+                    .fixedSize(horizontal: false, vertical: true)
+                }
+
+                if appState.isTranscribing {
+                    Button(action: appState.cancelTranscription) {
+                        Label("Annuler la transcription", systemImage: "xmark.circle")
+                    }
+                    .buttonStyle(MenuBarRowButtonStyle())
+                }
+            }
+            .padding(.horizontal, 14)
+            .padding(.vertical, 12)
+
+            Divider()
+
+            VStack(alignment: .leading, spacing: 4) {
+                if let latest = history.entries.first {
+                    VStack(alignment: .leading, spacing: 7) {
+                        HStack {
+                            Label("Dernière dictée", systemImage: "quote.bubble")
+                                .font(.system(size: 11, weight: .semibold))
+                            Spacer()
+                            Text(latest.date, style: .relative)
+                                .font(.caption2)
+                                .foregroundStyle(.tertiary)
+                        }
+
+                        Button {
+                            appState.copyLastTranscription()
+                            onRequestClose()
+                        } label: {
+                            HStack(alignment: .top, spacing: 8) {
+                                Text(latest.text)
+                                    .font(.system(size: 11))
+                                    .foregroundStyle(.secondary)
+                                    .lineLimit(2)
+                                    .frame(maxWidth: .infinity, alignment: .leading)
+                                Image(systemName: "doc.on.doc")
+                                    .foregroundStyle(.secondary)
+                            }
+                            .padding(10)
+                            .background(
+                                .secondary.opacity(0.07),
+                                in: RoundedRectangle(cornerRadius: 9)
+                            )
+                            .contentShape(Rectangle())
+                        }
+                        .buttonStyle(.plain)
+                        .help("Copier la dernière dictée")
+                    }
+                    .padding(.horizontal, 8)
+                    .padding(.bottom, 5)
+
+                    Button(action: showHistoryWindow) {
+                        Label("Ouvrir tout l’historique…", systemImage: "clock.arrow.circlepath")
+                    }
+                    .buttonStyle(MenuBarRowButtonStyle())
+
                     Divider()
-                    Button("Voir tout…", action: showHistoryWindow)
+                }
+
+                if !inbox.entries.isEmpty {
+                    Button(action: showInboxWindow) {
+                        Label(
+                            "Voice Inbox · \(inbox.entries.count)",
+                            systemImage: "tray.full"
+                        )
+                    }
+                    .buttonStyle(MenuBarRowButtonStyle())
+                }
+
+                if !actionJournal.pendingEntries.isEmpty {
+                    Button(action: showActionCenterWindow) {
+                        Label(
+                            "Actions à valider · \(actionJournal.pendingEntries.count)",
+                            systemImage: "checkmark.shield"
+                        )
+                    }
+                    .buttonStyle(MenuBarRowButtonStyle())
+                }
+
+                Button {
+                    onRequestClose()
+                    ModesWindowController.shared.show(
+                        shortcutRouter: appState.keyboardService
+                    )
                 } label: {
-                    Label("Historique chiffré", systemImage: "clock.arrow.circlepath")
-                }
-                .padding(.horizontal, 4)
-                Divider()
-            }
-
-            Button {
-                if DistributionChannel.current == .appStore {
-                    #if APP_STORE
-                    SettingsWindowController.shared.show(
-                        appState: appState,
-                        updateService: updateService
-                    )
-                    #endif
-                } else {
-                    SettingsWindowController.shared.show(
-                        appState: appState,
-                        updateService: updateService
+                    Label(
+                        DistributionChannel.current.supportsApplicationProfiles
+                            ? "Modes et profils…"
+                            : "Gérer les modes…",
+                        systemImage: "square.grid.2x2"
                     )
                 }
-            } label: {
-                Label("Réglages…", systemImage: "slider.horizontal.3")
+                .buttonStyle(MenuBarRowButtonStyle())
             }
-            .keyboardShortcut(",", modifiers: .command)
-            .padding(.horizontal, 4)
+            .padding(.horizontal, 10)
+            .padding(.vertical, 8)
 
-            if DistributionChannel.current.usesSparkle {
-                Button(action: updateService.checkForUpdates) {
-                    Label("Rechercher les mises à jour…", systemImage: "arrow.triangle.2.circlepath")
+            Divider()
+
+            VStack(spacing: 4) {
+                Button {
+                    onRequestClose()
+                    if DistributionChannel.current == .appStore {
+                        #if APP_STORE
+                        SettingsWindowController.shared.show(
+                            appState: appState,
+                            updateService: updateService
+                        )
+                        #endif
+                    } else {
+                        SettingsWindowController.shared.show(
+                            appState: appState,
+                            updateService: updateService
+                        )
+                    }
+                } label: {
+                    Label("Réglages…", systemImage: "gearshape")
                 }
-                .disabled(!updateService.canCheckForUpdates)
-                .padding(.horizontal, 4)
+                .keyboardShortcut(",", modifiers: .command)
+                .buttonStyle(MenuBarRowButtonStyle())
+
+                if DistributionChannel.current.usesSparkle {
+                    Button {
+                        onRequestClose()
+                        updateService.checkForUpdates()
+                    } label: {
+                        Label("Rechercher les mises à jour…", systemImage: "arrow.triangle.2.circlepath")
+                    }
+                    .disabled(!updateService.canCheckForUpdates)
+                    .buttonStyle(MenuBarRowButtonStyle())
+                }
             }
+            .padding(.horizontal, 10)
+            .padding(.vertical, 8)
+
+            Divider()
 
             Button(role: .destructive) {
                 NSApplication.shared.terminate(nil)
             } label: {
                 Label("Quitter Pressay", systemImage: "power")
+                    .foregroundStyle(.red)
             }
             .keyboardShortcut("q", modifiers: .command)
-            .padding(.horizontal, 4)
-            .padding(.bottom, 8)
+            .buttonStyle(MenuBarRowButtonStyle())
+            .padding(.horizontal, 10)
+            .padding(.top, 8)
+            .padding(.bottom, 14)
         }
-        .frame(width: 286)
-        .buttonStyle(.plain)
+        .frame(width: 316)
         .onAppear { appState.refreshPermissions() }
     }
 
@@ -235,11 +284,8 @@ struct MenuBarView: View {
         )
     }
 
-    private func preview(_ text: String) -> String {
-        text.count > 54 ? String(text.prefix(54)) + "…" : text
-    }
-
     private func showHistoryWindow() {
+        onRequestClose()
         let window = NSWindow(
             contentRect: NSRect(x: 0, y: 0, width: 680, height: 620),
             styleMask: [.titled, .closable, .resizable],
@@ -254,6 +300,7 @@ struct MenuBarView: View {
     }
 
     private func showInboxWindow() {
+        onRequestClose()
         let window = NSWindow(
             contentRect: NSRect(x: 0, y: 0, width: 620, height: 620),
             styleMask: [.titled, .closable, .resizable],
@@ -268,6 +315,7 @@ struct MenuBarView: View {
     }
 
     private func showActionCenterWindow() {
+        onRequestClose()
         let window = NSWindow(
             contentRect: NSRect(x: 0, y: 0, width: 620, height: 560),
             styleMask: [.titled, .closable, .resizable],
@@ -300,6 +348,20 @@ struct MenuBarView: View {
         if appState.isTranscribing { return "Transcription en cours…" }
         if !appState.hasAPIKey { return "Clé API à configurer" }
         return "Prêt"
+    }
+}
+
+private struct MenuBarRowButtonStyle: ButtonStyle {
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .font(.system(size: 12))
+            .frame(maxWidth: .infinity, minHeight: 32, alignment: .leading)
+            .padding(.horizontal, 8)
+            .background(
+                configuration.isPressed ? Color.accentColor.opacity(0.14) : .clear,
+                in: RoundedRectangle(cornerRadius: 8)
+            )
+            .contentShape(Rectangle())
     }
 }
 

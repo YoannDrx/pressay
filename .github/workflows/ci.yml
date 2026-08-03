@@ -21,6 +21,7 @@ jobs:
           -scheme Pressay
           -configuration Debug
           -destination 'platform=macOS'
+          CODE_SIGNING_ALLOWED=NO
       - name: Construire la fixture AX universelle
         run: >-
           xcodebuild build
@@ -36,6 +37,7 @@ jobs:
           -scheme Pressay
           -configuration Debug
           -destination 'platform=macOS'
+          CODE_SIGNING_ALLOWED=NO
       - name: Valider la cible Mac App Store
         run: scripts/validate-app-store.sh
       - name: Valider les scripts de publication

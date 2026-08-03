@@ -360,6 +360,8 @@ final class StatusItemController: NSObject, ObservableObject {
     private let appState: AppState
     private let updateService: UpdateService
     private var observations = Set<AnyCancellable>()
+    private var localMouseMonitor: Any?
+    private var globalMouseMonitor: Any?
 
     init(appState: AppState, updateService: UpdateService) {
         self.appState = appState
@@ -370,7 +372,9 @@ final class StatusItemController: NSObject, ObservableObject {
         super.init()
 
         statusItem.isVisible = true
-        let rootView = MenuBarView()
+        let rootView = MenuBarView { [weak self] in
+            self?.closePopover()
+        }
             .environmentObject(appState)
             .environmentObject(updateService)
         let hostingController = NSHostingController(rootView: rootView)
@@ -380,7 +384,7 @@ final class StatusItemController: NSObject, ObservableObject {
         hostingController.view.layoutSubtreeIfNeeded()
         let fittingHeight = hostingController.view.fittingSize.height
         popover.contentSize = NSSize(
-            width: 286,
+            width: 316,
             height: min(max(fittingHeight, 360), 720)
         )
 
@@ -393,6 +397,7 @@ final class StatusItemController: NSObject, ObservableObject {
             button.sendAction(on: [.leftMouseUp])
         }
         updateStatusItem()
+        installOutsideClickMonitors()
 
         appState.objectWillChange
             .receive(on: RunLoop.main)
@@ -406,6 +411,12 @@ final class StatusItemController: NSObject, ObservableObject {
     }
 
     deinit {
+        if let localMouseMonitor {
+            NSEvent.removeMonitor(localMouseMonitor)
+        }
+        if let globalMouseMonitor {
+            NSEvent.removeMonitor(globalMouseMonitor)
+        }
         NSStatusBar.system.removeStatusItem(statusItem)
     }
 
@@ -423,6 +434,39 @@ final class StatusItemController: NSObject, ObservableObject {
             of: sender,
             preferredEdge: .minY
         )
+    }
+
+    private func installOutsideClickMonitors() {
+        let mouseEvents: NSEvent.EventTypeMask = [
+            .leftMouseDown,
+            .rightMouseDown,
+            .otherMouseDown
+        ]
+
+        localMouseMonitor = NSEvent.addLocalMonitorForEvents(
+            matching: mouseEvents
+        ) { [weak self] event in
+            guard let self, self.popover.isShown else { return event }
+            let popoverWindow = self.popover.contentViewController?.view.window
+            let statusItemWindow = self.statusItem.button?.window
+            if event.window !== popoverWindow && event.window !== statusItemWindow {
+                self.closePopover()
+            }
+            return event
+        }
+
+        globalMouseMonitor = NSEvent.addGlobalMonitorForEvents(
+            matching: mouseEvents
+        ) { [weak self] _ in
+            DispatchQueue.main.async {
+                self?.closePopover()
+            }
+        }
+    }
+
+    private func closePopover() {
+        guard popover.isShown else { return }
+        popover.performClose(nil)
     }
 
     private func updateStatusItem() {

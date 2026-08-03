@@ -38,6 +38,7 @@ jobs:
           -scheme Pressay
           -configuration Debug
           -destination 'platform=macOS'
+          CODE_SIGNING_ALLOWED=NO
       - name: Construire la fixture AX universelle
         run: >-
           xcodebuild build
@@ -55,6 +56,7 @@ jobs:
           -scheme Pressay
           -configuration Release
           -destination 'platform=macOS'
+          CODE_SIGNING_ALLOWED=NO
 
   publish:
     name: Signer, notariser et publier
