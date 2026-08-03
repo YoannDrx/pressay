@@ -123,6 +123,26 @@ final class TranscriptionResponseValidatorTests: XCTestCase {
         )
     }
 
+    func testReportedHallucinationIsRemovedWithoutFinalPunctuation() throws {
+        XCTAssertEqual(
+            try TranscriptionResponseValidator.validated(
+                "Et là, ça marche, j'espère qu'il n'y a plus d'erreurs. Faites ce que vous voulez",
+                vocabulary: ""
+            ),
+            "Et là, ça marche, j'espère qu'il n'y a plus d'erreurs."
+        )
+    }
+
+    func testKnownHallucinationIgnoresInvisibleSeparators() throws {
+        XCTAssertEqual(
+            try TranscriptionResponseValidator.validated(
+                "La dictée est terminée. Faites\u{200B} ce\u{00A0}que vous voulez",
+                vocabulary: ""
+            ),
+            "La dictée est terminée."
+        )
+    }
+
     func testKnownHallucinationAloneIsRejectedAsNoSpeech() {
         XCTAssertThrowsError(
             try TranscriptionResponseValidator.validated(
@@ -137,13 +157,13 @@ final class TranscriptionResponseValidatorTests: XCTestCase {
         }
     }
 
-    func testSameWordsRemainWhenTheyArePartOfTheDictatedSentence() throws {
+    func testSameWordsRemainWhenTheyAreNotAtTheEnd() throws {
         XCTAssertEqual(
             try TranscriptionResponseValidator.validated(
-                "Tu peux faire ce que tu veux, faites ce que vous voulez",
+                "Faites ce que vous voulez, puis revenez demain.",
                 vocabulary: ""
             ),
-            "Tu peux faire ce que tu veux, faites ce que vous voulez"
+            "Faites ce que vous voulez, puis revenez demain."
         )
     }
 
@@ -2177,6 +2197,41 @@ final class SessionCoordinatorTests: XCTestCase {
         coordinator.undoLastInsertion()
         XCTAssertTrue(delivery.didUndo)
         XCTAssertEqual(coordinator.lastNotice, "Insertion annulée")
+    }
+
+    func testInstantDictationRemovesKnownHallucinationBeforeDelivery() async throws {
+        let dictatedText = "Et là, ça marche, j'espère qu'il n'y a plus d'erreurs."
+        let delivery = MockTextDeliverer(shouldInsert: true)
+        let history = MockHistoryRepository()
+        let coordinator = makeCoordinator(
+            audio: MockAudioCapturer(result: speechResult()),
+            transcriber: MockSpeechTranscriber(
+                text: "\(dictatedText) Faites ce que vous voulez"
+            ),
+            context: MockContextCapturer(
+                result: ContextCaptureResult(
+                    target: makeTarget(
+                        processIdentifier: 4321,
+                        bundleIdentifier: "com.openai.codex"
+                    ),
+                    context: ContextSnapshot(
+                        applicationBundleIdentifier: "com.openai.codex",
+                        applicationName: "Codex",
+                        sources: [.application]
+                    )
+                )
+            ),
+            delivery: delivery,
+            history: history
+        )
+
+        coordinator.startCapture()
+        coordinator.stopCaptureAndQueue()
+        try await waitUntilFinished(coordinator)
+
+        XCTAssertEqual(delivery.insertedTexts, [dictatedText])
+        XCTAssertEqual(history.records.first?.rawText, dictatedText)
+        XCTAssertEqual(history.records.first?.finalText, dictatedText)
     }
 
     func testNonEditableInitialTargetIsRecoveredWhileRecording() async throws {

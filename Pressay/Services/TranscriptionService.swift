@@ -14,6 +14,9 @@ enum TranscriptionResponseValidator {
     private static let knownHallucinatedEndings = [
         "faites ce que vous voulez"
     ]
+    private static let wordExpression = try! NSRegularExpression(
+        pattern: "[\\p{L}\\p{N}]+"
+    )
 
     static func validated(
         _ text: String,
@@ -39,33 +42,36 @@ enum TranscriptionResponseValidator {
 
     private static func removeKnownHallucinatedEnding(from text: String) -> String {
         for ending in knownHallucinatedEndings {
-            if normalized(text) == normalized(ending) {
-                return ""
+            let textRange = NSRange(text.startIndex..<text.endIndex, in: text)
+            let wordMatches = wordExpression.matches(in: text, range: textRange)
+            let endingWords = normalized(ending).split(separator: " ").map(String.init)
+            guard wordMatches.count >= endingWords.count else { continue }
+
+            let suffixMatches = wordMatches.suffix(endingWords.count)
+            let suffixWords = suffixMatches.compactMap { match -> String? in
+                guard let range = Range(match.range, in: text) else { return nil }
+                return normalized(String(text[range]))
             }
-            let escapedWords = ending
-                .split(separator: " ")
-                .map { NSRegularExpression.escapedPattern(for: String($0)) }
-                .joined(separator: "\\s+")
-            let pattern = "(?:[.!?]\\s+|\\n+)(\(escapedWords))[\\s\\p{P}]*$"
-            guard let expression = try? NSRegularExpression(
-                pattern: pattern,
-                options: [.caseInsensitive]
-            ) else {
+            guard suffixWords == endingWords,
+                  let firstMatch = suffixMatches.first,
+                  let phraseRange = Range(firstMatch.range, in: text) else {
                 continue
             }
-            let range = NSRange(text.startIndex..<text.endIndex, in: text)
-            guard let match = expression.firstMatch(
-                in: text,
-                range: range
-            ),
-                  match.range.location + match.range.length == range.length,
-                  let phraseRange = Range(match.range(at: 1), in: text) else {
-                continue
-            }
-            return String(text[..<phraseRange.lowerBound])
-                .trimmingCharacters(in: .whitespacesAndNewlines)
+
+            return cleanedPrefix(String(text[..<phraseRange.lowerBound]))
         }
         return text
+    }
+
+    private static func cleanedPrefix(_ prefix: String) -> String {
+        var result = prefix.trimmingCharacters(in: .whitespacesAndNewlines)
+        let softSeparators = CharacterSet(charactersIn: ",;:\u{2013}\u{2014}-")
+        while let scalar = result.unicodeScalars.last,
+              softSeparators.contains(scalar) {
+            result.removeLast()
+            result = result.trimmingCharacters(in: .whitespacesAndNewlines)
+        }
+        return result
     }
 
     static func normalized(_ text: String) -> String {

@@ -591,14 +591,18 @@ final class SessionCoordinator: ObservableObject {
                     duration: Date().timeIntervalSince(transcriptionStartedAt)
                 )
                 try Task.checkCancellation()
+                let transcriptionText = try TranscriptionResponseValidator.validated(
+                    transcription.text,
+                    vocabulary: ""
+                )
 
                 item.session.timings.transcriptionEndedAt = Date()
-                item.session.rawText = transcription.text
+                item.session.rawText = transcriptionText
                 _ = item.session.transition(to: .processing)
                 self.processingSession = item.session
 
                 let processed = try await self.processText(
-                    transcription.text,
+                    transcriptionText,
                     item: item
                 )
                 try Task.checkCancellation()
@@ -610,7 +614,7 @@ final class SessionCoordinator: ObservableObject {
                     || item.replayOriginalText != nil {
                     self.presentPreview(
                         item: item,
-                        rawText: transcription.text,
+                        rawText: transcriptionText,
                         processed: processed,
                         transcriptionProviderIdentifier: activeTranscriber.identifier
                     )
@@ -622,7 +626,7 @@ final class SessionCoordinator: ObservableObject {
                 await self.deliver(
                     text: processed.text,
                     item: item,
-                    rawText: transcription.text,
+                    rawText: transcriptionText,
                     providerIdentifier: processed.providerIdentifier,
                     transcriptionProviderIdentifier: activeTranscriber.identifier,
                     contextManifest: processed.contextManifest,
@@ -689,18 +693,22 @@ final class SessionCoordinator: ObservableObject {
                     duration: Date().timeIntervalSince(transcriptionStartedAt)
                 )
                 try Task.checkCancellation()
+                let transcriptionText = try TranscriptionResponseValidator.validated(
+                    transcription.text,
+                    vocabulary: ""
+                )
 
                 item.session.timings.transcriptionEndedAt = Date()
                 item.session.timings.processingEndedAt = Date()
-                item.session.rawText = transcription.text
-                item.session.finalText = transcription.text
+                item.session.rawText = transcriptionText
+                item.session.finalText = transcriptionText
                 _ = item.session.transition(to: .processing)
                 _ = item.session.transition(to: .delivering)
                 self.processingSession = item.session
 
                 let insertionStartedAt = Date()
                 let inserted = await self.textDeliverer.injectDictation(
-                    text: transcription.text,
+                    text: transcriptionText,
                     target: item.target
                 )
                 self.metrics.record(
@@ -712,8 +720,8 @@ final class SessionCoordinator: ObservableObject {
                 _ = item.session.transition(to: .completed)
                 self.complete(
                     session: item.session,
-                    rawText: transcription.text,
-                    finalText: transcription.text,
+                    rawText: transcriptionText,
+                    finalText: transcriptionText,
                     processingProvider: nil,
                     transcriptionProviderIdentifier: item.transcriber.identifier,
                     contextManifest: [],
