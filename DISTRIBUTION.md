@@ -124,9 +124,12 @@ La première bêta publique a été produite par le run
 [`30348895645`](https://github.com/YoannDrx/pressay/actions/runs/30348895645).
 La release, son checksum et son appcast sont disponibles sous
 [`v1.2.0-beta.1`](https://github.com/YoannDrx/pressay/releases/tag/v1.2.0-beta.1).
-La stable publique actuelle est 1.2.2 (12101). Le candidat 1.2.3 doit porter le
-build 12102, strictement supérieur, et ne peut être tagué qu'après validation
-de la matrice et du dogfood.
+La stable publique actuelle est 1.2.3 (12102). Le workflow
+[`30854233266`](https://github.com/YoannDrx/pressay/actions/runs/30854233266)
+a validé les tests, l’analyse, la signature, la notarisation, Gatekeeper, le
+checksum, la GitHub Release et l’appcast public. Le DMG a ensuite été
+retéléchargé, installé et revérifié sur Apple Silicon. La matrice, Intel réel et
+le dogfood restent des preuves QA ouvertes.
 
 ## URLs et appcast
 

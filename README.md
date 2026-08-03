@@ -68,13 +68,13 @@ DMG.
 
 La page de téléchargement publique est également disponible sur
 [yoann-andrieux.fr](https://www.yoann-andrieux.fr/fr/projects/pressay). La
-version stable publiée est `v1.2.2` ; les utilisateurs ayant activé le canal
+version stable publiée est `v1.2.3` ; les utilisateurs ayant activé le canal
 bêta recevront aussi cette version stable.
 
-La branche de développement prépare `v1.2.3` (build `12102`). Elle restaure le
-presse-papiers présent avant une insertion Pressay réussie. La stable publique
-reste `v1.2.2` tant que la matrice interapplications, le test Intel réel,
-l'installation propre et sept jours sans P0/P1 ne sont pas validés.
+La stable `v1.2.3` (build `12102`) restaure le presse-papiers présent avant une
+insertion Pressay réussie. Son DMG public a été retéléchargé et validé sur Apple
+Silicon ; la matrice interapplications, le test Intel réel et sept jours sans
+P0/P1 restent des preuves QA à compléter après publication.
 
 ### Compiler depuis les sources
 
