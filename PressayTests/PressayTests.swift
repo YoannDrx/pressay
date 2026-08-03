@@ -113,6 +113,40 @@ final class TranscriptionResponseValidatorTests: XCTestCase {
         )
     }
 
+    func testKnownHallucinationIsRemovedWhenItIsASeparateFinalSentence() throws {
+        XCTAssertEqual(
+            try TranscriptionResponseValidator.validated(
+                "Je vais corriger ce problème. Faites ce que vous voulez.",
+                vocabulary: ""
+            ),
+            "Je vais corriger ce problème."
+        )
+    }
+
+    func testKnownHallucinationAloneIsRejectedAsNoSpeech() {
+        XCTAssertThrowsError(
+            try TranscriptionResponseValidator.validated(
+                "Faites ce que vous voulez.",
+                vocabulary: ""
+            )
+        ) { error in
+            XCTAssertEqual(
+                error as? TranscriptionService.TranscriptionError,
+                .noSpeech
+            )
+        }
+    }
+
+    func testSameWordsRemainWhenTheyArePartOfTheDictatedSentence() throws {
+        XCTAssertEqual(
+            try TranscriptionResponseValidator.validated(
+                "Tu peux faire ce que tu veux, faites ce que vous voulez",
+                vocabulary: ""
+            ),
+            "Tu peux faire ce que tu veux, faites ce que vous voulez"
+        )
+    }
+
     func testFrenchPromptEchoIsRejected() {
         let vocabulary = Constants.defaultTechnicalVocabulary
         let prompt = "Dictée naturelle avec une ponctuation fidèle. Le vocabulaire technique peut inclure : \(vocabulary)."
@@ -140,6 +174,24 @@ final class TranscriptionResponseValidatorTests: XCTestCase {
                 prompt,
                 vocabulary: vocabulary,
                 prompt: prompt
+            )
+        )
+    }
+}
+
+final class TranscriptionRequestPolicyTests: XCTestCase {
+    func testGPT4oMiniTranscribeUsesServerVoiceActivityDetection() {
+        XCTAssertTrue(
+            TranscriptionRequestPolicy.supportsVoiceActivityDetection(
+                model: "gpt-4o-mini-transcribe"
+            )
+        )
+    }
+
+    func testWhisperDoesNotReceiveUnsupportedGPT4oOptions() {
+        XCTAssertFalse(
+            TranscriptionRequestPolicy.supportsVoiceActivityDetection(
+                model: "whisper-1"
             )
         )
     }

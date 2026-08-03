@@ -11,12 +11,18 @@ struct TranscriptionResult: Equatable {
 }
 
 enum TranscriptionResponseValidator {
+    private static let knownHallucinatedEndings = [
+        "faites ce que vous voulez"
+    ]
+
     static func validated(
         _ text: String,
         vocabulary: String,
         prompt: String? = nil
     ) throws -> String {
-        let cleanText = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        let cleanText = removeKnownHallucinatedEnding(
+            from: text.trimmingCharacters(in: .whitespacesAndNewlines)
+        )
         guard !cleanText.isEmpty else {
             throw TranscriptionService.TranscriptionError.noSpeech
         }
@@ -29,6 +35,37 @@ enum TranscriptionResponseValidator {
             throw TranscriptionService.TranscriptionError.noSpeech
         }
         return cleanText
+    }
+
+    private static func removeKnownHallucinatedEnding(from text: String) -> String {
+        for ending in knownHallucinatedEndings {
+            if normalized(text) == normalized(ending) {
+                return ""
+            }
+            let escapedWords = ending
+                .split(separator: " ")
+                .map { NSRegularExpression.escapedPattern(for: String($0)) }
+                .joined(separator: "\\s+")
+            let pattern = "(?:[.!?]\\s+|\\n+)(\(escapedWords))[\\s\\p{P}]*$"
+            guard let expression = try? NSRegularExpression(
+                pattern: pattern,
+                options: [.caseInsensitive]
+            ) else {
+                continue
+            }
+            let range = NSRange(text.startIndex..<text.endIndex, in: text)
+            guard let match = expression.firstMatch(
+                in: text,
+                range: range
+            ),
+                  match.range.location + match.range.length == range.length,
+                  let phraseRange = Range(match.range(at: 1), in: text) else {
+                continue
+            }
+            return String(text[..<phraseRange.lowerBound])
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+        }
+        return text
     }
 
     static func normalized(_ text: String) -> String {
@@ -57,6 +94,11 @@ final class TranscriptionService: SpeechTranscribing {
 
     private struct TranscriptionResponse: Decodable {
         let text: String
+        let logprobs: [TokenLogProbability]?
+    }
+
+    private struct TokenLogProbability: Decodable {
+        let logprob: Double
     }
 
     private struct ErrorResponse: Decodable {
@@ -76,11 +118,13 @@ final class TranscriptionService: SpeechTranscribing {
         let language = preferences.string(forKey: Constants.transcriptionLanguageKey)
             ?? Constants.defaultTranscriptionLanguage
         let vocabulary = selectedVocabulary(preferences: preferences)
-        let prompt = vocabulary.isEmpty
-            ? nil
-            : transcriptionPrompt(vocabulary: vocabulary, language: language)
         let model = preferences.string(forKey: Constants.transcriptionModelKey)
             ?? Constants.defaultTranscriptionModel
+        let prompt = transcriptionPrompt(
+            vocabulary: vocabulary,
+            language: language,
+            model: model
+        )
         let body = try makeBody(
             audioURL: audioURL,
             model: model,
@@ -101,7 +145,14 @@ final class TranscriptionService: SpeechTranscribing {
             vocabulary: vocabulary,
             prompt: prompt
         )
-        return TranscriptionResult(text: cleanText, averageLogProbability: nil)
+        let probabilities = decoded.logprobs?.map(\.logprob) ?? []
+        let averageLogProbability = probabilities.isEmpty
+            ? nil
+            : probabilities.reduce(0, +) / Double(probabilities.count)
+        return TranscriptionResult(
+            text: cleanText,
+            averageLogProbability: averageLogProbability
+        )
     }
 
     func validateAPIKey(_ apiKey: String) async -> Bool {
@@ -143,6 +194,20 @@ final class TranscriptionService: SpeechTranscribing {
             name: "response_format",
             value: "json"
         )
+        if TranscriptionRequestPolicy.supportsVoiceActivityDetection(
+            model: model
+        ) {
+            data.appendMultipartField(
+                boundary: boundary,
+                name: "chunking_strategy",
+                value: "auto"
+            )
+            data.appendMultipartField(
+                boundary: boundary,
+                name: "include[]",
+                value: "logprobs"
+            )
+        }
         if !language.isEmpty {
             data.appendMultipartField(
                 boundary: boundary,
@@ -210,11 +275,23 @@ final class TranscriptionService: SpeechTranscribing {
         }
     }
 
-    private func transcriptionPrompt(vocabulary: String, language: String) -> String {
-        if language == "en" {
-            return "Natural dictation with accurate punctuation. Technical vocabulary may include: \(vocabulary)."
+    private func transcriptionPrompt(
+        vocabulary: String,
+        language: String,
+        model: String
+    ) -> String? {
+        if model == "whisper-1" {
+            return vocabulary.isEmpty ? nil : vocabulary
         }
-        return "Dictée naturelle avec une ponctuation fidèle. Le vocabulaire technique peut inclure : \(vocabulary)."
+        let vocabularyGuidance = vocabulary.isEmpty
+            ? ""
+            : language == "en"
+                ? " Expected technical vocabulary: \(vocabulary)."
+                : " Vocabulaire technique attendu : \(vocabulary)."
+        if language == "en" {
+            return "Transcribe only words actually spoken. Stop at the last spoken word; never complete trailing silence with extra text. Preserve natural punctuation.\(vocabularyGuidance)"
+        }
+        return "Transcris uniquement les mots réellement prononcés. Arrête-toi au dernier mot prononcé ; ne complète jamais le silence final par du texte. Conserve une ponctuation naturelle.\(vocabularyGuidance)"
     }
 
     enum TranscriptionError: LocalizedError, Equatable {
@@ -241,6 +318,14 @@ final class TranscriptionService: SpeechTranscribing {
                 return "Erreur HTTP : \(code)"
             }
         }
+    }
+}
+
+enum TranscriptionRequestPolicy {
+    static func supportsVoiceActivityDetection(model: String) -> Bool {
+        model.hasPrefix("gpt-4o-")
+            && model.contains("transcribe")
+            && !model.contains("diarize")
     }
 }
 

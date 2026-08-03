@@ -241,12 +241,14 @@ final class TextInjector: TextDelivering {
               let replacement = expectedValue(
                 afterInserting: text,
                 in: element
-              ),
-              AXUIElementSetAttributeValue(
-                element,
-                kAXValueAttribute as CFString,
-                replacement.value as CFString
-              ) == .success else {
+              ) else {
+            return false
+        }
+        guard AXUIElementSetAttributeValue(
+            element,
+            kAXValueAttribute as CFString,
+            replacement.value as CFString
+        ) == .success else {
             return false
         }
 
@@ -261,7 +263,18 @@ final class TextInjector: TextDelivering {
                 rangeValue
             )
         }
-        return await value(of: element, becomes: replacement.value)
+        let confirmed = await value(of: element, becomes: replacement.value)
+        if !confirmed {
+            // Chromium can apply AXValue immediately while publishing the old
+            // accessibility value for several run-loop turns. Unlike
+            // AXSelectedText, the full-value setter is deterministic: once it
+            // accepts the complete reconstructed value, retrying with Cmd+V
+            // can duplicate text that is already visible.
+            logger.debug(
+                "Electron accepted full-value insertion before AX verification caught up"
+            )
+        }
+        return true
     }
 
     private func expectedValue(
@@ -287,7 +300,7 @@ final class TextInjector: TextDelivering {
         of element: AXUIElement,
         becomes expectedValue: String
     ) async -> Bool {
-        for _ in 0..<8 {
+        for _ in 0..<20 {
             if copiedString(
                 attribute: kAXValueAttribute,
                 from: element
@@ -295,7 +308,7 @@ final class TextInjector: TextDelivering {
                 return true
             }
             if Task.isCancelled { return false }
-            try? await Task.sleep(for: .milliseconds(20))
+            try? await Task.sleep(for: .milliseconds(25))
         }
         return false
     }
