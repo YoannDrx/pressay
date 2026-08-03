@@ -1878,12 +1878,30 @@ final class DeliveryPreferencePolicyTests: XCTestCase {
         )
     }
 
-    func testInstantDictationUsesWritableAccessibilityTargetInElectronApp() {
-        XCTAssertTrue(
+    func testInstantDictationAvoidsAccessibilityMutationInElectronApp() {
+        XCTAssertFalse(
             DeliveryPreferencePolicy.shouldUseAccessibilityReplacement(
                 canWriteSelectedText: true,
                 prefersPaste: true,
                 isInstantDictation: true
+            )
+        )
+    }
+
+    func testInstantDictationUsesApplicationMenuPasteInElectronApp() {
+        XCTAssertTrue(
+            DeliveryPreferencePolicy.shouldUseApplicationMenuPaste(
+                prefersPaste: true,
+                isInstantDictation: true
+            )
+        )
+    }
+
+    func testTransformationDoesNotUseApplicationMenuPaste() {
+        XCTAssertFalse(
+            DeliveryPreferencePolicy.shouldUseApplicationMenuPaste(
+                prefersPaste: true,
+                isInstantDictation: false
             )
         )
     }

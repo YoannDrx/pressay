@@ -166,6 +166,20 @@ final class TextInjector: TextDelivering {
             return fail(.selectionChanged)
         }
 
+        if DeliveryPreferencePolicy.shouldUseApplicationMenuPaste(
+            prefersPaste: prefersPaste,
+            isInstantDictation: isInstantDictation
+        ),
+           await ClipboardTransactionCoordinator.shared
+            .pasteDictationUsingApplicationMenu(
+                cleanText,
+                processIdentifier: activeTarget.processIdentifier
+            ) {
+            rememberUndo(for: activeTarget, insertedText: cleanText)
+            lastDeliveryStrategy = .paste
+            return true
+        }
+
         if DeliveryPreferencePolicy.shouldUseAccessibilityReplacement(
             canWriteSelectedText: activeTarget.snapshot.canWriteSelectedText,
             prefersPaste: prefersPaste,
@@ -775,9 +789,15 @@ enum DeliveryPreferencePolicy {
         prefersPaste: Bool,
         isInstantDictation: Bool
     ) -> Bool {
-        canWriteSelectedText && (isInstantDictation || !prefersPaste)
+        canWriteSelectedText && !prefersPaste
     }
 
+    static func shouldUseApplicationMenuPaste(
+        prefersPaste: Bool,
+        isInstantDictation: Bool
+    ) -> Bool {
+        prefersPaste && isInstantDictation
+    }
 }
 #endif
 
