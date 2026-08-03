@@ -47,8 +47,10 @@ jobs:
           -configuration Debug
           CODE_SIGNING_ALLOWED=NO
           ONLY_ACTIVE_ARCH=NO
-      - name: Valider la fusion des appcasts
-        run: python3 scripts/test-merge-appcast.py
+      - name: Valider les appcasts
+        run: |
+          python3 scripts/test-latest-appcast-build.py
+          python3 scripts/test-merge-appcast.py
       - name: Analyse statique
         run: >-
           xcodebuild analyze
@@ -138,16 +140,21 @@ jobs:
       - name: Publier la GitHub Release
         run: |
           prerelease_args=()
+          release_notes_args=(--generate-notes)
           if [[ "$GITHUB_REF_NAME" == *"-beta."* || "$GITHUB_REF_NAME" == *"-rc."* ]]; then
             prerelease_args+=(--prerelease)
+          fi
+          release_notes_file="release-notes/$GITHUB_REF_NAME.md"
+          if [[ -f "$release_notes_file" ]]; then
+            release_notes_args=(--notes-file "$release_notes_file")
           fi
           gh release create "$GITHUB_REF_NAME" \
             build/release/Pressay.dmg \
             build/release/Pressay.dmg.sha256 \
             build/release/appcast.xml \
             --verify-tag \
-            --generate-notes \
             --title "Pressay $GITHUB_REF_NAME" \
+            "${release_notes_args[@]}" \
             "${prerelease_args[@]}"
 
       - name: Publier l’appcast sur GitHub Pages

@@ -15,8 +15,16 @@ def latest_build(path: Path) -> int:
     except ET.ParseError:
         return 0
     builds: list[int] = []
-    for enclosure in root.findall("./channel/item/enclosure"):
-        value = enclosure.attrib.get(f"{{{SPARKLE}}}version")
+    for item in root.findall("./channel/item"):
+        enclosure = item.find("enclosure")
+        value = (
+            enclosure.attrib.get(f"{{{SPARKLE}}}version")
+            if enclosure is not None
+            else None
+        )
+        if not value:
+            version_node = item.find(f"{{{SPARKLE}}}version")
+            value = version_node.text if version_node is not None else None
         try:
             builds.append(int(value or ""))
         except ValueError:

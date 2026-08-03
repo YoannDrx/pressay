@@ -92,6 +92,7 @@ zsh -n \
   "$project_root/scripts/release-readiness.sh" \
   "$project_root/scripts/validate-app-store.sh" \
   "$project_root/scripts/validate-release.sh"
+python3 "$project_root/scripts/test-latest-appcast-build.py"
 python3 "$project_root/scripts/test-merge-appcast.py"
 python3 -m py_compile "$project_root/scripts/verify-public-appcast.py"
 
