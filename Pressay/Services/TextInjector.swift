@@ -166,6 +166,10 @@ final class TextInjector: TextDelivering {
             return fail(.selectionChanged)
         }
 
+        let expectedPastedValue = activeTarget.focusedElement.flatMap {
+            expectedValue(afterInserting: cleanText, in: $0)
+        }
+
         if DeliveryPreferencePolicy.shouldUseApplicationMenuPaste(
             prefersPaste: prefersPaste,
             isInstantDictation: isInstantDictation
@@ -175,6 +179,11 @@ final class TextInjector: TextDelivering {
                 cleanText,
                 processIdentifier: activeTarget.processIdentifier
             ) {
+            if let element = activeTarget.focusedElement,
+               let expectedPastedValue,
+               !(await value(of: element, becomes: expectedPastedValue.value)) {
+                return fail(.clipboardPasteFailed)
+            }
             rememberUndo(for: activeTarget, insertedText: cleanText)
             lastDeliveryStrategy = .paste
             return true
@@ -194,25 +203,19 @@ final class TextInjector: TextDelivering {
             return true
         }
 
-        let expectedPastedValue = prefersPaste
-            ? activeTarget.focusedElement.flatMap {
-                expectedValue(afterInserting: cleanText, in: $0)
-            }
-            : nil
         let pasteWasPosted = if isInstantDictation {
             await ClipboardTransactionCoordinator.shared.pasteDictation(cleanText)
         } else {
             await ClipboardTransactionCoordinator.shared.paste(cleanText)
         }
         let didPaste: Bool
-        if prefersPaste,
-           let element = activeTarget.focusedElement,
+        if let element = activeTarget.focusedElement,
            let expectedPastedValue {
             didPaste = pasteWasPosted
                 ? await value(of: element, becomes: expectedPastedValue.value)
                 : false
         } else {
-            didPaste = pasteWasPosted && !prefersPaste
+            didPaste = pasteWasPosted
         }
         if didPaste,
            activeTarget.focusedElement != nil,

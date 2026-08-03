@@ -78,9 +78,10 @@ idle
 ```
 
 Chaque état non terminal peut devenir `cancelled` ou `failed`. Les états
-`completed`, `cancelled` et `failed` sont terminaux. La capture suivante peut
-commencer pendant le traitement de la précédente ; la livraison reste
-séquentielle et chaque élément de file conserve sa cible.
+`completed`, `cancelled` et `failed` sont terminaux. Le coordinateur ne garde
+qu'une session active : une nouvelle invocation reçue pendant la capture ou le
+traitement est refusée avec un retour explicite. Il n'existe pas encore de file
+persistante de dictées.
 
 ## Types de domaine
 

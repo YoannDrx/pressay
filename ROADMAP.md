@@ -11,17 +11,17 @@ implémentation automatisée réussie ne vaut pas validation de release : la
 matrice interapplications, la signature et le test sur une session macOS propre
 restent des gates distincts.
 
-## État d’implémentation au 31 juillet 2026
+## État d’implémentation au 3 août 2026
 
 | Lot | État du code | Gate restant |
 | --- | --- | --- |
 | 1.0 — Dictée fiable | Livré dans le socle existant | Gates de distribution 1.0 documentés dans `AUDIT.md` |
-| 1.1 — Fondation | Machine d’état, coordinateur injectable, capture AX, validation de cible, annulation, file, HUD audio, double pression, enregistreur de raccourcis et canal Sparkle bêta codés | Matrice manuelle et validation matérielle |
-| 1.2 — Modes et transformation | Schéma v2 migrable, 12 modes natifs, modes personnalisés, profils opt-in, consentement cloud interactif, sélection AX/fallback transactionnel, aperçu, replay mémoire, HUD configurable, correction vocale, Inbox chiffrée et politiques de livraison par app codés ; stable 1.2.1 déjà notarialisée et publique ; correctif 1.2.2 préparé avec 74 tests Swift et analyse statique verts | Valider et publier les artefacts 1.2.2 ; poursuivre la matrice matérielle Tier A/B décrite dans `RELEASE_1_2_CHECKLIST.md` |
+| 1.1 — Fondation | Machine d’état, coordinateur injectable, capture AX, validation de cible, annulation, session unique, HUD audio, double pression, enregistreur de raccourcis et canal Sparkle bêta codés | Matrice manuelle et validation matérielle |
+| 1.2 — Modes et transformation | Schéma v2 migrable, 12 modes natifs, modes personnalisés, profils opt-in, consentement cloud interactif, sélection AX/fallback transactionnel, aperçu, replay mémoire, HUD configurable, correction vocale, Inbox chiffrée et politiques de livraison par app codés ; stable 1.2.2 notarialisée et publique ; candidat 1.2.3 (12102) avec restauration du presse-papiers et 114 tests Swift actifs | Sept jours de dogfood sans P0/P1, matrice Tier A/B, Intel réel, installation propre et mise à jour signée 1.2.2 → 1.2.3 |
 | 1.3 — Local/hybride | Routeurs, catalogue signé/SHA-256, SpeechAnalyzer, installation des assets système, Foundation Models et sélection des fournisseurs par mode codés derrière les gardes SDK/compiler | Chaîne Xcode 26 dédiée, tests audio réels FR/EN, benchmark M2, fournisseurs téléchargés FluidAudio/whisper.cpp/llama.cpp, interface Modèles complète et corpus |
 | 1.4 à 2.1 | Contrats de domaine préparés pour les actions, l’historique et les capacités | Implémentation produit et gates propres à chaque lot |
 
-La suite automatisée contient actuellement **74 tests Swift et 2 tests Python**.
+La suite automatisée contient actuellement **114 tests Swift et 2 tests Python actifs**.
 Elle complète, sans remplacer, la matrice interapplications et matérielle.
 
 ## 1.0.0 — Identité et dictée fiable
@@ -29,7 +29,7 @@ Elle complète, sans remplacer, la matrice interapplications et matérielle.
 - identité Pressay et migration des deux anciens bundle IDs ;
 - dictée Fn/Globe, raccourcis actuels et mode maintenir/bascule ;
 - détection locale du silence et validation anti-hallucination ;
-- file de transcription, cible d’insertion conservée et annulation ;
+- session de transcription unique, cible d’insertion conservée et annulation ;
 - historique local AES-256-GCM ;
 - Sparkle, DMG Developer ID notarialisé, GitHub Releases et portfolio.
 
@@ -39,7 +39,8 @@ Elle complète, sans remplacer, la matrice interapplications et matérielle.
 - injecter les protocoles de capture, transcription, traitement, contexte,
   livraison, aperçu, historique, modèle et action ;
 - router séparément dictée, transformation et commande ;
-- gérer double pression mains libres, Échap, conflits et sessions en file ;
+- gérer double pression mains libres, Échap, conflits et refus explicite des
+  invocations concurrentes ;
 - mémoriser l’élément AX initial et refuser les champs sécurisés ;
 - valider application, élément et sélection avant chaque remplacement ;
 - fournir un HUD interactif et une annulation locale de la dernière insertion ;

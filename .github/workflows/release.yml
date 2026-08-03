@@ -153,6 +153,24 @@ jobs:
       - name: Publier l’appcast sur GitHub Pages
         run: |
           appcast_path="appcast.xml"
+          if ! gh api \
+            "repos/$GITHUB_REPOSITORY/git/ref/heads/gh-pages" \
+            >/dev/null 2>&1
+          then
+            pages_worktree="$RUNNER_TEMP/pressay-pages"
+            git worktree add --detach "$pages_worktree"
+            git -C "$pages_worktree" switch --orphan gh-pages
+            git -C "$pages_worktree" rm -rf .
+            cp build/release/appcast.xml "$pages_worktree/$appcast_path"
+            touch "$pages_worktree/.nojekyll"
+            git -C "$pages_worktree" add "$appcast_path" .nojekyll
+            git -C "$pages_worktree" \
+              -c user.name='github-actions[bot]' \
+              -c user.email='41898282+github-actions[bot]@users.noreply.github.com' \
+              commit -m "Publier l’appcast $GITHUB_REF_NAME"
+            git -C "$pages_worktree" push origin HEAD:gh-pages
+            exit 0
+          fi
           encoded="$(base64 < build/release/appcast.xml | tr -d '\n')"
           existing_sha="$(
             gh api \
@@ -170,6 +188,15 @@ jobs:
             args+=(-f sha="$existing_sha")
           fi
           gh api "${args[@]}"
+
+      - name: Vérifier l’appcast public
+        run: >-
+          python3 scripts/verify-public-appcast.py
+          https://yoanndrx.github.io/pressay/appcast.xml
+          "${GITHUB_REF_NAME#v}"
+          "$(xcodebuild -project Pressay.xcodeproj -scheme Pressay
+          -configuration Release -showBuildSettings
+          | awk -F ' = ' '/^[[:space:]]*CURRENT_PROJECT_VERSION = / { print $2; exit }')"
 
       - name: Supprimer le Keychain temporaire
         if: always()

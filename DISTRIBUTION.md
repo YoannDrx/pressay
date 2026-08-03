@@ -18,7 +18,8 @@ Le bundle public est `fr.yodev.pressay`. La version visible et le numéro de bui
 proviennent uniquement de `MARKETING_VERSION` et `CURRENT_PROJECT_VERSION` dans
 le projet Xcode. La série 1.2 utilise les builds `12001–12089` pour les bêtas
 1.2.0, `12090–12098` pour ses RC, `12099` pour la stable 1.2.0, puis un build
-incrémental par correctif (`12100` pour 1.2.1, `12101` pour 1.2.2).
+incrémental par correctif (`12100` pour 1.2.1, `12101` pour 1.2.2 et `12102`
+pour 1.2.3).
 
 ## Préparer la signature Apple
 
@@ -35,7 +36,7 @@ export APPLE_ID="adresse@example.com"
 export APPLE_APP_SPECIFIC_PASSWORD="mot-de-passe-spécifique-à-l-app"
 export SPARKLE_PRIVATE_KEY="clé-privée-exportée-par-generate_keys"
 export SPARKLE_GENERATE_APPCAST="/chemin/vers/Sparkle/bin/generate_appcast"
-export RELEASE_TAG="v1.2.2"
+export RELEASE_TAG="v1.2.3"
 ```
 
 La clé privée Sparkle ne doit jamais être ajoutée au dépôt. La clé publique
@@ -123,15 +124,16 @@ La première bêta publique a été produite par le run
 [`30348895645`](https://github.com/YoannDrx/pressay/actions/runs/30348895645).
 La release, son checksum et son appcast sont disponibles sous
 [`v1.2.0-beta.1`](https://github.com/YoannDrx/pressay/releases/tag/v1.2.0-beta.1).
-La publication stable actuelle suit exactement la même chaîne et la 1.2.2 doit
-porter le build 12101, strictement supérieur au build 12100 déjà publié.
+La stable publique actuelle est 1.2.2 (12101). Le candidat 1.2.3 doit porter le
+build 12102, strictement supérieur, et ne peut être tagué qu'après validation
+de la matrice et du dogfood.
 
 ## URLs et appcast
 
 Chaque appcast référence l'asset immuable du tag, par exemple :
 
 ```text
-https://github.com/YoannDrx/pressay/releases/download/v1.2.2/Pressay.dmg
+https://github.com/YoannDrx/pressay/releases/download/v1.2.3/Pressay.dmg
 ```
 
 L’app utilise le feed canonique GitHub Pages :
