@@ -1835,6 +1835,84 @@ final class DeliveryPreferencePolicyTests: XCTestCase {
             )
         )
     }
+
+    func testInstantDictationUsesFullValueReplacementInElectronApp() {
+        XCTAssertTrue(
+            DeliveryPreferencePolicy.shouldUseFullValueReplacement(
+                canWriteValue: true,
+                prefersPaste: true,
+                isInstantDictation: true
+            )
+        )
+    }
+
+    func testNativeAppDoesNotNeedFullValueReplacement() {
+        XCTAssertFalse(
+            DeliveryPreferencePolicy.shouldUseFullValueReplacement(
+                canWriteValue: true,
+                prefersPaste: false,
+                isInstantDictation: true
+            )
+        )
+    }
+}
+
+final class AccessibilityValueInsertionTests: XCTestCase {
+    func testInsertsAtUTF16CursorLocation() {
+        XCTAssertEqual(
+            AccessibilityValueInsertion.replacingSelection(
+                in: "Bonjour monde",
+                location: 8,
+                length: 0,
+                with: "beau "
+            ),
+            AccessibilityValueReplacement(
+                value: "Bonjour beau monde",
+                cursorLocation: 13
+            )
+        )
+    }
+
+    func testReplacesSelectedText() {
+        XCTAssertEqual(
+            AccessibilityValueInsertion.replacingSelection(
+                in: "Bonjour monde",
+                location: 8,
+                length: 5,
+                with: "Codex"
+            ),
+            AccessibilityValueReplacement(
+                value: "Bonjour Codex",
+                cursorLocation: 13
+            )
+        )
+    }
+
+    func testUsesUTF16LengthForEmoji() {
+        XCTAssertEqual(
+            AccessibilityValueInsertion.replacingSelection(
+                in: "ab",
+                location: 1,
+                length: 0,
+                with: "🙂"
+            ),
+            AccessibilityValueReplacement(
+                value: "a🙂b",
+                cursorLocation: 3
+            )
+        )
+    }
+
+    func testRejectsOutOfBoundsRange() {
+        XCTAssertNil(
+            AccessibilityValueInsertion.replacingSelection(
+                in: "abc",
+                location: 4,
+                length: 0,
+                with: "x"
+            )
+        )
+    }
 }
 
 final class TargetSelectionValidatorTests: XCTestCase {

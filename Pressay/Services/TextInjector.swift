@@ -166,26 +166,60 @@ final class TextInjector: TextDelivering {
             return fail(.selectionChanged)
         }
 
+        if DeliveryPreferencePolicy.shouldUseFullValueReplacement(
+            canWriteValue: activeTarget.snapshot.canWriteValue,
+            prefersPaste: prefersPaste,
+            isInstantDictation: isInstantDictation
+        ),
+           await replaceValueUsingAccessibility(
+               cleanText,
+               in: activeTarget
+           ) {
+            rememberUndo(for: activeTarget, insertedText: cleanText)
+            lastDeliveryStrategy = .accessibilityReplacement
+            return true
+        }
+
         if DeliveryPreferencePolicy.shouldUseAccessibilityReplacement(
             canWriteSelectedText: activeTarget.snapshot.canWriteSelectedText,
             prefersPaste: prefersPaste,
             isInstantDictation: isInstantDictation
         ),
            let element = activeTarget.focusedElement,
+           let expectedValue = expectedValue(
+               afterInserting: cleanText,
+               in: element
+           ),
            AXUIElementSetAttributeValue(
                element,
                kAXSelectedTextAttribute as CFString,
                cleanText as CFString
-           ) == .success {
+           ) == .success,
+           await value(of: element, becomes: expectedValue.value) {
             rememberUndo(for: activeTarget, insertedText: cleanText)
             lastDeliveryStrategy = .accessibilityReplacement
             return true
         }
 
-        let didPaste = if isInstantDictation {
+        let expectedPastedValue = prefersPaste
+            ? activeTarget.focusedElement.flatMap {
+                expectedValue(afterInserting: cleanText, in: $0)
+            }
+            : nil
+        let pasteWasPosted = if isInstantDictation {
             await ClipboardTransactionCoordinator.shared.pasteDictation(cleanText)
         } else {
             await ClipboardTransactionCoordinator.shared.paste(cleanText)
+        }
+        let didPaste: Bool
+        if prefersPaste,
+           let element = activeTarget.focusedElement,
+           let expectedPastedValue {
+            didPaste = pasteWasPosted
+                ? await value(of: element, becomes: expectedPastedValue.value)
+                : false
+        } else {
+            didPaste = pasteWasPosted && !prefersPaste
         }
         if didPaste,
            activeTarget.focusedElement != nil,
@@ -197,6 +231,73 @@ final class TextInjector: TextDelivering {
             return fail(.clipboardPasteFailed)
         }
         return didPaste
+    }
+
+    private func replaceValueUsingAccessibility(
+        _ text: String,
+        in target: TextInjectionTarget
+    ) async -> Bool {
+        guard let element = target.focusedElement,
+              let replacement = expectedValue(
+                afterInserting: text,
+                in: element
+              ),
+              AXUIElementSetAttributeValue(
+                element,
+                kAXValueAttribute as CFString,
+                replacement.value as CFString
+              ) == .success else {
+            return false
+        }
+
+        var cursorRange = CFRange(
+            location: replacement.cursorLocation,
+            length: 0
+        )
+        if let rangeValue = AXValueCreate(.cfRange, &cursorRange) {
+            _ = AXUIElementSetAttributeValue(
+                element,
+                kAXSelectedTextRangeAttribute as CFString,
+                rangeValue
+            )
+        }
+        return await value(of: element, becomes: replacement.value)
+    }
+
+    private func expectedValue(
+        afterInserting text: String,
+        in element: AXUIElement
+    ) -> AccessibilityValueReplacement? {
+        guard let currentValue = copiedString(
+            attribute: kAXValueAttribute,
+            from: element
+        ),
+              let range = selectedTextRange(from: element) else {
+            return nil
+        }
+        return AccessibilityValueInsertion.replacingSelection(
+            in: currentValue,
+            location: range.location,
+            length: range.length,
+            with: text
+        )
+    }
+
+    private func value(
+        of element: AXUIElement,
+        becomes expectedValue: String
+    ) async -> Bool {
+        for _ in 0..<8 {
+            if copiedString(
+                attribute: kAXValueAttribute,
+                from: element
+            ) == expectedValue {
+                return true
+            }
+            if Task.isCancelled { return false }
+            try? await Task.sleep(for: .milliseconds(20))
+        }
+        return false
     }
 
     private func prefersPasteDelivery(for target: TextInjectionTarget) -> Bool {
@@ -696,8 +797,45 @@ enum DeliveryPreferencePolicy {
     ) -> Bool {
         canWriteSelectedText && (isInstantDictation || !prefersPaste)
     }
+
+    static func shouldUseFullValueReplacement(
+        canWriteValue: Bool,
+        prefersPaste: Bool,
+        isInstantDictation: Bool
+    ) -> Bool {
+        canWriteValue && prefersPaste && isInstantDictation
+    }
 }
 #endif
+
+struct AccessibilityValueReplacement: Equatable {
+    let value: String
+    let cursorLocation: Int
+}
+
+enum AccessibilityValueInsertion {
+    static func replacingSelection(
+        in currentValue: String,
+        location: Int,
+        length: Int,
+        with insertedText: String
+    ) -> AccessibilityValueReplacement? {
+        let value = currentValue as NSString
+        guard location >= 0,
+              length >= 0,
+              location <= value.length,
+              length <= value.length - location else {
+            return nil
+        }
+        return AccessibilityValueReplacement(
+            value: value.replacingCharacters(
+                in: NSRange(location: location, length: length),
+                with: insertedText
+            ),
+            cursorLocation: location + (insertedText as NSString).length
+        )
+    }
+}
 
 enum FocusedElementValidator {
     static func matches(
