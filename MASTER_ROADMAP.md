@@ -8,10 +8,10 @@ Ce document pilote l’ordre de livraison. `AUDIT.md` décrit les preuves et
 
 ## 1. État vérifié
 
-- La stable publique reste `v1.2.2` (12101), signée et notarialisée.
+- La stable publique est `v1.2.3` (12102), signée et notarialisée.
 - L’appcast canonique GitHub Pages a été restauré et répond `200` avec l’URL
-  immuable et la signature EdDSA de 1.2.2.
-- Le candidat Direct `v1.2.3` porte le build 12102. Il restaure tous les items
+  immuable et la signature EdDSA de 1.2.3, tout en conservant 1.2.2.
+- La stable Direct `v1.2.3` restaure tous les items
   et formats du presse-papiers après une insertion réussie, sans écraser une
   copie concurrente de l’utilisateur.
 - Le canal App Store reste 1.2.0 (12005), sandboxé et volontairement copy-only.
@@ -24,8 +24,7 @@ Ce document pilote l’ordre de livraison. `AUDIT.md` décrit les preuves et
   `preview/pressay-commercial-foundation` (`br-snowy-math-asgixypw`). Neon
   `main` n’a pas été modifiée.
 - Le site Next.js 16 autonome est versionné dans `YoannDrx/pressay-web` et
-  déployé sur l’alias technique `pressay-web.vercel.app`. `press-say.app` reste
-  enregistré chez OVH et n’est pas encore relié au projet.
+  déployé sur `press-say.app`, avec redirection permanente de `www`.
 - Clerk, les produits Stripe, les emails et les secrets de signature ne sont
   pas encore configurés. Les parcours commerciaux échouent donc fermés.
 
@@ -72,14 +71,14 @@ Trousseau, réclamable une fois et convertie en droit Lifetime/legacy.
 - [x] créer la preuve Founding locale, sans activer le paywall ;
 - [ ] rejouer la matrice Tier A/B dans les applications cibles ;
 - [ ] tester micro interne, AirPods et micro USB ;
-- [ ] valider installation propre, Gatekeeper, notarisation et checksum ;
+- [x] valider installation propre, Gatekeeper, notarisation et checksum sur Apple Silicon ;
 - [ ] valider la mise à jour signée 1.2.2 → 1.2.3 ;
 - [ ] tester sur Intel réel et Apple Silicon ;
 - [ ] achever sept jours de dogfood avec zéro P0/P1.
 
-Gate de publication : toutes les cases manuelles ci-dessus sont obligatoires.
-Le tag `v1.2.3`, le portfolio et le CTA public ne doivent pas précéder cette
-gate.
+La stable a été publiée le 3 août 2026 sur autorisation explicite du propriétaire
+du produit. La matrice, Intel réel, les périphériques audio et sept jours de
+dogfood restent ouverts et ne doivent pas être présentés comme validés.
 
 ### Track B — Backend commercial staging
 

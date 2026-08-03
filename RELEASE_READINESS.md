@@ -25,7 +25,7 @@ risque StoreKit, les coûts d'inférence de Pressay ou une dépendance au backen
 
 ## État des deux canaux
 
-| Gate | Direct 1.2.3 (12102), candidat | Mac App Store 1.2.0 (12005) |
+| Gate | Direct 1.2.3 (12102), stable publiée | Mac App Store 1.2.0 (12005) |
 | --- | --- | --- |
 | Bundle | `fr.yodev.pressay` | `fr.yodev.pressay` |
 | Architectures | `arm64 + x86_64` | `arm64 + x86_64` |
@@ -33,7 +33,7 @@ risque StoreKit, les coûts d'inférence de Pressay ou une dépendance au backen
 | Mise à jour | Sparkle signé | Mac App Store uniquement |
 | Confidentialité | manifeste inclus | manifeste inclus |
 | Automatisation | DMG, notarisation, checksum, appcast | archive et export App Store |
-| État externe | 1.2.2 reste la stable publique ; 1.2.3 attend les gates QA | 12001 est en TestFlight interne ; 12002 à 12004 sont obsolètes ; 12005 doit être archivé et téléversé |
+| État externe | GitHub Release, DMG, checksum et appcast 1.2.3 publics et revérifiés sur Apple Silicon ; Intel/matrice/dogfood restent ouverts | 12001 est en TestFlight interne ; 12002 à 12004 sont obsolètes ; 12005 doit être archivé et téléversé |
 
 La gate locale complète est :
 
@@ -67,7 +67,7 @@ vérifie les captures et métadonnées, puis teste les scripts d'appcast.
 8. Associer le build, choisir une publication manuelle, ajouter la version à la
    revue, puis soumettre seulement après validation TestFlight.
 
-## Actions externes restantes — distribution directe
+## Suivi post-publication — distribution directe
 
 1. Terminer la matrice Tier A/B de `RELEASE_1_2_CHECKLIST.md`, avec au moins un
    Mac Apple Silicon et un Mac Intel.
@@ -75,12 +75,15 @@ vérifie les captures et métadonnées, puis teste les scripts d'appcast.
    versions réellement signées.
 3. Vérifier qu'aucun P0/P1 n'est observé pendant sept jours auprès d'au moins
    cinq testeurs.
-4. Relire et pousser les changements, puis créer le tag `v1.2.3`. Le workflow
-   GitHub fabrique le DMG Developer ID, le notarise avec `notarytool`, agrafe le
-   ticket, génère le SHA-256 et l'appcast signé, et publie la release.
-5. Retélécharger le DMG public et contrôler indépendamment Gatekeeper,
-   architectures, version, checksum, signature Sparkle et mise à jour depuis la
-   version précédente.
+4. Rejouer l’interface Sparkle complète depuis 1.2.2 ; le feed, les deux items,
+   les signatures, les URLs immuables et l’installation manuelle du DMG 1.2.3
+   ont été validés, mais l’app de barre de menus n’était pas pilotable par
+   l’outil d’interface utilisé pendant la release.
+
+Le tag, le workflow Developer ID/notarisation, la GitHub Release, le checksum,
+l’appcast public, le retéléchargement indépendant et l’installation dans
+`/Applications` sur Apple Silicon sont terminés. La publication a été lancée
+sur autorisation explicite avant la fin des preuves QA ci-dessus.
 
 La machine possède une identité Developer ID Application valide et les
 certificats Mac App Store nécessaires, mais aucun profil `notarytool` local

@@ -96,8 +96,10 @@ Tier B — au moins quatre applications, avec un testeur par application :
   et `arm64 + x86_64`.
 - [x] Publier les stables 1.2.0 puis 1.2.1, notariser, vérifier Gatekeeper et
   promouvoir le feed stable.
-- [ ] Publier le correctif 1.2.2 build 12101 après les validations de ce
-  document, puis retélécharger et vérifier indépendamment ses artefacts.
+- [x] Publier les correctifs 1.2.2 build 12101 puis 1.2.3 build 12102 ; pour
+  1.2.3, retélécharger les trois artefacts, vérifier SHA-256, ticket agrafé,
+  Gatekeeper, signature, Team ID, Hardened Runtime, `arm64 + x86_64`, appcast
+  public et installation dans `/Applications` sur Apple Silicon.
 
 ## Socle 1.3 non publiable
 
