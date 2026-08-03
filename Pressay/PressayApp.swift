@@ -415,13 +415,14 @@ final class StatusItemController: NSObject, ObservableObject {
             return
         }
 
-        NSApp.activate(ignoringOtherApps: true)
+        // Keep the destination application frontmost. Activating Pressay here
+        // makes a dictation started from the popover capture Pressay itself as
+        // the target, so delivery can only fall back to the pasteboard.
         popover.show(
             relativeTo: sender.bounds,
             of: sender,
             preferredEdge: .minY
         )
-        popover.contentViewController?.view.window?.makeKey()
     }
 
     private func updateStatusItem() {

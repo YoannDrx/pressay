@@ -2730,6 +2730,32 @@ final class SessionCoordinatorTests: XCTestCase {
         XCTAssertEqual(delivery.copiedTexts, ["Idée sans cible"])
     }
 
+    func testDeliveryFailureReasonIsPreservedAfterFallbackCopy() async throws {
+        let delivery = MockTextDeliverer(
+            shouldInsert: false,
+            failure: .accessibilityNotGranted
+        )
+        let coordinator = makeCoordinator(
+            audio: MockAudioCapturer(result: speechResult()),
+            transcriber: MockSpeechTranscriber(text: "Texte de secours"),
+            context: MockContextCapturer(
+                result: .init(target: nil, context: .empty)
+            ),
+            delivery: delivery,
+            history: MockHistoryRepository()
+        )
+
+        coordinator.startCapture()
+        coordinator.stopCaptureAndQueue()
+        try await waitUntilFinished(coordinator)
+
+        XCTAssertEqual(delivery.copiedTexts, ["Texte de secours"])
+        XCTAssertEqual(
+            coordinator.lastNotice,
+            "Texte copié — l’autorisation Accessibilité n’est pas reconnue"
+        )
+    }
+
     func testCorrectionSelectsRecentInsertionBeforeVoiceTransformation() {
         let delivery = MockTextDeliverer(
             shouldInsert: true,

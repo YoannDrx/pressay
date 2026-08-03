@@ -1123,12 +1123,13 @@ final class SessionCoordinator: ObservableObject {
                 ? "Texte inséré — vérifie cette transcription incertaine"
                 : "Texte inséré"
         } else {
+            let deliveryFailure = textDeliverer.lastDeliveryFailure
             if !textAlreadyCopied {
                 textDeliverer.copyToPasteboard(finalText)
             }
             if textAlreadyCopied {
                 lastNotice = "Texte copié"
-            } else if let failure = textDeliverer.lastDeliveryFailure {
+            } else if let failure = deliveryFailure {
                 lastNotice = "Texte copié — \(failure.userMessage)"
             } else {
                 lastNotice = "Texte copié — la cible initiale n’est plus disponible"
