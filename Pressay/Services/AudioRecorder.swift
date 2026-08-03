@@ -8,9 +8,9 @@ final class AudioRecorder: NSObject, ObservableObject {
     @Published private(set) var hasPermission = false
     var onLevelUpdate: ((Float) -> Void)?
 
-    private var audioRecorder: AVAudioRecorder?
+    private var recorder: AVAudioRecorder?
     private var recordingURL: URL?
-    private var meteringTimer: Timer?
+    private var meterTimer: DispatchSourceTimer?
     private var powerSamples: [Float] = []
 
     override init() {
@@ -22,9 +22,7 @@ final class AudioRecorder: NSObject, ObservableObject {
         switch AVCaptureDevice.authorizationStatus(for: .audio) {
         case .authorized:
             hasPermission = true
-        case .notDetermined:
-            hasPermission = false
-        case .denied, .restricted:
+        case .notDetermined, .denied, .restricted:
             hasPermission = false
         @unknown default:
             hasPermission = false
@@ -40,59 +38,50 @@ final class AudioRecorder: NSObject, ObservableObject {
         }
     }
 
-    private func getRecordingURL() -> URL {
-        let tempDir = FileManager.default.temporaryDirectory
-        return tempDir.appendingPathComponent("pressay_recording_\(UUID().uuidString).m4a")
-    }
-
     func startRecording() throws {
-        guard hasPermission else {
-            throw RecordingError.noPermission
-        }
-
+        guard hasPermission else { throw RecordingError.noPermission }
         cleanupCurrentRecording()
 
-        let url = getRecordingURL()
-        recordingURL = url
-
+        let url = FileManager.default.temporaryDirectory
+            .appendingPathComponent("pressay_recording_\(UUID().uuidString)")
+            .appendingPathExtension("m4a")
         let settings: [String: Any] = [
             AVFormatIDKey: Int(kAudioFormatMPEG4AAC),
-            AVSampleRateKey: 16000, // 16kHz recommandé pour Pressay
-            AVNumberOfChannelsKey: 1, // Mono
+            AVSampleRateKey: 16_000,
+            AVNumberOfChannelsKey: 1,
+            AVEncoderBitRateKey: 32_000,
             AVEncoderAudioQualityKey: AVAudioQuality.high.rawValue
         ]
+        let recorder = try AVAudioRecorder(url: url, settings: settings)
+        recorder.isMeteringEnabled = true
+        recorder.prepareToRecord()
+        guard recorder.record() else { throw RecordingError.recordingFailed }
 
-        audioRecorder = try AVAudioRecorder(url: url, settings: settings)
-        audioRecorder?.delegate = self
-        audioRecorder?.isMeteringEnabled = true
-
-        guard audioRecorder?.record() == true else {
-            cleanupCurrentRecording()
-            throw RecordingError.recordingFailed
-        }
-
+        self.recorder = recorder
+        recordingURL = url
         powerSamples = []
+        isRecording = true
         onLevelUpdate?(0)
         startMetering()
-        isRecording = true
     }
 
     func stopRecording() -> CapturedAudio? {
-        guard let recorder = audioRecorder, let recordingURL else {
-            return nil
-        }
-
-        sampleAudioLevel()
+        guard let recorder, let recordingURL else { return nil }
+        samplePower()
         let duration = recorder.currentTime
         recorder.stop()
         stopMetering()
-        isRecording = false
-        audioRecorder = nil
+
+        self.recorder = nil
         self.recordingURL = nil
-        let detection = SpeechDetectionPolicy.analyze(powers: powerSamples, duration: duration)
-        powerSamples = []
+        isRecording = false
         onLevelUpdate?(0)
 
+        let detection = SpeechDetectionPolicy.analyze(
+            powers: powerSamples,
+            duration: duration
+        )
+        powerSamples = []
         return CapturedAudio(
             url: recordingURL,
             duration: duration,
@@ -101,16 +90,15 @@ final class AudioRecorder: NSObject, ObservableObject {
     }
 
     func cleanupCurrentRecording() {
+        recorder?.stop()
+        recorder = nil
         stopMetering()
-        audioRecorder?.stop()
-        audioRecorder = nil
         isRecording = false
 
-        if let url = recordingURL {
-            try? FileManager.default.removeItem(at: url)
-            recordingURL = nil
+        if let recordingURL {
+            try? FileManager.default.removeItem(at: recordingURL)
+            self.recordingURL = nil
         }
-
         powerSamples = []
         onLevelUpdate?(0)
     }
@@ -120,28 +108,31 @@ final class AudioRecorder: NSObject, ObservableObject {
     }
 
     private func startMetering() {
-        let timer = Timer(timeInterval: Constants.audioMeteringInterval, repeats: true) { [weak self] _ in
-            self?.sampleAudioLevel()
+        let timer = DispatchSource.makeTimerSource(queue: .main)
+        timer.schedule(
+            deadline: .now(),
+            repeating: Constants.audioMeteringInterval
+        )
+        timer.setEventHandler { [weak self] in
+            self?.samplePower()
         }
-        RunLoop.main.add(timer, forMode: .common)
-        meteringTimer = timer
+        meterTimer = timer
+        timer.resume()
     }
 
     private func stopMetering() {
-        meteringTimer?.invalidate()
-        meteringTimer = nil
+        meterTimer?.cancel()
+        meterTimer = nil
     }
 
-    private func sampleAudioLevel() {
-        guard let recorder = audioRecorder, recorder.isRecording else { return }
-
+    private func samplePower() {
+        guard let recorder, recorder.isRecording else { return }
         recorder.updateMeters()
-        guard recorder.currentTime >= Constants.ignoredLeadingAudioDuration else { return }
-
         let power = recorder.averagePower(forChannel: 0)
-        powerSamples.append(power)
-        let normalized = max(0, min(1, (power + 60) / 60))
-        onLevelUpdate?(normalized)
+        if recorder.currentTime >= Constants.ignoredLeadingAudioDuration {
+            powerSamples.append(power)
+        }
+        onLevelUpdate?(max(0, min(1, (power + 60) / 60)))
     }
 
     enum RecordingError: LocalizedError {
@@ -151,26 +142,12 @@ final class AudioRecorder: NSObject, ObservableObject {
         var errorDescription: String? {
             switch self {
             case .noPermission:
-                return "Accès au microphone refusé"
+                "Accès au microphone refusé"
             case .recordingFailed:
-                return "Échec de l'enregistrement"
+                "Échec de l’enregistrement"
             }
         }
     }
 }
 
 extension AudioRecorder: AudioCapturing {}
-
-extension AudioRecorder: AVAudioRecorderDelegate {
-    func audioRecorderDidFinishRecording(_ recorder: AVAudioRecorder, successfully flag: Bool) {
-        if !flag {
-            print("Enregistrement terminé avec erreur")
-        }
-    }
-
-    func audioRecorderEncodeErrorDidOccur(_ recorder: AVAudioRecorder, error: Error?) {
-        if let error = error {
-            print("Erreur d'encodage: \(error.localizedDescription)")
-        }
-    }
-}

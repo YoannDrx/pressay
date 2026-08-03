@@ -393,18 +393,18 @@ final class ShortcutRouter: ObservableObject {
             rawValue: UserDefaults.standard.string(
                 forKey: Constants.activationModeKey
             ) ?? ""
-        ) ?? .hold
+        ) ?? ActivationMode(rawValue: Constants.defaultActivationMode) ?? .hold
 
         guard event.keyCode == shortcut.keyCode else { return }
         let isPressed: Bool
-        if shortcut.modifiers.contains(.function) {
-            isPressed = event.modifierFlags.contains(.function)
-        } else {
-            isPressed = CGEventSource.keyState(
-                .combinedSessionState,
-                key: CGKeyCode(shortcut.keyCode)
-            )
-        }
+        // The Fn/Globe modifier flag is not stable across keyboard layouts and
+        // macOS can emit a transient flagsChanged event without `.function`
+        // while the physical key is still held. Reading the actual key state
+        // prevents a false release that used to stop a brand-new recording.
+        isPressed = CGEventSource.keyState(
+            .combinedSessionState,
+            key: CGKeyCode(shortcut.keyCode)
+        )
 
         if isPressed && !shortcutIsPressed {
             shortcutIsPressed = true

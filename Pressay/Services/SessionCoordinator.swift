@@ -28,6 +28,7 @@ final class SessionCoordinator: ObservableObject {
         let mode: ModeDefinition
         let deliveryPolicy: ApplicationDeliveryPolicy
         let replayOriginalText: String?
+        let transcriber: any SpeechTranscribing
     }
 
     private struct ReplayDescriptor {
@@ -66,13 +67,16 @@ final class SessionCoordinator: ObservableObject {
     private let hud: HUDPresenting
     private let replayBuffer: ReplayBuffer
 
-    private var pendingSessions: [PendingSession] = []
     private var processingTask: Task<Void, Never>?
+    private var processingDeadlineTask: Task<Void, Never>?
+    private var timedOutSessionID: UUID?
     private var captureTarget: TextInjectionTarget?
     private var captureMode: ModeDefinition?
     private var captureDeliveryPolicy: ApplicationDeliveryPolicy?
+    private var captureTranscriber: (any SpeechTranscribing)?
     private var previewDelivery: PreviewDelivery?
     private var capturePreparationTask: Task<Void, Never>?
+    private var targetRecoveryTask: Task<Void, Never>?
     private var replayDescriptors: [UUID: ReplayDescriptor] = [:]
 
     init(
@@ -127,6 +131,7 @@ final class SessionCoordinator: ObservableObject {
         explicitModeID: UUID? = nil
     ) {
         guard captureSession == nil else { return }
+        guard processingTask == nil, pendingPreview == nil else { return }
         guard audioCapturer.hasPermission else {
             fail("Autorise le microphone dans les préférences")
             return
@@ -146,8 +151,9 @@ final class SessionCoordinator: ObservableObject {
             fail("Pressay est désactivé pour cette application")
             return
         }
+        let activeTranscriber: any SpeechTranscribing
         do {
-            let activeTranscriber = try transcriptionRouter?
+            activeTranscriber = try transcriptionRouter?
                 .provider(for: mode, capabilities: capabilities)
                 ?? transcriber
             guard activeTranscriber.isReady else {
@@ -190,6 +196,11 @@ final class SessionCoordinator: ObservableObject {
                     capturedContext: fallback,
                     mode: mode,
                     intent: intent,
+                    deliveryPolicy: deliveryPolicy,
+                    activeTranscriber: activeTranscriber
+                )
+                self.recoverCaptureTargetIfNeeded(
+                    from: fallback,
                     deliveryPolicy: deliveryPolicy
                 )
             }
@@ -199,15 +210,53 @@ final class SessionCoordinator: ObservableObject {
             capturedContext: capturedContext,
             mode: mode,
             intent: intent,
+            deliveryPolicy: deliveryPolicy,
+            activeTranscriber: activeTranscriber
+        )
+        recoverCaptureTargetIfNeeded(
+            from: capturedContext,
             deliveryPolicy: deliveryPolicy
         )
+    }
+
+    private func recoverCaptureTargetIfNeeded(
+        from initialCapture: ContextCaptureResult,
+        deliveryPolicy: ApplicationDeliveryPolicy
+    ) {
+        guard deliveryPolicy != .copyOnly,
+              let initialTarget = initialCapture.target,
+              !initialTarget.snapshot.isSecure,
+              !initialTarget.snapshot.isEditable,
+              let sessionID = captureSession?.id else {
+            return
+        }
+        targetRecoveryTask?.cancel()
+        targetRecoveryTask = Task { [weak self] in
+            guard let self else { return }
+            let recovered = await self.contextCapturer.recoverEditableTarget(
+                from: initialCapture
+            )
+            guard !Task.isCancelled,
+                  recovered.target?.snapshot.isEditable == true,
+                  var session = self.captureSession,
+                  session.id == sessionID else {
+                self.targetRecoveryTask = nil
+                return
+            }
+            self.captureTarget = recovered.target
+            session.target = recovered.target?.snapshot
+            session.context = recovered.context
+            self.captureSession = session
+            self.targetRecoveryTask = nil
+        }
     }
 
     private func beginCapture(
         capturedContext: ContextCaptureResult,
         mode: ModeDefinition,
         intent: VoiceIntent,
-        deliveryPolicy: ApplicationDeliveryPolicy
+        deliveryPolicy: ApplicationDeliveryPolicy,
+        activeTranscriber: any SpeechTranscribing
     ) {
         do {
             try audioCapturer.startRecording()
@@ -225,6 +274,7 @@ final class SessionCoordinator: ObservableObject {
             captureTarget = capturedContext.target
             captureMode = mode
             captureDeliveryPolicy = deliveryPolicy
+            captureTranscriber = activeTranscriber
             captureSession = session
             lastError = nil
             lastNotice = nil
@@ -262,8 +312,12 @@ final class SessionCoordinator: ObservableObject {
             return
         }
         captureSession = nil
+        targetRecoveryTask?.cancel()
+        targetRecoveryTask = nil
         captureMode = nil
         captureDeliveryPolicy = nil
+        let activeTranscriber = captureTranscriber ?? transcriber
+        captureTranscriber = nil
         let target = captureTarget
         captureTarget = nil
 
@@ -291,17 +345,19 @@ final class SessionCoordinator: ObservableObject {
             return
         }
 
-        pendingSessions.append(
-            PendingSession(
-                session: session,
-                audio: audio,
-                target: target ?? textTarget(for: session),
-                mode: mode,
-                deliveryPolicy: deliveryPolicy,
-                replayOriginalText: nil
-            )
+        let item = PendingSession(
+            session: session,
+            audio: audio,
+            target: target ?? textTarget(for: session),
+            mode: mode,
+            deliveryPolicy: deliveryPolicy,
+            replayOriginalText: nil,
+            transcriber: activeTranscriber
         )
-        if let data = try? Data(contentsOf: audio.url) {
+        // Replay and comparison are useful for advanced modes, but loading and
+        // retaining the audio is not part of instant faithful dictation.
+        if !isInstantDictation(item),
+           let data = try? Data(contentsOf: audio.url) {
             replayBuffer.retain(data, for: session.id)
             replayDescriptors[session.id] = ReplayDescriptor(
                 target: target ?? textTarget(for: session),
@@ -312,8 +368,8 @@ final class SessionCoordinator: ObservableObject {
             )
             trimReplayDescriptors()
         }
-        pendingCount = pendingSessions.count
-        processNextSession()
+        pendingCount = 0
+        process(item)
     }
 
     private func updateCaptureMode(_ modeID: UUID) {
@@ -343,6 +399,9 @@ final class SessionCoordinator: ObservableObject {
             return
         }
         if var session = captureSession {
+            targetRecoveryTask?.cancel()
+            targetRecoveryTask = nil
+            captureTranscriber = nil
             audioCapturer.cleanupCurrentRecording()
             captureSession = nil
             captureTarget = nil
@@ -364,6 +423,9 @@ final class SessionCoordinator: ObservableObject {
 
     func cancelProcessing() {
         guard processingTask != nil else { return }
+        processingDeadlineTask?.cancel()
+        processingDeadlineTask = nil
+        timedOutSessionID = nil
         processingTask?.cancel()
         lastNotice = "Traitement annulé"
         lastError = nil
@@ -409,6 +471,7 @@ final class SessionCoordinator: ObservableObject {
     }
 
     func retranscribeLastResult() {
+        guard processingTask == nil, pendingPreview == nil else { return }
         guard let previous = lastSession,
               let data = replayBuffer.audio(for: previous.id),
               let descriptor = replayDescriptors[previous.id] else {
@@ -448,18 +511,17 @@ final class SessionCoordinator: ObservableObject {
         )
         replayBuffer.retain(data, for: session.id)
         replayDescriptors[session.id] = descriptor
-        pendingSessions.append(
-            PendingSession(
-                session: session,
-                audio: audio,
-                target: descriptor.target,
-                mode: descriptor.mode,
-                deliveryPolicy: .preview,
-                replayOriginalText: previous.finalText ?? previous.rawText
-            )
+        let item = PendingSession(
+            session: session,
+            audio: audio,
+            target: descriptor.target,
+            mode: descriptor.mode,
+            deliveryPolicy: .preview,
+            replayOriginalText: previous.finalText ?? previous.rawText,
+            transcriber: transcriber
         )
-        pendingCount = pendingSessions.count
-        processNextSession()
+        pendingCount = 0
+        process(item)
     }
 
     func compareRawAndFinalResult() {
@@ -486,34 +548,35 @@ final class SessionCoordinator: ObservableObject {
         )
     }
 
-    private func processNextSession() {
-        guard processingTask == nil,
-              pendingPreview == nil,
-              !pendingSessions.isEmpty else {
+    private func process(_ pendingItem: PendingSession) {
+        guard processingTask == nil, pendingPreview == nil else { return }
+        if isInstantDictation(pendingItem) {
+            processInstantDictation(pendingItem)
             return
         }
-        var item = pendingSessions.removeFirst()
-        pendingCount = pendingSessions.count
+        var item = pendingItem
+        let sessionID = item.session.id
+        let deadlineSeconds = processingDeadlineSeconds(for: item)
+        pendingCount = 0
         item.session.timings.transcriptionStartedAt = Date()
         _ = item.session.transition(to: .transcribing)
         processingSession = item.session
-        hud.show(.transcribing, detail: queueDetail, autoHide: false)
+        hud.show(.transcribing, detail: nil, autoHide: false)
 
         processingTask = Task { [weak self] in
             guard let self else { return }
             defer {
+                self.processingDeadlineTask?.cancel()
+                self.processingDeadlineTask = nil
                 self.audioCapturer.cleanup(url: item.audio.url)
                 self.processingTask = nil
                 if self.pendingPreview?.sessionID != item.session.id {
                     self.processingSession = nil
-                    self.processNextSession()
                 }
             }
 
             do {
-                let activeTranscriber = try self.transcriptionRouter?
-                    .provider(for: item.mode, capabilities: self.capabilities)
-                    ?? self.transcriber
+                let activeTranscriber = item.transcriber
                 self.hud.show(
                     .transcribing,
                     detail: "\(activeTranscriber.locality == .local ? "Local" : "Cloud") · \(activeTranscriber.identifier)",
@@ -528,14 +591,18 @@ final class SessionCoordinator: ObservableObject {
                     duration: Date().timeIntervalSince(transcriptionStartedAt)
                 )
                 try Task.checkCancellation()
+                let transcriptionText = try TranscriptionResponseValidator.validated(
+                    transcription.text,
+                    vocabulary: ""
+                )
 
                 item.session.timings.transcriptionEndedAt = Date()
-                item.session.rawText = transcription.text
+                item.session.rawText = transcriptionText
                 _ = item.session.transition(to: .processing)
                 self.processingSession = item.session
 
                 let processed = try await self.processText(
-                    transcription.text,
+                    transcriptionText,
                     item: item
                 )
                 try Task.checkCancellation()
@@ -547,7 +614,7 @@ final class SessionCoordinator: ObservableObject {
                     || item.replayOriginalText != nil {
                     self.presentPreview(
                         item: item,
-                        rawText: transcription.text,
+                        rawText: transcriptionText,
                         processed: processed,
                         transcriptionProviderIdentifier: activeTranscriber.identifier
                     )
@@ -559,7 +626,7 @@ final class SessionCoordinator: ObservableObject {
                 await self.deliver(
                     text: processed.text,
                     item: item,
-                    rawText: transcription.text,
+                    rawText: transcriptionText,
                     providerIdentifier: processed.providerIdentifier,
                     transcriptionProviderIdentifier: activeTranscriber.identifier,
                     contextManifest: processed.contextManifest,
@@ -569,6 +636,129 @@ final class SessionCoordinator: ObservableObject {
                 self.finish(item: &item, with: error)
             }
         }
+        processingDeadlineTask = Task { [weak self] in
+            do {
+                try await Task.sleep(for: .seconds(deadlineSeconds))
+            } catch {
+                return
+            }
+            guard let self,
+                  self.processingSession?.id == sessionID,
+                  self.processingTask != nil else { return }
+            self.timedOutSessionID = sessionID
+            self.lastError = "Transcription interrompue : délai dépassé"
+            self.lastNotice = nil
+            self.hud.show(
+                .cancelled,
+                detail: self.lastError,
+                autoHide: true
+            )
+            self.processingTask?.cancel()
+        }
+    }
+
+    /// The default Fn path intentionally mirrors the original small app:
+    /// transcribe once, paste once, finish. Modes that rewrite text continue
+    /// through the richer coordinator below.
+    private func processInstantDictation(_ pendingItem: PendingSession) {
+        var item = pendingItem
+        let sessionID = item.session.id
+        pendingCount = 0
+        item.session.timings.transcriptionStartedAt = Date()
+        _ = item.session.transition(to: .transcribing)
+        processingSession = item.session
+        hud.show(
+            .transcribing,
+            detail: item.transcriber.locality == .local ? "Local" : "OpenAI",
+            autoHide: false
+        )
+
+        processingTask = Task { [weak self] in
+            guard let self else { return }
+            defer {
+                self.processingDeadlineTask?.cancel()
+                self.processingDeadlineTask = nil
+                self.audioCapturer.cleanup(url: item.audio.url)
+                self.processingTask = nil
+                self.processingSession = nil
+            }
+
+            do {
+                let transcriptionStartedAt = Date()
+                let transcription = try await item.transcriber.transcribe(
+                    audioURL: item.audio.url
+                )
+                self.metrics.record(
+                    .transcription,
+                    duration: Date().timeIntervalSince(transcriptionStartedAt)
+                )
+                try Task.checkCancellation()
+                let transcriptionText = try TranscriptionResponseValidator.validated(
+                    transcription.text,
+                    vocabulary: ""
+                )
+
+                item.session.timings.transcriptionEndedAt = Date()
+                item.session.timings.processingEndedAt = Date()
+                item.session.rawText = transcriptionText
+                item.session.finalText = transcriptionText
+                _ = item.session.transition(to: .processing)
+                _ = item.session.transition(to: .delivering)
+                self.processingSession = item.session
+
+                let insertionStartedAt = Date()
+                let inserted = await self.textDeliverer.injectDictation(
+                    text: transcriptionText,
+                    target: item.target
+                )
+                self.metrics.record(
+                    .insertion,
+                    duration: Date().timeIntervalSince(insertionStartedAt)
+                )
+
+                item.session.timings.deliveryEndedAt = Date()
+                _ = item.session.transition(to: .completed)
+                self.complete(
+                    session: item.session,
+                    rawText: transcriptionText,
+                    finalText: transcriptionText,
+                    processingProvider: nil,
+                    transcriptionProviderIdentifier: item.transcriber.identifier,
+                    contextManifest: [],
+                    audioDuration: item.audio.duration,
+                    inserted: inserted,
+                    lowConfidence: transcription.isLowConfidence
+                )
+            } catch {
+                self.finish(item: &item, with: error)
+            }
+        }
+        processingDeadlineTask = Task { [weak self] in
+            do {
+                try await Task.sleep(for: .seconds(8))
+            } catch {
+                return
+            }
+            guard let self,
+                  self.processingSession?.id == sessionID,
+                  self.processingTask != nil else { return }
+            self.timedOutSessionID = sessionID
+            self.lastError = "Transcription interrompue : délai dépassé"
+            self.lastNotice = nil
+            self.hud.show(
+                .cancelled,
+                detail: self.lastError,
+                autoHide: true
+            )
+            self.processingTask?.cancel()
+        }
+    }
+
+    private func isInstantDictation(_ item: PendingSession) -> Bool {
+        item.session.intent == .dictate
+            && item.mode.cleaningLevel == .faithful
+            && item.deliveryPolicy == .automatic
+            && item.replayOriginalText == nil
     }
 
     private func processText(
@@ -773,7 +963,6 @@ final class SessionCoordinator: ObservableObject {
             defer {
                 self.processingTask = nil
                 self.processingSession = nil
-                self.processNextSession()
             }
             let insertionStartedAt = Date()
             let inserted = await self.textDeliverer.inject(
@@ -812,7 +1001,6 @@ final class SessionCoordinator: ObservableObject {
         lastError = nil
         lastNotice = "Transformation annulée"
         hud.show(.cancelled, detail: lastNotice, autoHide: true)
-        processNextSession()
     }
 
     private func deliver(
@@ -850,7 +1038,11 @@ final class SessionCoordinator: ObservableObject {
             autoHide: false
         )
         let insertionStartedAt = Date()
-        let inserted = await textDeliverer.inject(text: text, target: item.target)
+        let inserted = if item.session.intent == .dictate {
+            await textDeliverer.injectDictation(text: text, target: item.target)
+        } else {
+            await textDeliverer.inject(text: text, target: item.target)
+        }
         metrics.record(
             .insertion,
             duration: Date().timeIntervalSince(insertionStartedAt)
@@ -887,6 +1079,16 @@ final class SessionCoordinator: ObservableObject {
         metrics.record(
             .total,
             duration: Date().timeIntervalSince(session.timings.createdAt)
+        )
+        metrics.recordSession(
+            performanceTrace(
+                session: session,
+                audioDuration: audioDuration,
+                transcriptionProvider: transcriptionProviderIdentifier
+                    ?? transcriber.identifier,
+                processingProvider: processingProvider,
+                inserted: inserted
+            )
         )
         lastSession = session
         let undoDeadline = inserted && textDeliverer.canUndoLastInsertion
@@ -929,12 +1131,13 @@ final class SessionCoordinator: ObservableObject {
                 ? "Texte inséré — vérifie cette transcription incertaine"
                 : "Texte inséré"
         } else {
+            let deliveryFailure = textDeliverer.lastDeliveryFailure
             if !textAlreadyCopied {
                 textDeliverer.copyToPasteboard(finalText)
             }
             if textAlreadyCopied {
                 lastNotice = "Texte copié"
-            } else if let failure = textDeliverer.lastDeliveryFailure {
+            } else if let failure = deliveryFailure {
                 lastNotice = "Texte copié — \(failure.userMessage)"
             } else {
                 lastNotice = "Texte copié — la cible initiale n’est plus disponible"
@@ -955,6 +1158,48 @@ final class SessionCoordinator: ObservableObject {
         hud.show(inserted ? .success : .copied, detail: lastNotice, autoHide: true)
     }
 
+    private func performanceTrace(
+        session: VoiceSession,
+        audioDuration: TimeInterval,
+        transcriptionProvider: String,
+        processingProvider: String?,
+        inserted: Bool
+    ) -> SessionPerformanceTrace {
+        let timings = session.timings
+        return SessionPerformanceTrace(
+            id: session.id,
+            createdAt: timings.createdAt,
+            audioDurationSeconds: audioDuration,
+            transcriptionProvider: transcriptionProvider,
+            processingProvider: processingProvider,
+            transcriptionSeconds: duration(
+                from: timings.transcriptionStartedAt,
+                to: timings.transcriptionEndedAt
+            ),
+            processingSeconds: duration(
+                from: timings.transcriptionEndedAt,
+                to: timings.processingEndedAt
+            ),
+            insertionSeconds: duration(
+                from: timings.processingEndedAt,
+                to: timings.deliveryEndedAt
+            ),
+            totalSeconds: duration(
+                from: timings.createdAt,
+                to: timings.deliveryEndedAt
+            ),
+            deliveryStatus: inserted ? .inserted : .copied,
+            deliveryFailure: inserted
+                ? nil
+                : textDeliverer.lastDeliveryFailure?.rawValue
+        )
+    }
+
+    private func duration(from start: Date?, to end: Date?) -> TimeInterval {
+        guard let start, let end else { return 0 }
+        return max(0, end.timeIntervalSince(start))
+    }
+
     private func trimReplayDescriptors() {
         let retainedIDs = Set(
             [captureSession?.id, processingSession?.id, lastSession?.id]
@@ -969,7 +1214,14 @@ final class SessionCoordinator: ObservableObject {
     }
 
     private func finish(item: inout PendingSession, with error: Error) {
-        if Task.isCancelled
+        if timedOutSessionID == item.session.id {
+            timedOutSessionID = nil
+            let message = "Transcription interrompue : délai dépassé"
+            _ = item.session.transition(to: .failed(message))
+            lastError = message
+            lastNotice = nil
+            sounds.playErrorSound()
+        } else if Task.isCancelled
             || error is CancellationError
             || (error as? URLError)?.code == .cancelled {
             _ = item.session.transition(to: .cancelled)
@@ -1015,8 +1267,9 @@ final class SessionCoordinator: ObservableObject {
         return "\(languageLabel) · \(modeName)"
     }
 
-    private var queueDetail: String? {
-        pendingCount > 0 ? "\(pendingCount) en attente" : nil
+    private func processingDeadlineSeconds(for item: PendingSession) -> Int {
+        if item.transcriber.locality == .local { return 30 }
+        return item.mode.cleaningLevel == .faithful ? 10 : 20
     }
 
     private enum CoordinatorError: LocalizedError {

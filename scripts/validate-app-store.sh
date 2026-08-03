@@ -41,7 +41,7 @@ sandbox_enabled="$(setting ENABLE_APP_SANDBOX)"
   echo "Version App Store inattendue: $marketing_version" >&2
   exit 1
 }
-[[ "$build_number" == <-> && "$build_number" -ge 12001 ]] || {
+[[ "$build_number" == <-> && "$build_number" -ge 12002 ]] || {
   echo "Build App Store invalide: $build_number" >&2
   exit 1
 }
@@ -77,6 +77,14 @@ done
   exit 1
 }
 
+privacy_manifest="$project_root/Pressay/PrivacyInfo.xcprivacy"
+for index in 0 1; do
+  [[ "$(plutil -extract "NSPrivacyCollectedDataTypes.$index.NSPrivacyCollectedDataTypeLinked" raw "$privacy_manifest")" == "true" ]] || {
+    echo "Les contenus envoyés avec une clé fournisseur doivent être déclarés comme liés au compte fournisseur." >&2
+    exit 1
+  }
+done
+
 xcodebuild build \
   -quiet \
   -project "$project" \
@@ -89,13 +97,13 @@ xcodebuild build \
 
 app="$derived_data/Build/Products/$configuration/Pressay Companion.app"
 binary="$app/Contents/MacOS/Pressay Companion"
-privacy_manifest="$app/Contents/Resources/PrivacyInfo.xcprivacy"
+bundled_privacy_manifest="$app/Contents/Resources/PrivacyInfo.xcprivacy"
 
 [[ -d "$app" && -x "$binary" ]] || {
   echo "Le produit App Store n'a pas été généré." >&2
   exit 1
 }
-[[ -f "$privacy_manifest" ]] || {
+[[ -f "$bundled_privacy_manifest" ]] || {
   echo "Le manifeste PrivacyInfo.xcprivacy est absent du bundle." >&2
   exit 1
 }

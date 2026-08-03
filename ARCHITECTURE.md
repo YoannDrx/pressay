@@ -1,8 +1,8 @@
 # Architecture de Pressay
 
 Ce document décrit le socle réellement présent dans la branche de
-développement. Les moteurs locaux concrets, actions, intégrations, réunions et
-stockage SQLite décrits dans `ROADMAP.md` restent des extensions planifiées.
+développement. Les actions, intégrations, réunions et le stockage SQLite
+décrits dans `ROADMAP.md` restent des extensions planifiées.
 
 ## Principes
 
@@ -43,7 +43,7 @@ flowchart LR
     F --> G
     G --> H{"Cloud ?"}
     H -->|"Oui"| L["CloudConsentController"]
-    H -->|"Non"| M["Traitement local"]
+    H -->|"Non"| M["Dictée fidèle"]
     L --> N{"Transformation ?"}
     M --> N
     N -->|"Non"| I["TextInjector"]
@@ -52,11 +52,13 @@ flowchart LR
     I --> K["HistoryRepository"]
 ```
 
-Une dictée Fidèle contourne le processeur de transformation. Les autres modes
-utilisent actuellement la Responses API. `ProviderPolicy.localOnly` échoue
-proprement en l’absence de processeur local. `askBeforeCloud` demande un choix à
-chaque session ; `cloudAllowed` affiche un disclosure initial dont la signature
-est invalidée si le fournisseur, le modèle ou les sources changent.
+Une dictée Fidèle contourne le processeur de transformation. La transcription
+utilise le moteur choisi globalement : OpenAI ou WhisperKit. Les autres modes
+utilisent la Responses API OpenAI. `ProviderPolicy.localOnly` force WhisperKit
+pour la transcription et échoue proprement lorsqu’une transformation cloud est
+requise. `askBeforeCloud` demande un choix à chaque session ; `cloudAllowed`
+affiche un disclosure initial dont la signature est invalidée si le modèle ou
+les sources changent.
 
 ## Machine d’état
 
@@ -176,28 +178,32 @@ conservée ; le payload ne l’est jamais.
 doit pas être présenté comme une garantie générale d’absence de traitement ou
 de rétention par le fournisseur.
 
-## Socle local 1.3 présent
+## Transcription locale
 
-`TranscriptionRouter` et `ProcessingRouter` appliquent les politiques
-`localOnly`, `preferLocal`, `askBeforeCloud` et `cloudAllowed`. Un fournisseur
-explicite gagne sur le choix automatique et une absence locale ne peut pas
-ouvrir le réseau sous `localOnly`.
+`TranscriptionRouter` ne choisit qu’entre OpenAI et WhisperKit. Le choix est
+global et explicite ; aucun fallback silencieux ne peut envoyer au cloud une
+dictée prévue en local. Les politiques historiques des modes ne peuvent que
+forcer le chemin local.
 
-`ModelCatalogService` vérifie un manifeste Ed25519, la compatibilité
-architecture/OS, l’espace disque et le SHA-256 avant déplacement dans
-`Application Support/Pressay/Models`. Il conserve au plus la version active et
-une version de repli, et refuse la suppression d’un modèle utilisé.
+Pour OpenAI, `TranscriptionService` envoie le M4A 16 kHz mono une seule fois à
+`gpt-4o-mini-transcribe` au relâchement. La requête interactive est bornée à
+huit secondes côté réseau et le coordinateur coupe le chemin fidèle après dix
+secondes. Il n’existe ni WebSocket, ni retry, ni file d’attente de dictées.
 
-Ce socle ne constitue pas encore Pressay 1.3 : aucun moteur FluidAudio,
-whisper.cpp, SpeechAnalyzer, Foundation Models ou llama.cpp n’est enregistré
-dans la build courante.
+`WhisperKitTranscriptionService` télécharge à la demande une seule variante
+épinglée (`small_216MB`) dans `Application Support/Pressay/WhisperKit`, expose
+une progression claire et conserve le modèle chargé après la première dictée.
+Le téléchargement n’est jamais déclenché au milieu d’une transcription et le
+modèle peut être supprimé depuis les réglages. Le moteur local est disponible
+sur Apple Silicon ; la build Intel conserve OpenAI et affiche une indisponibilité
+explicite pour WhisperKit.
 
 ## Extensions prévues
 
 Les nouvelles capacités doivent implémenter les contrats existants plutôt que
 réintroduire de la logique dans `AppState` :
 
-- routeurs et dépôts de modèles pour les moteurs locaux ;
+- benchmarks avant d’ajouter d’autres moteurs locaux ;
 - `HistoryRepository` SQLite chiffré et migration vérifiée ;
 - contexte projet derrière security-scoped bookmarks ;
 - `ActionProposal` validée par schéma puis évaluée par une politique locale ;

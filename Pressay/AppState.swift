@@ -32,7 +32,8 @@ final class AppState: ObservableObject {
             transcriptionRouter: TranscriptionRouter(
                 registrations: SystemProviderRegistry
                     .transcriptionRegistrations(
-                        openAI: TranscriptionService.shared
+                        openAI: TranscriptionService.shared,
+                        whisperKit: WhisperKitTranscriptionService.shared
                     )
             ),
             processingRouter: ProcessingRouter(
@@ -217,12 +218,12 @@ final class AppState: ObservableObject {
     func updateAPIKey(_ key: String) async -> Bool {
         let cleanKey = key.trimmingCharacters(in: .whitespacesAndNewlines)
         let isValid = await TranscriptionService.shared.validateAPIKey(cleanKey)
-        if isValid, KeychainHelper.shared.save(apiKey: cleanKey) {
-            hasAPIKey = true
-            sessionCoordinator.clearMessages()
-            return true
+        guard isValid, KeychainHelper.shared.save(apiKey: cleanKey) else {
+            return false
         }
-        return false
+        hasAPIKey = true
+        sessionCoordinator.clearMessages()
+        return true
     }
 
     func clearAPIKey() {
@@ -234,7 +235,7 @@ final class AppState: ObservableObject {
     private func shortcutPressed() {
         let mode = ActivationMode(
             rawValue: UserDefaults.standard.string(forKey: Constants.activationModeKey) ?? ""
-        ) ?? .hold
+        ) ?? ActivationMode(rawValue: Constants.defaultActivationMode) ?? .hold
         if mode == .toggle, isRecording {
             sessionCoordinator.stopCaptureAndQueue()
         } else {

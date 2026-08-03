@@ -11,14 +11,14 @@ Sparkle.
 | Canal | Produit | Bundle ID | Version initiale | Livraison du texte |
 | --- | --- | --- | --- | --- |
 | Direct | `Pressay.app` | `fr.yodev.pressay` | 1.2.2 | Insertion universelle lorsque la cible est vérifiable |
-| Mac App Store | `Pressay Companion.app` | `fr.yodev.pressay` | 1.2.0 (12001) | Presse-papiers et Voice Inbox |
+| Mac App Store | `Pressay Companion.app` | `fr.yodev.pressay` | 1.2.0 (12005) | Presse-papiers et Voice Inbox |
 
 La variante App Store ne doit jamais promettre la dictée universelle. Elle
 propose une dictée déclenchée depuis la barre des menus, les douze modes, les
 modes personnalisés, l'historique chiffré et la Voice Inbox. Le résultat est
 copié ; l'utilisateur le colle où il le souhaite.
 
-## État du code et de la livraison au 1er août 2026
+## État du code et de la livraison au 3 août 2026
 
 - cible et schéma partagés `Pressay App Store` présents dans Xcode ;
 - compilation conditionnelle `APP_STORE` ;
@@ -28,8 +28,12 @@ copié ; l'utilisateur le colle où il le souhaite.
 - manifeste `PrivacyInfo.xcprivacy` inclus ;
 - build Release universel vérifié par `scripts/validate-app-store.sh` ;
 - tests de non-régression de la variante directe conservés.
-- archive 1.2.0 (12001) signée et exportée avec le profil Mac App Store ;
-- paquet téléversé et accepté par Apple, état `BETA_INTERNAL_TESTING` ;
+- archive 1.2.0 (12001) signée, téléversée et acceptée par Apple en
+  `BETA_INTERNAL_TESTING` ; le candidat source suivant porte désormais le build
+  unique 12002, désormais obsolète ;
+- les paquets 12002 à 12004 sont obsolètes ; le candidat source 12005 remplace
+  le routage multi-provider par OpenAI + WhisperKit local et doit recevoir une
+  nouvelle archive avant téléversement ;
 - textes français publiés dans App Store Connect ;
 - trois captures 1440 × 900 sans transparence prêtes dans
   `AppStoreAssets/Screenshots/Final` ;
@@ -88,9 +92,9 @@ le script ne téléverse et ne soumet rien automatiquement.
    et le build a terminé son traitement Apple.
 6. Il reste à tester une installation via TestFlight sur une session macOS
    propre.
-7. Il reste à charger les captures, publier les réponses de confidentialité,
-   compléter la classification d’âge, associer le build et fournir une clé API
-   temporaire à App Review avant la soumission.
+7. Il reste à actualiser les captures si l'écran Fournisseurs a changé, publier
+   les réponses de confidentialité, compléter la classification d’âge, associer
+   le build et fournir une clé API temporaire à App Review avant la soumission.
 
 Apple documente l'App Sandbox comme une exigence du Mac App Store et exige que
 les mises à jour App Store passent par l'App Store. Le flux direct reste donc un
@@ -125,7 +129,12 @@ Description courte à développer dans App Store Connect :
 > Utilisez le mode Fidèle pour une transcription directe ou les modes Propre,
 > Message, Email, Prompt IA, Note, Compte rendu, Ticket, Commit, Traduction,
 > Résumé et Tâches pour adapter le résultat. Vous gardez le contrôle du contenu
-> transmis et utilisez votre propre clé API OpenAI, stockée dans le Trousseau.
+> transmis. Utilisez votre propre clé API OpenAI, stockée dans le Trousseau, ou
+> téléchargez WhisperKit pour une transcription Fidèle entièrement locale.
+
+Lorsque OpenAI est sélectionné, le court enregistrement est transmis une fois à
+`gpt-4o-mini-transcribe` au relâchement de la touche. WhisperKit ne transmet pas
+l'audio hors du Mac.
 
 Ajouter sans ambiguïté à la description :
 
@@ -162,24 +171,25 @@ pas montrer ni mentionner un collage automatique dans une app tierce.
 ## Confidentialité App Store Connect
 
 La fiche doit contenir une URL publique stable vers `PRIVACY.md` rendu sur le
-site ou vers une page équivalente. Les réponses doivent couvrir OpenAI, même si
-Pressay n'exploite pas lui-même le contenu.
+site ou vers une page équivalente. Les réponses de collecte couvrent OpenAI ;
+WhisperKit traite l’audio localement et n’entraîne pas de collecte distante.
 
 Réponses prudentes pour le premier build :
 
 - collecte déclarée : **Audio Data** et **Other User Content** ;
 - finalité : **App Functionality** uniquement ;
 - données non utilisées pour le tracking ;
-- données non liées à une identité Pressay, puisqu'il n'existe aucun compte
-  Pressay et qu'aucun identifiant utilisateur n'est ajouté aux requêtes ;
+- données potentiellement liées au compte OpenAI par la clé API ; le build
+  12005 ne les lie pas à une identité Pressay ;
 - aucune publicité, analytique distante, crash reporter tiers ou marketing ;
 - clé API conservée dans le Trousseau et jamais envoyée à Yodev ;
 - historique et Inbox conservés localement et chiffrés.
 
 Apple définit la « collecte » selon la durée et l'accès au-delà du traitement
 temps réel. Les réponses finales doivent néanmoins rester prudentes et refléter
-les pratiques réelles d'OpenAI au moment de la soumission. Toute modification
-de fournisseur, de rétention ou de télémétrie impose une mise à jour de la fiche.
+les pratiques réelles des fournisseurs au moment de la soumission. Toute
+modification de fournisseur, de rétention ou de télémétrie impose une mise à
+jour de la fiche.
 
 ## Notes destinées à App Review
 
@@ -187,7 +197,8 @@ Préparer une note explicite :
 
 1. Pressay Companion est une app de barre des menus ; une fenêtre de réglages
    s'ouvre au premier lancement et l'icône reste visible en haut de l'écran.
-2. Autoriser le microphone, saisir une clé API OpenAI de test, choisir Fidèle,
+2. Suivre l’onboarding, autoriser le microphone, saisir une clé API OpenAI de
+   test, choisir Fidèle,
    cliquer **Démarrer une dictée**, parler, puis cliquer **Terminer la dictée**.
 3. Le résultat est copié dans le presse-papiers et ajouté à la Voice Inbox. Le
    comportement est volontaire et résulte du sandbox ; aucune permission
@@ -195,6 +206,8 @@ Préparer une note explicite :
 4. Les transformations cloud utilisent la clé personnelle et affichent le mode
    et les sources pertinentes. Aucun compte Pressay n'est requis.
 5. L'app ne télécharge ni code exécutable ni mécanisme de mise à jour externe.
+   Le téléchargement WhisperKit est une ressource Core ML non exécutable,
+   déclenchée explicitement et supprimable dans les réglages.
 
 Apple doit pouvoir tester le parcours complet. Créer pour la revue une clé API
 temporaire, limitée à un projet et à un budget faible, la transmettre uniquement
@@ -217,4 +230,4 @@ jamais embarquer cette clé dans l'app ou le dépôt.
 - URL d'assistance et politique de confidentialité publiques ;
 - classification d'âge, droits sur le contenu et conformité export complétés ;
 - prix/disponibilité et méthode de publication choisis ;
-- clé de revue temporaire valide et notes de revue complètes.
+- clé de revue temporaire OpenAI valide et notes de revue complètes.

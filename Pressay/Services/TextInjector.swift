@@ -35,6 +35,10 @@ final class TextInjector: TextDelivering {
         return false
     }
 
+    func injectDictation(text: String, target: TextInjectionTarget?) async -> Bool {
+        await inject(text: text, target: target)
+    }
+
     func copyToPasteboard(_ text: String) {
         lastDeliveryStrategy = .copied
         NSPasteboard.general.clearContents()
@@ -104,6 +108,18 @@ final class TextInjector: TextDelivering {
     }
 
     func inject(text: String, target: TextInjectionTarget?) async -> Bool {
+        await deliver(text: text, target: target, isInstantDictation: false)
+    }
+
+    func injectDictation(text: String, target: TextInjectionTarget?) async -> Bool {
+        await deliver(text: text, target: target, isInstantDictation: true)
+    }
+
+    private func deliver(
+        text: String,
+        target: TextInjectionTarget?,
+        isInstantDictation: Bool
+    ) async -> Bool {
         let cleanText = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !cleanText.isEmpty else { return fail(.emptyText) }
         guard TextInjector.hasAccessibilityPermission() else {
@@ -111,7 +127,14 @@ final class TextInjector: TextDelivering {
         }
         guard let target else { return fail(.missingTarget) }
         guard !target.snapshot.isSecure else { return fail(.secureTarget) }
-        guard target.snapshot.isEditable else {
+        guard let app = NSRunningApplication(
+            processIdentifier: target.processIdentifier
+        ),
+              !app.isTerminated else {
+            return fail(.targetApplicationUnavailable)
+        }
+        let prefersPaste = prefersPasteDelivery(for: target)
+        guard target.snapshot.isEditable || prefersPaste else {
             logger.error(
                 """
                 Non-editable AX target: role=\(target.snapshot.elementRole ?? "nil", privacy: .public), \
@@ -126,12 +149,6 @@ final class TextInjector: TextDelivering {
         lastDeliveryStrategy = .copied
         lastDeliveryFailure = nil
 
-        guard let app = NSRunningApplication(
-            processIdentifier: target.processIdentifier
-        ),
-              !app.isTerminated else {
-            return fail(.targetApplicationUnavailable)
-        }
         app.activate(options: [.activateAllWindows])
         guard await waitForTargetApplication(target.processIdentifier) else {
             return fail(.targetApplicationNotFrontmost)
@@ -139,38 +156,142 @@ final class TextInjector: TextDelivering {
         guard windowStillMatches(target) else {
             return fail(.targetWindowChanged)
         }
-        guard focusedElementStillMatches(target) else {
+        guard let activeTarget = matchingFocusedTarget(
+            target,
+            allowsPasteOnlyTarget: prefersPaste
+        ) else {
             return false
         }
-        guard await selectionStillMatches(target) else {
+        guard await selectionStillMatches(activeTarget) else {
             return fail(.selectionChanged)
         }
 
-        let prefersPaste = prefersPasteDelivery(for: target)
-        if target.snapshot.canWriteSelectedText,
-           !prefersPaste,
-           let element = target.focusedElement,
-           AXUIElementSetAttributeValue(
-               element,
-               kAXSelectedTextAttribute as CFString,
-               cleanText as CFString
-           ) == .success {
-            rememberUndo(for: target, insertedText: cleanText)
+        if DeliveryPreferencePolicy.shouldUseApplicationMenuPaste(
+            prefersPaste: prefersPaste,
+            isInstantDictation: isInstantDictation
+        ),
+           await ClipboardTransactionCoordinator.shared
+            .pasteDictationUsingApplicationMenu(
+                cleanText,
+                processIdentifier: activeTarget.processIdentifier
+            ) {
+            rememberUndo(for: activeTarget, insertedText: cleanText)
+            lastDeliveryStrategy = .paste
+            return true
+        }
+
+        if DeliveryPreferencePolicy.shouldUseAccessibilityReplacement(
+            canWriteSelectedText: activeTarget.snapshot.canWriteSelectedText,
+            prefersPaste: prefersPaste,
+            isInstantDictation: isInstantDictation
+        ),
+           await insertSelectedTextUsingAccessibility(
+               cleanText,
+               in: activeTarget
+           ) {
+            rememberUndo(for: activeTarget, insertedText: cleanText)
             lastDeliveryStrategy = .accessibilityReplacement
             return true
         }
 
-        let didPaste = await ClipboardTransactionCoordinator.shared.paste(cleanText)
+        let expectedPastedValue = prefersPaste
+            ? activeTarget.focusedElement.flatMap {
+                expectedValue(afterInserting: cleanText, in: $0)
+            }
+            : nil
+        let pasteWasPosted = if isInstantDictation {
+            await ClipboardTransactionCoordinator.shared.pasteDictation(cleanText)
+        } else {
+            await ClipboardTransactionCoordinator.shared.paste(cleanText)
+        }
+        let didPaste: Bool
+        if prefersPaste,
+           let element = activeTarget.focusedElement,
+           let expectedPastedValue {
+            didPaste = pasteWasPosted
+                ? await value(of: element, becomes: expectedPastedValue.value)
+                : false
+        } else {
+            didPaste = pasteWasPosted && !prefersPaste
+        }
         if didPaste,
-           target.focusedElement != nil,
-           target.selectionRange != nil {
-            rememberUndo(for: target, insertedText: cleanText)
+           activeTarget.focusedElement != nil,
+           activeTarget.selectionRange != nil {
+            rememberUndo(for: activeTarget, insertedText: cleanText)
         }
         lastDeliveryStrategy = didPaste ? .paste : .copied
         if !didPaste {
             return fail(.clipboardPasteFailed)
         }
         return didPaste
+    }
+
+    private func insertSelectedTextUsingAccessibility(
+        _ text: String,
+        in target: TextInjectionTarget
+    ) async -> Bool {
+        guard let element = target.focusedElement else {
+            return false
+        }
+        let expectedValue = expectedValue(
+            afterInserting: text,
+            in: element
+        )
+        guard AXUIElementSetAttributeValue(
+            element,
+            kAXSelectedTextAttribute as CFString,
+            text as CFString
+        ) == .success else {
+            return false
+        }
+
+        if let expectedValue,
+           !(await value(of: element, becomes: expectedValue.value)) {
+            // Chromium can apply AXSelectedText while continuing to publish a
+            // stale AXValue. The setter only receives the new dictation, so it
+            // cannot reintroduce text from an obsolete editor snapshot. Do not
+            // retry with Cmd+V after a successful setter or text may duplicate.
+            logger.debug(
+                "Accessibility accepted selected-text insertion before AX verification caught up"
+            )
+        }
+        return true
+    }
+
+    private func expectedValue(
+        afterInserting text: String,
+        in element: AXUIElement
+    ) -> AccessibilityValueReplacement? {
+        guard let currentValue = copiedString(
+            attribute: kAXValueAttribute,
+            from: element
+        ),
+              let range = selectedTextRange(from: element) else {
+            return nil
+        }
+        return AccessibilityValueInsertion.replacingSelection(
+            in: currentValue,
+            location: range.location,
+            length: range.length,
+            with: text
+        )
+    }
+
+    private func value(
+        of element: AXUIElement,
+        becomes expectedValue: String
+    ) async -> Bool {
+        for _ in 0..<20 {
+            if copiedString(
+                attribute: kAXValueAttribute,
+                from: element
+            ) == expectedValue {
+                return true
+            }
+            if Task.isCancelled { return false }
+            try? await Task.sleep(for: .milliseconds(25))
+        }
+        return false
     }
 
     private func prefersPasteDelivery(for target: TextInjectionTarget) -> Bool {
@@ -288,11 +409,19 @@ final class TextInjector: TextDelivering {
         _ target: TextInjectionTarget,
         recordsFailure: Bool = true
     ) -> Bool {
+        matchingFocusedTarget(target, recordsFailure: recordsFailure) != nil
+    }
+
+    private func matchingFocusedTarget(
+        _ target: TextInjectionTarget,
+        recordsFailure: Bool = true,
+        allowsPasteOnlyTarget: Bool = false
+    ) -> TextInjectionTarget? {
         guard let originalElement = target.focusedElement else {
             if recordsFailure {
                 _ = fail(.focusedElementUnavailable)
             }
-            return false
+            return nil
         }
         let appElement = AXUIElementCreateApplication(target.processIdentifier)
         var currentValue: CFTypeRef?
@@ -306,11 +435,11 @@ final class TextInjector: TextDelivering {
             if recordsFailure {
                 _ = fail(.focusedElementUnavailable)
             }
-            return false
+            return nil
         }
         let currentElement = unsafeBitCast(currentValue, to: AXUIElement.self)
         if CFEqual(currentElement, originalElement) {
-            return true
+            return target
         }
         let role = copiedString(
             attribute: kAXRoleAttribute,
@@ -354,18 +483,26 @@ final class TextInjector: TextDelivering {
                 reportsEditable: reportsEditable,
                 canWriteSelectedText: canWriteSelectedText,
                 canWriteValue: canWriteValue
-            )
+            ),
+            allowsPasteOnlyTarget: allowsPasteOnlyTarget
         )
         if !matches, recordsFailure {
             _ = fail(.focusedElementChanged)
         }
-        return matches
+        guard matches else { return nil }
+        return TextInjectionTarget(
+            snapshot: target.snapshot,
+            focusedElement: currentElement,
+            selectionRange: target.selectionRange,
+            selectedText: target.selectedText
+        )
     }
 
     private func waitForTargetApplication(
-        _ processIdentifier: pid_t
+        _ processIdentifier: pid_t,
+        timeout: Duration = .seconds(1)
     ) async -> Bool {
-        let deadline = ContinuousClock.now + .seconds(1)
+        let deadline = ContinuousClock.now + timeout
         while ContinuousClock.now < deadline {
             if NSWorkspace.shared.frontmostApplication?.processIdentifier
                 == processIdentifier {
@@ -646,8 +783,52 @@ enum DeliveryPreferencePolicy {
         isElectron
             || bundleIdentifier.map(browserBundleIdentifiers.contains) == true
     }
+
+    static func shouldUseAccessibilityReplacement(
+        canWriteSelectedText: Bool,
+        prefersPaste: Bool,
+        isInstantDictation: Bool
+    ) -> Bool {
+        canWriteSelectedText && !prefersPaste
+    }
+
+    static func shouldUseApplicationMenuPaste(
+        prefersPaste: Bool,
+        isInstantDictation: Bool
+    ) -> Bool {
+        prefersPaste && isInstantDictation
+    }
 }
 #endif
+
+struct AccessibilityValueReplacement: Equatable {
+    let value: String
+    let cursorLocation: Int
+}
+
+enum AccessibilityValueInsertion {
+    static func replacingSelection(
+        in currentValue: String,
+        location: Int,
+        length: Int,
+        with insertedText: String
+    ) -> AccessibilityValueReplacement? {
+        let value = currentValue as NSString
+        guard location >= 0,
+              length >= 0,
+              location <= value.length,
+              length <= value.length - location else {
+            return nil
+        }
+        return AccessibilityValueReplacement(
+            value: value.replacingCharacters(
+                in: NSRange(location: location, length: length),
+                with: insertedText
+            ),
+            cursorLocation: location + (insertedText as NSString).length
+        )
+    }
+}
 
 enum FocusedElementValidator {
     static func matches(
@@ -657,10 +838,11 @@ enum FocusedElementValidator {
         currentRole: String?,
         currentSubrole: String?,
         currentIsSecure: Bool,
-        currentIsEditable: Bool
+        currentIsEditable: Bool,
+        allowsPasteOnlyTarget: Bool = false
     ) -> Bool {
         guard !currentIsSecure,
-              currentIsEditable,
+              currentIsEditable || allowsPasteOnlyTarget,
               currentRole == snapshot.elementRole,
               currentSubrole == snapshot.elementSubrole else {
             return false

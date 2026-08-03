@@ -3,9 +3,9 @@
 <plist version="1.0">
 <dict>
     <key>CFBundleName</key>
-    <string>Pressay</string>
+	<string>$(PRESSAY_DISPLAY_NAME)</string>
     <key>CFBundleDisplayName</key>
-    <string>Pressay</string>
+    <string>$(PRESSAY_DISPLAY_NAME)</string>
     <key>CFBundleIdentifier</key>
     <string>$(PRODUCT_BUNDLE_IDENTIFIER)</string>
     <key>CFBundleVersion</key>

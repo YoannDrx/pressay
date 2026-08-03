@@ -67,12 +67,21 @@ struct ContextCaptureResult {
 @MainActor
 protocol ContextCapturing: AnyObject {
     func capture() -> ContextCaptureResult
+    func recoverEditableTarget(
+        from initialCapture: ContextCaptureResult
+    ) async -> ContextCaptureResult
     func captureSelectionFallback(
         from initialCapture: ContextCaptureResult
     ) async -> ContextCaptureResult
 }
 
 extension ContextCapturing {
+    func recoverEditableTarget(
+        from initialCapture: ContextCaptureResult
+    ) async -> ContextCaptureResult {
+        initialCapture
+    }
+
     func captureSelectionFallback(
         from initialCapture: ContextCaptureResult
     ) async -> ContextCaptureResult {
@@ -117,6 +126,7 @@ protocol TextDelivering: AnyObject {
     var canUndoLastInsertion: Bool { get }
     var lastDeliveryStrategy: DeliveryStrategy { get }
     var lastDeliveryFailure: DeliveryFailureReason? { get }
+    func injectDictation(text: String, target: TextInjectionTarget?) async -> Bool
     func inject(text: String, target: TextInjectionTarget?) async -> Bool
     func copyToPasteboard(_ text: String)
     func undoLastInsertion() -> Bool
@@ -126,6 +136,9 @@ protocol TextDelivering: AnyObject {
 extension TextDelivering {
     var lastDeliveryStrategy: DeliveryStrategy { .copied }
     var lastDeliveryFailure: DeliveryFailureReason? { nil }
+    func injectDictation(text: String, target: TextInjectionTarget?) async -> Bool {
+        await inject(text: text, target: target)
+    }
     func prepareRecentInsertionForReplacement() -> Bool { false }
 }
 
@@ -246,6 +259,42 @@ protocol TranscriptionRouting: AnyObject {
         for mode: ModeDefinition,
         capabilities: CapabilityMatrix
     ) throws -> any SpeechTranscribing
+    func fallbackProvider(
+        after identifier: String,
+        for mode: ModeDefinition,
+        capabilities: CapabilityMatrix
+    ) -> (any SpeechTranscribing)?
+}
+
+extension TranscriptionRouting {
+    func fallbackProvider(
+        after identifier: String,
+        for mode: ModeDefinition,
+        capabilities: CapabilityMatrix
+    ) -> (any SpeechTranscribing)? { nil }
+}
+
+enum ProviderFailurePolicy {
+    static func isTransient(_ error: Error) -> Bool {
+        if let urlError = error as? URLError {
+            return [
+                .timedOut,
+                .cannotFindHost,
+                .cannotConnectToHost,
+                .networkConnectionLost,
+                .dnsLookupFailed,
+                .notConnectedToInternet,
+                .resourceUnavailable
+            ].contains(urlError.code)
+        }
+        if case TranscriptionService.TranscriptionError.httpError(let status) = error {
+            return status == 408 || status == 429 || (500...599).contains(status)
+        }
+        if case OpenAITextProcessingService.ProcessingError.httpError(let status) = error {
+            return status == 408 || status == 429 || (500...599).contains(status)
+        }
+        return false
+    }
 }
 
 protocol ProcessingRouting: AnyObject {
@@ -269,6 +318,11 @@ protocol SoundFeedback: AnyObject {
 
 protocol MetricsRecording: AnyObject {
     func record(_ step: MetricStep, duration: TimeInterval)
+    func recordSession(_ trace: SessionPerformanceTrace)
+}
+
+extension MetricsRecording {
+    func recordSession(_ trace: SessionPerformanceTrace) {}
 }
 
 @MainActor

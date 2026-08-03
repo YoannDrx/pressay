@@ -24,8 +24,8 @@ final class OpenAITextProcessingService: TextProcessing {
             self.session = session
         } else {
             let configuration = URLSessionConfiguration.ephemeral
-            configuration.timeoutIntervalForRequest = 45
-            configuration.timeoutIntervalForResource = 90
+            configuration.timeoutIntervalForRequest = 20
+            configuration.timeoutIntervalForResource = 45
             configuration.requestCachePolicy = .reloadIgnoringLocalCacheData
             self.session = URLSession(configuration: configuration)
         }

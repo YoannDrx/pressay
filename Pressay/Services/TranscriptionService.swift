@@ -11,12 +11,21 @@ struct TranscriptionResult: Equatable {
 }
 
 enum TranscriptionResponseValidator {
+    private static let knownHallucinatedEndings = [
+        "faites ce que vous voulez"
+    ]
+    private static let wordExpression = try! NSRegularExpression(
+        pattern: "[\\p{L}\\p{N}]+"
+    )
+
     static func validated(
         _ text: String,
         vocabulary: String,
         prompt: String? = nil
     ) throws -> String {
-        let cleanText = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        let cleanText = removeKnownHallucinatedEnding(
+            from: text.trimmingCharacters(in: .whitespacesAndNewlines)
+        )
         guard !cleanText.isEmpty else {
             throw TranscriptionService.TranscriptionError.noSpeech
         }
@@ -29,6 +38,40 @@ enum TranscriptionResponseValidator {
             throw TranscriptionService.TranscriptionError.noSpeech
         }
         return cleanText
+    }
+
+    private static func removeKnownHallucinatedEnding(from text: String) -> String {
+        for ending in knownHallucinatedEndings {
+            let textRange = NSRange(text.startIndex..<text.endIndex, in: text)
+            let wordMatches = wordExpression.matches(in: text, range: textRange)
+            let endingWords = normalized(ending).split(separator: " ").map(String.init)
+            guard wordMatches.count >= endingWords.count else { continue }
+
+            let suffixMatches = wordMatches.suffix(endingWords.count)
+            let suffixWords = suffixMatches.compactMap { match -> String? in
+                guard let range = Range(match.range, in: text) else { return nil }
+                return normalized(String(text[range]))
+            }
+            guard suffixWords == endingWords,
+                  let firstMatch = suffixMatches.first,
+                  let phraseRange = Range(firstMatch.range, in: text) else {
+                continue
+            }
+
+            return cleanedPrefix(String(text[..<phraseRange.lowerBound]))
+        }
+        return text
+    }
+
+    private static func cleanedPrefix(_ prefix: String) -> String {
+        var result = prefix.trimmingCharacters(in: .whitespacesAndNewlines)
+        let softSeparators = CharacterSet(charactersIn: ",;:\u{2013}\u{2014}-")
+        while let scalar = result.unicodeScalars.last,
+              softSeparators.contains(scalar) {
+            result.removeLast()
+            result = result.trimmingCharacters(in: .whitespacesAndNewlines)
+        }
+        return result
     }
 
     static func normalized(_ text: String) -> String {
@@ -48,24 +91,20 @@ final class TranscriptionService: SpeechTranscribing {
     var isReady: Bool { KeychainHelper.shared.hasAPIKey }
 
     init(session: URLSession? = nil) {
-        if let session {
-            self.session = session
-        } else {
-            let configuration = URLSessionConfiguration.ephemeral
-            configuration.timeoutIntervalForRequest = 45
-            configuration.timeoutIntervalForResource = 120
-            configuration.requestCachePolicy = .reloadIgnoringLocalCacheData
-            self.session = URLSession(configuration: configuration)
-        }
+        // Keep the cloud path identical to the deliberately small reference
+        // implementation: one in-memory request on the shared session. The
+        // previous upload task could spend many seconds waiting to stream a
+        // temporary multipart file even for a tiny dictation.
+        self.session = session ?? .shared
     }
 
     private struct TranscriptionResponse: Decodable {
-        struct LogProbability: Decodable {
-            let logprob: Double
-        }
-
         let text: String
-        let logprobs: [LogProbability]?
+        let logprobs: [TokenLogProbability]?
+    }
+
+    private struct TokenLogProbability: Decodable {
+        let logprob: Double
     }
 
     private struct ErrorResponse: Decodable {
@@ -85,24 +124,26 @@ final class TranscriptionService: SpeechTranscribing {
         let language = preferences.string(forKey: Constants.transcriptionLanguageKey)
             ?? Constants.defaultTranscriptionLanguage
         let vocabulary = selectedVocabulary(preferences: preferences)
-        let prompt = vocabulary.isEmpty
-            ? nil
-            : transcriptionPrompt(vocabulary: vocabulary, language: language)
         let model = preferences.string(forKey: Constants.transcriptionModelKey)
             ?? Constants.defaultTranscriptionModel
-        let bodyURL = try makeBodyFile(
+        let prompt = transcriptionPrompt(
+            vocabulary: vocabulary,
+            language: language,
+            model: model
+        )
+        let body = try makeBody(
             audioURL: audioURL,
             model: model,
             language: language,
             prompt: prompt
         )
-        defer { try? FileManager.default.removeItem(at: bodyURL.url) }
 
-        let request = try makeRequest(
+        var request = try makeRequest(
             apiKey: apiKey,
-            boundary: bodyURL.boundary
+            boundary: body.boundary
         )
-        let (data, response) = try await session.upload(for: request, fromFile: bodyURL.url)
+        request.httpBody = body.data
+        let (data, response) = try await session.data(for: request)
         try Task.checkCancellation()
         let decoded = try decodeResponse(data: data, response: response)
         let cleanText = try TranscriptionResponseValidator.validated(
@@ -110,64 +151,93 @@ final class TranscriptionService: SpeechTranscribing {
             vocabulary: vocabulary,
             prompt: prompt
         )
-        let average = decoded.logprobs.flatMap { probabilities -> Double? in
-            guard !probabilities.isEmpty else { return nil }
-            return probabilities.map(\.logprob).reduce(0, +) / Double(probabilities.count)
-        }
-        return TranscriptionResult(text: cleanText, averageLogProbability: average)
+        let probabilities = decoded.logprobs?.map(\.logprob) ?? []
+        let averageLogProbability = probabilities.isEmpty
+            ? nil
+            : probabilities.reduce(0, +) / Double(probabilities.count)
+        return TranscriptionResult(
+            text: cleanText,
+            averageLogProbability: averageLogProbability
+        )
     }
 
     func validateAPIKey(_ apiKey: String) async -> Bool {
         guard apiKey.hasPrefix("sk-") else { return false }
 
+        guard let url = URL(string: "https://api.openai.com/v1/models") else {
+            return false
+        }
+        var request = URLRequest(url: url)
+        request.timeoutInterval = 8
+        request.setValue("Bearer \(apiKey)", forHTTPHeaderField: "Authorization")
         do {
-            let body = try makeValidationBody()
-            defer { try? FileManager.default.removeItem(at: body.url) }
-            let request = try makeRequest(apiKey: apiKey, boundary: body.boundary)
-            let (_, response) = try await session.upload(for: request, fromFile: body.url)
-            guard let http = response as? HTTPURLResponse else { return false }
-
-            // Un audio silencieux minimal peut être accepté ou rejeté comme illisible.
-            // Dans les deux cas l'authentification et le droit sur l'endpoint ont été testés.
-            return http.statusCode != 401 && http.statusCode != 403 && http.statusCode < 500
+            let (_, response) = try await session.data(for: request)
+            return (response as? HTTPURLResponse)?.statusCode == 200
         } catch {
             return false
         }
     }
 
-    private func makeBodyFile(
+    private func makeBody(
         audioURL: URL,
         model: String,
         language: String,
         prompt: String?
-    ) throws -> (url: URL, boundary: String) {
-        var body = MultipartFormData()
-        try body.appendFile(name: "file", filename: "audio.m4a", mimeType: "audio/m4a", url: audioURL)
-        body.appendField(name: "model", value: model)
-        body.appendField(name: "response_format", value: "json")
-        body.appendField(name: "include[]", value: "logprobs")
-        body.appendField(name: "temperature", value: "0")
-
+    ) throws -> (data: Data, boundary: String) {
+        let boundary = UUID().uuidString
+        let audioData = try Data(contentsOf: audioURL, options: .mappedIfSafe)
+        var data = Data()
+        data.appendMultipartFile(
+            boundary: boundary,
+            name: "file",
+            filename: "audio.\(audioURL.pathExtension)",
+            mimeType: Self.audioMIMEType(for: audioURL),
+            contents: audioData
+        )
+        data.appendMultipartField(boundary: boundary, name: "model", value: model)
+        data.appendMultipartField(
+            boundary: boundary,
+            name: "response_format",
+            value: "json"
+        )
+        if TranscriptionRequestPolicy.supportsVoiceActivityDetection(
+            model: model
+        ) {
+            data.appendMultipartField(
+                boundary: boundary,
+                name: "chunking_strategy",
+                value: "auto"
+            )
+            data.appendMultipartField(
+                boundary: boundary,
+                name: "include[]",
+                value: "logprobs"
+            )
+        }
         if !language.isEmpty {
-            body.appendField(name: "language", value: language)
+            data.appendMultipartField(
+                boundary: boundary,
+                name: "language",
+                value: language
+            )
         }
         if let prompt {
-            body.appendField(name: "prompt", value: prompt)
+            data.appendMultipartField(
+                boundary: boundary,
+                name: "prompt",
+                value: prompt
+            )
         }
-        return (try body.writeToTemporaryFile(), body.boundary)
+        data.appendUTF8("--\(boundary)--\r\n")
+        return (data, boundary)
     }
 
-    private func makeValidationBody() throws -> (url: URL, boundary: String) {
-        var body = MultipartFormData()
-        body.appendFile(
-            name: "file",
-            filename: "validation.wav",
-            mimeType: "audio/wav",
-            data: Self.silentWAV
-        )
-        body.appendField(name: "model", value: Constants.defaultTranscriptionModel)
-        body.appendField(name: "language", value: "fr")
-        return (try body.writeToTemporaryFile(), body.boundary)
+    private static func audioMIMEType(for url: URL) -> String {
+        switch url.pathExtension.lowercased() {
+        case "wav": "audio/wav"
+        case "flac": "audio/flac"
+        default: "audio/mp4"
+        }
     }
 
     private func makeRequest(apiKey: String, boundary: String) throws -> URLRequest {
@@ -176,6 +246,7 @@ final class TranscriptionService: SpeechTranscribing {
         }
         var request = URLRequest(url: url)
         request.httpMethod = "POST"
+        request.timeoutInterval = 8
         request.setValue("Bearer \(apiKey)", forHTTPHeaderField: "Authorization")
         request.setValue("multipart/form-data; boundary=\(boundary)", forHTTPHeaderField: "Content-Type")
         return request
@@ -210,36 +281,24 @@ final class TranscriptionService: SpeechTranscribing {
         }
     }
 
-    private func transcriptionPrompt(vocabulary: String, language: String) -> String {
+    private func transcriptionPrompt(
+        vocabulary: String,
+        language: String,
+        model: String
+    ) -> String? {
+        if model == "whisper-1" {
+            return vocabulary.isEmpty ? nil : vocabulary
+        }
+        let vocabularyGuidance = vocabulary.isEmpty
+            ? ""
+            : language == "en"
+                ? " Expected technical vocabulary: \(vocabulary)."
+                : " Vocabulaire technique attendu : \(vocabulary)."
         if language == "en" {
-            return "Natural dictation with accurate punctuation. Technical vocabulary may include: \(vocabulary)."
+            return "Transcribe only words actually spoken. Stop at the last spoken word; never complete trailing silence with extra text. Preserve natural punctuation.\(vocabularyGuidance)"
         }
-        return "Dictée naturelle avec une ponctuation fidèle. Le vocabulaire technique peut inclure : \(vocabulary)."
+        return "Transcris uniquement les mots réellement prononcés. Arrête-toi au dernier mot prononcé ; ne complète jamais le silence final par du texte. Conserve une ponctuation naturelle.\(vocabularyGuidance)"
     }
-
-    private static let silentWAV: Data = {
-        let sampleRate: UInt32 = 16_000
-        let samples = Data(repeating: 0, count: 1_600 * 2)
-        var data = Data()
-        func append<T>(_ value: T) {
-            var littleEndian = value
-            withUnsafeBytes(of: &littleEndian) { data.append(contentsOf: $0) }
-        }
-        data.append(Data("RIFF".utf8))
-        append(UInt32(36 + samples.count).littleEndian)
-        data.append(Data("WAVEfmt ".utf8))
-        append(UInt32(16).littleEndian)
-        append(UInt16(1).littleEndian)
-        append(UInt16(1).littleEndian)
-        append(sampleRate.littleEndian)
-        append(UInt32(sampleRate * 2).littleEndian)
-        append(UInt16(2).littleEndian)
-        append(UInt16(16).littleEndian)
-        data.append(Data("data".utf8))
-        append(UInt32(samples.count).littleEndian)
-        data.append(samples)
-        return data
-    }()
 
     enum TranscriptionError: LocalizedError, Equatable {
         case noAPIKey
@@ -265,5 +324,45 @@ final class TranscriptionService: SpeechTranscribing {
                 return "Erreur HTTP : \(code)"
             }
         }
+    }
+}
+
+enum TranscriptionRequestPolicy {
+    static func supportsVoiceActivityDetection(model: String) -> Bool {
+        model.hasPrefix("gpt-4o-")
+            && model.contains("transcribe")
+            && !model.contains("diarize")
+    }
+}
+
+private extension Data {
+    mutating func appendUTF8(_ string: String) {
+        append(contentsOf: string.utf8)
+    }
+
+    mutating func appendMultipartField(
+        boundary: String,
+        name: String,
+        value: String
+    ) {
+        appendUTF8("--\(boundary)\r\n")
+        appendUTF8("Content-Disposition: form-data; name=\"\(name)\"\r\n\r\n")
+        appendUTF8("\(value)\r\n")
+    }
+
+    mutating func appendMultipartFile(
+        boundary: String,
+        name: String,
+        filename: String,
+        mimeType: String,
+        contents: Data
+    ) {
+        appendUTF8("--\(boundary)\r\n")
+        appendUTF8(
+            "Content-Disposition: form-data; name=\"\(name)\"; filename=\"\(filename)\"\r\n"
+        )
+        appendUTF8("Content-Type: \(mimeType)\r\n\r\n")
+        append(contents)
+        appendUTF8("\r\n")
     }
 }

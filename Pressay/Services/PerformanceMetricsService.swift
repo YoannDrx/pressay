@@ -24,6 +24,20 @@ struct DiagnosticMetric: Codable, Equatable {
     let averageSeconds: TimeInterval?
 }
 
+struct SessionPerformanceTrace: Codable, Equatable, Identifiable {
+    let id: UUID
+    let createdAt: Date
+    let audioDurationSeconds: TimeInterval
+    let transcriptionProvider: String
+    let processingProvider: String?
+    let transcriptionSeconds: TimeInterval
+    let processingSeconds: TimeInterval
+    let insertionSeconds: TimeInterval
+    let totalSeconds: TimeInterval
+    let deliveryStatus: DeliveryStatus
+    let deliveryFailure: String?
+}
+
 struct DiagnosticPermissions: Codable, Equatable {
     let microphone: Bool
     let accessibility: Bool
@@ -52,6 +66,7 @@ struct DiagnosticReport: Codable, Equatable {
     let permissions: DiagnosticPermissions
     let configuration: DiagnosticConfiguration
     let metrics: [String: DiagnosticMetric]
+    let recentSessions: [SessionPerformanceTrace]
 
     static func make(
         metricsService: PerformanceMetricsService,
@@ -64,7 +79,7 @@ struct DiagnosticReport: Codable, Equatable {
         now: Date = Date()
     ) -> DiagnosticReport {
         DiagnosticReport(
-            schemaVersion: 1,
+            schemaVersion: 2,
             generatedAt: now,
             appVersion: bundle.object(
                 forInfoDictionaryKey: "CFBundleShortVersionString"
@@ -87,7 +102,7 @@ struct DiagnosticReport: Codable, Equatable {
                 ) ?? Constants.defaultProcessingModel,
                 activationMode: defaults.string(
                     forKey: Constants.activationModeKey
-                ) ?? ActivationMode.hold.rawValue,
+                ) ?? Constants.defaultActivationMode,
                 historyEnabled: boolValue(
                     forKey: Constants.historyEnabledKey,
                     defaultValue: true,
@@ -107,7 +122,8 @@ struct DiagnosticReport: Codable, Equatable {
                 customModeCount: customModeCount,
                 applicationProfileCount: applicationProfileCount
             ),
-            metrics: metricsService.diagnosticSnapshot()
+            metrics: metricsService.diagnosticSnapshot(),
+            recentSessions: metricsService.recentSessionTraces()
         )
     }
 
@@ -154,6 +170,8 @@ final class PerformanceMetricsService: ObservableObject, MetricsRecording {
 
     @Published private(set) var revision = 0
     private let defaults: UserDefaults
+    private let recentSessionsKey = "metric-session-traces-v1"
+    private let maximumRecentSessions = 30
 
     init(defaults: UserDefaults = .standard) {
         self.defaults = defaults
@@ -164,6 +182,28 @@ final class PerformanceMetricsService: ObservableObject, MetricsRecording {
         defaults.set(total(for: step) + duration, forKey: totalKey(step))
         defaults.set(count(for: step) + 1, forKey: countKey(step))
         revision += 1
+    }
+
+    func recordSession(_ trace: SessionPerformanceTrace) {
+        guard defaults.bool(forKey: Constants.metricsEnabledKey) else { return }
+        var traces = recentSessionTraces()
+        traces.insert(trace, at: 0)
+        if traces.count > maximumRecentSessions {
+            traces.removeLast(traces.count - maximumRecentSessions)
+        }
+        let encoder = JSONEncoder()
+        encoder.dateEncodingStrategy = .iso8601
+        if let data = try? encoder.encode(traces) {
+            defaults.set(data, forKey: recentSessionsKey)
+            revision += 1
+        }
+    }
+
+    func recentSessionTraces() -> [SessionPerformanceTrace] {
+        guard let data = defaults.data(forKey: recentSessionsKey) else { return [] }
+        let decoder = JSONDecoder()
+        decoder.dateDecodingStrategy = .iso8601
+        return (try? decoder.decode([SessionPerformanceTrace].self, from: data)) ?? []
     }
 
     func average(for step: MetricStep) -> TimeInterval? {
@@ -177,6 +217,7 @@ final class PerformanceMetricsService: ObservableObject, MetricsRecording {
             defaults.removeObject(forKey: totalKey(step))
             defaults.removeObject(forKey: countKey(step))
         }
+        defaults.removeObject(forKey: recentSessionsKey)
         revision += 1
     }
 

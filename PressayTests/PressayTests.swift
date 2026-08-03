@@ -113,6 +113,60 @@ final class TranscriptionResponseValidatorTests: XCTestCase {
         )
     }
 
+    func testKnownHallucinationIsRemovedWhenItIsASeparateFinalSentence() throws {
+        XCTAssertEqual(
+            try TranscriptionResponseValidator.validated(
+                "Je vais corriger ce problème. Faites ce que vous voulez.",
+                vocabulary: ""
+            ),
+            "Je vais corriger ce problème."
+        )
+    }
+
+    func testReportedHallucinationIsRemovedWithoutFinalPunctuation() throws {
+        XCTAssertEqual(
+            try TranscriptionResponseValidator.validated(
+                "Et là, ça marche, j'espère qu'il n'y a plus d'erreurs. Faites ce que vous voulez",
+                vocabulary: ""
+            ),
+            "Et là, ça marche, j'espère qu'il n'y a plus d'erreurs."
+        )
+    }
+
+    func testKnownHallucinationIgnoresInvisibleSeparators() throws {
+        XCTAssertEqual(
+            try TranscriptionResponseValidator.validated(
+                "La dictée est terminée. Faites\u{200B} ce\u{00A0}que vous voulez",
+                vocabulary: ""
+            ),
+            "La dictée est terminée."
+        )
+    }
+
+    func testKnownHallucinationAloneIsRejectedAsNoSpeech() {
+        XCTAssertThrowsError(
+            try TranscriptionResponseValidator.validated(
+                "Faites ce que vous voulez.",
+                vocabulary: ""
+            )
+        ) { error in
+            XCTAssertEqual(
+                error as? TranscriptionService.TranscriptionError,
+                .noSpeech
+            )
+        }
+    }
+
+    func testSameWordsRemainWhenTheyAreNotAtTheEnd() throws {
+        XCTAssertEqual(
+            try TranscriptionResponseValidator.validated(
+                "Faites ce que vous voulez, puis revenez demain.",
+                vocabulary: ""
+            ),
+            "Faites ce que vous voulez, puis revenez demain."
+        )
+    }
+
     func testFrenchPromptEchoIsRejected() {
         let vocabulary = Constants.defaultTechnicalVocabulary
         let prompt = "Dictée naturelle avec une ponctuation fidèle. Le vocabulaire technique peut inclure : \(vocabulary)."
@@ -145,6 +199,24 @@ final class TranscriptionResponseValidatorTests: XCTestCase {
     }
 }
 
+final class TranscriptionRequestPolicyTests: XCTestCase {
+    func testGPT4oMiniTranscribeUsesServerVoiceActivityDetection() {
+        XCTAssertTrue(
+            TranscriptionRequestPolicy.supportsVoiceActivityDetection(
+                model: "gpt-4o-mini-transcribe"
+            )
+        )
+    }
+
+    func testWhisperDoesNotReceiveUnsupportedGPT4oOptions() {
+        XCTAssertFalse(
+            TranscriptionRequestPolicy.supportsVoiceActivityDetection(
+                model: "whisper-1"
+            )
+        )
+    }
+}
+
 final class MultipartFormDataTests: XCTestCase {
     func testBodyContainsFieldsFileAndClosingBoundary() throws {
         var form = MultipartFormData(boundary: "test-boundary")
@@ -166,6 +238,49 @@ final class MultipartFormDataTests: XCTestCase {
     }
 }
 
+#if false // Pressay Cloud is outside the OpenAI + WhisperKit release scope.
+@MainActor
+final class AccountServiceSecurityTests: XCTestCase {
+    func testPKCEChallengeMatchesRFC7636Vector() {
+        let verifier = "dBjftJeZ4CVP-mB92K27uhbUJU1p1r_wW1gFWFOEjXk"
+        XCTAssertEqual(
+            AccountService.codeChallenge(for: verifier),
+            "E9Melhoa2OwvFrEMTJguCHaoeK1t8URWbuGJSstw-cM"
+        )
+    }
+
+    func testAuthorizationURLUsesCodeFlowPKCEAndAudience() throws {
+        let configuration = PressayCloudConfiguration(
+            apiBaseURL: URL(string: "https://api.pressay.app")!,
+            issuerURL: URL(string: "https://identity.pressay.app")!,
+            clientID: "pressay-macos",
+            audience: "pressay-api",
+            redirectURI: Constants.cloudRedirectURI
+        )
+        let url = try AccountService.authorizationURL(
+            configuration: configuration,
+            endpoint: URL(string: "https://identity.pressay.app/authorize")!,
+            verifier: "verifier",
+            state: "expected-state"
+        )
+        let items = try XCTUnwrap(
+            URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems
+        )
+        let values = Dictionary(
+            uniqueKeysWithValues: items.map { ($0.name, $0.value ?? "") }
+        )
+
+        XCTAssertEqual(values["response_type"], "code")
+        XCTAssertEqual(values["client_id"], "pressay-macos")
+        XCTAssertEqual(values["redirect_uri"], "pressay://oauth/callback")
+        XCTAssertEqual(values["state"], "expected-state")
+        XCTAssertEqual(values["code_challenge_method"], "S256")
+        XCTAssertEqual(values["audience"], "pressay-api")
+        XCTAssertTrue(values["scope", default: ""].contains("offline_access"))
+    }
+}
+#endif
+
 final class HistoryRetentionPolicyTests: XCTestCase {
     func testEntriesOlderThanConfiguredRetentionAreRemoved() {
         let now = Date(timeIntervalSince1970: 1_000_000)
@@ -176,6 +291,45 @@ final class HistoryRetentionPolicyTests: XCTestCase {
             HistoryRetentionPolicy.retained([recent, old], now: now, days: 1),
             [recent]
         )
+    }
+}
+
+final class EnrichedHistoryTests: XCTestCase {
+    func testLegacyEntryDecodesWithSafeEnrichedDefaults() throws {
+        let id = UUID()
+        let date = Date(timeIntervalSince1970: 1_700_000_000)
+        let legacy: [String: Any] = [
+            "id": id.uuidString,
+            "text": "Ancienne transcription",
+            "date": date.timeIntervalSinceReferenceDate
+        ]
+        let data = try JSONSerialization.data(withJSONObject: legacy)
+        let entry = try JSONDecoder().decode(TranscriptionEntry.self, from: data)
+
+        XCTAssertEqual(entry.id, id)
+        XCTAssertEqual(entry.rawText, "Ancienne transcription")
+        XCTAssertFalse(entry.isFavorite)
+        XCTAssertTrue(entry.tags.isEmpty)
+        XCTAssertNil(entry.parentEntryID)
+    }
+
+    func testVoiceInboxExtractsTitleProjectTagsAndExplicitTasksLocally() {
+        let record = HistoryRecord(
+            sessionID: UUID(),
+            rawText: "Préparer lancement #pressay\n- [ ] Contacter les bêta testeurs",
+            finalText: "Préparer lancement #pressay\n- [ ] Contacter les bêta testeurs",
+            transcriptionProvider: "openai",
+            audioDuration: 2,
+            deliveryStatus: .copied
+        )
+
+        let entry = VoiceInboxEntry(record: record)
+
+        XCTAssertEqual(entry.title, "Préparer lancement #pressay")
+        XCTAssertEqual(entry.project, "pressay")
+        XCTAssertEqual(entry.tags, ["pressay"])
+        XCTAssertEqual(entry.tasks, ["Contacter les bêta testeurs"])
+        XCTAssertEqual(entry.status, .inbox)
     }
 }
 
@@ -415,6 +569,30 @@ final class UpdateServiceTests: XCTestCase {
         XCTAssertEqual(info["SUEnableSystemProfiling"] as? Bool, false)
         XCTAssertEqual(info["SUVerifyUpdateBeforeExtraction"] as? Bool, true)
         XCTAssertNil(info["SUEnableAutomaticChecks"])
+    }
+
+    func testSparklePermissionPromptDetectionRequiresSecondLaunchWithoutAnswer() {
+        let suite = "fr.yodev.pressay.tests.sparkle.\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suite)!
+        defer { defaults.removePersistentDomain(forName: suite) }
+
+        XCTAssertFalse(
+            UpdateService.needsAutomaticCheckPermissionPrompt(defaults: defaults)
+        )
+        defaults.set(true, forKey: "SUHasLaunchedBefore")
+        XCTAssertTrue(
+            UpdateService.needsAutomaticCheckPermissionPrompt(defaults: defaults)
+        )
+        defaults.set(false, forKey: "SUEnableAutomaticChecks")
+        XCTAssertFalse(
+            UpdateService.needsAutomaticCheckPermissionPrompt(defaults: defaults)
+        )
+    }
+}
+
+final class ActivationDefaultsTests: XCTestCase {
+    func testFnDefaultsToHoldToTalk() {
+        XCTAssertEqual(Constants.defaultActivationMode, ActivationMode.hold.rawValue)
     }
 }
 
@@ -874,6 +1052,115 @@ final class OpenAITextProcessingServiceTests: XCTestCase {
     }
 }
 
+#if false // Legacy multi-provider coverage kept for history; runtime is OpenAI + WhisperKit.
+final class MultiProviderRequestTests: XCTestCase {
+    func testDeepgramUsesEUEndpointTokenAuthAndNova3Keyterms() throws {
+        let suiteName = "DeepgramRequestTests-\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        defaults.set("fr", forKey: Constants.transcriptionLanguageKey)
+        defaults.set("Pressay, SwiftUI", forKey: Constants.technicalVocabularyKey)
+        let service = DeepgramTranscriptionService(defaults: defaults)
+
+        let request = try service.makeListenRequest(apiKey: "dg-secret")
+        let components = try XCTUnwrap(
+            URLComponents(url: XCTUnwrap(request.url), resolvingAgainstBaseURL: false)
+        )
+        let keyterms = components.queryItems?
+            .filter { $0.name == "keyterm" }
+            .compactMap(\.value)
+
+        XCTAssertEqual(request.url?.host, "api.eu.deepgram.com")
+        XCTAssertEqual(request.value(forHTTPHeaderField: "Authorization"), "Token dg-secret")
+        XCTAssertEqual(request.value(forHTTPHeaderField: "Content-Type"), "audio/wav")
+
+        let liveRequest = try service.makeLiveRequest(apiKey: "dg-test")
+        XCTAssertEqual(liveRequest.url?.scheme, "wss")
+        XCTAssertEqual(liveRequest.url?.host, "api.eu.deepgram.com")
+        XCTAssertEqual(
+            liveRequest.value(forHTTPHeaderField: "Authorization"),
+            "Token dg-test"
+        )
+        let liveItems = try XCTUnwrap(
+            URLComponents(url: XCTUnwrap(liveRequest.url), resolvingAgainstBaseURL: false)?
+                .queryItems
+        )
+        XCTAssertTrue(liveItems.contains(.init(name: "encoding", value: "linear16")))
+        XCTAssertTrue(liveItems.contains(.init(name: "sample_rate", value: "16000")))
+        XCTAssertTrue(liveItems.contains(.init(name: "interim_results", value: "true")))
+        XCTAssertTrue(liveItems.contains(.init(name: "endpointing", value: "250")))
+        XCTAssertTrue(liveItems.contains(.init(name: "no_delay", value: "true")))
+        XCTAssertEqual(components.queryItems?.first { $0.name == "model" }?.value, "nova-3")
+        XCTAssertEqual(components.queryItems?.first { $0.name == "language" }?.value, "fr")
+        XCTAssertEqual(keyterms, ["Pressay", "SwiftUI"])
+        XCTAssertFalse(request.url?.absoluteString.contains("dg-secret") == true)
+    }
+
+    func testGroqRequestUsesOpenAICompatibleContractWithoutLeakingContext() throws {
+        let service = GroqTextProcessingService(apiKeyProvider: { "gsk_test" })
+        let mode = try XCTUnwrap(
+            NativeModeCatalog.visibleModes.first { $0.id == NativeModeCatalog.cleanID }
+        )
+        let request = try service.makeRequest(
+            for: TextProcessingRequest(
+                text: "euh bonjour",
+                mode: mode,
+                context: ContextSnapshot(
+                    applicationBundleIdentifier: "com.example.editor",
+                    applicationName: "Editor",
+                    windowTitle: "Secret",
+                    sources: [.application, .windowTitle]
+                )
+            ),
+            apiKey: "gsk_test"
+        )
+        let body = try XCTUnwrap(request.httpBody)
+        let json = try XCTUnwrap(
+            JSONSerialization.jsonObject(with: body) as? [String: Any]
+        )
+        let messages = try XCTUnwrap(json["messages"] as? [[String: Any]])
+        let userContent = try XCTUnwrap(messages.last?["content"] as? String)
+
+        XCTAssertEqual(request.url?.absoluteString, Constants.groqChatCompletionsURL)
+        XCTAssertEqual(request.value(forHTTPHeaderField: "Authorization"), "Bearer gsk_test")
+        XCTAssertEqual(json["model"] as? String, Constants.defaultGroqProcessingModel)
+        XCTAssertTrue(userContent.contains("Editor"))
+        XCTAssertFalse(userContent.contains("Secret"))
+    }
+
+    func testAnthropicRequestUsesMessagesContractAndRequiredHeaders() throws {
+        let service = AnthropicTextProcessingService(
+            apiKeyProvider: { "sk-ant-test" }
+        )
+        let mode = try XCTUnwrap(
+            NativeModeCatalog.visibleModes.first { $0.id == NativeModeCatalog.cleanID }
+        )
+        let request = try service.makeRequest(
+            for: TextProcessingRequest(
+                text: "Bonjour",
+                mode: mode,
+                context: ContextSnapshot()
+            ),
+            apiKey: "sk-ant-test"
+        )
+        let body = try XCTUnwrap(request.httpBody)
+        let json = try XCTUnwrap(
+            JSONSerialization.jsonObject(with: body) as? [String: Any]
+        )
+
+        XCTAssertEqual(request.url?.absoluteString, Constants.anthropicMessagesURL)
+        XCTAssertEqual(request.value(forHTTPHeaderField: "x-api-key"), "sk-ant-test")
+        XCTAssertEqual(
+            request.value(forHTTPHeaderField: "anthropic-version"),
+            "2023-06-01"
+        )
+        XCTAssertEqual(json["model"] as? String, Constants.defaultAnthropicProcessingModel)
+        XCTAssertNotNil(json["system"] as? String)
+        XCTAssertEqual((json["messages"] as? [[String: Any]])?.count, 1)
+    }
+}
+#endif
+
 final class DiagnosticReportTests: XCTestCase {
     func testExportContainsOnlyAllowlistedDiagnostics() throws {
         let suiteName = "DiagnosticReportTests-\(UUID().uuidString)"
@@ -894,6 +1181,21 @@ final class DiagnosticReportTests: XCTestCase {
 
         let metrics = PerformanceMetricsService(defaults: defaults)
         metrics.record(.transcription, duration: 1.25)
+        metrics.recordSession(
+            SessionPerformanceTrace(
+                id: UUID(uuidString: "00000000-0000-0000-0000-000000000999")!,
+                createdAt: Date(timeIntervalSince1970: 999),
+                audioDurationSeconds: 1,
+                transcriptionProvider: "openai",
+                processingProvider: nil,
+                transcriptionSeconds: 1.25,
+                processingSeconds: 0,
+                insertionSeconds: 0.1,
+                totalSeconds: 2.35,
+                deliveryStatus: .inserted,
+                deliveryFailure: nil
+            )
+        )
         let report = DiagnosticReport.make(
             metricsService: metrics,
             permissions: DiagnosticPermissions(
@@ -915,10 +1217,131 @@ final class DiagnosticReportTests: XCTestCase {
         XCTAssertTrue(json.contains("\"count\" : 1"))
         XCTAssertTrue(json.contains("\"customModeCount\" : 2"))
         XCTAssertTrue(json.contains("\"applicationProfileCount\" : 3"))
+        XCTAssertTrue(json.contains("\"transcriptionProvider\" : \"openai\""))
     }
 }
 
+#if false // Replaced by the two-engine routing tests below.
 final class ProviderRoutingTests: XCTestCase {
+    func testFastPreferenceChoosesDeepgramBeforeOtherCloudProviders() throws {
+        let suiteName = "ProviderPreferenceTests-\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        defaults.set(
+            ProviderRoutingPreference.fast.rawValue,
+            forKey: Constants.providerRoutingPreferenceKey
+        )
+        let openAI = MockSpeechTranscriber(text: "OpenAI", identifier: "openai")
+        let deepgram = MockSpeechTranscriber(text: "Deepgram", identifier: "deepgram")
+        let registrations = [openAI, deepgram].map { provider in
+            (
+                ProviderDescriptor(
+                    id: provider.identifier,
+                    displayName: provider.identifier,
+                    locality: .cloud,
+                    supportedLocales: ["fr"],
+                    availability: .available
+                ),
+                provider as any SpeechTranscribing
+            )
+        }
+        let router = TranscriptionRouter(
+            registrations: registrations,
+            automaticCloudProviderID: "openai",
+            defaults: defaults
+        )
+        var mode = NativeModeCatalog.visibleModes[0]
+        mode.providerPolicy = .cloudAllowed
+
+        XCTAssertEqual(
+            try router.provider(for: mode, capabilities: .current).identifier,
+            "deepgram"
+        )
+    }
+
+    func testFastPreferenceAllowsOneExplicitTransientFallback() throws {
+        let suiteName = "ProviderFallbackTests-\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        defaults.set(
+            ProviderRoutingPreference.fast.rawValue,
+            forKey: Constants.providerRoutingPreferenceKey
+        )
+        let deepgram = MockSpeechTranscriber(text: "Deepgram", identifier: "deepgram")
+        let groq = MockSpeechTranscriber(text: "Groq", identifier: "groq")
+        let router = TranscriptionRouter(
+            registrations: [
+                (.init(id: "deepgram", displayName: "Deepgram", locality: .cloud, supportedLocales: ["fr"], availability: .available), deepgram),
+                (.init(id: "groq", displayName: "Groq", locality: .cloud, supportedLocales: ["fr"], availability: .available), groq)
+            ],
+            defaults: defaults
+        )
+        let mode = NativeModeCatalog.visibleModes[0]
+
+        XCTAssertEqual(
+            router.fallbackProvider(
+                after: "deepgram",
+                for: mode,
+                capabilities: .current
+            )?.identifier,
+            "groq"
+        )
+        XCTAssertTrue(
+            ProviderFailurePolicy.isTransient(
+                TranscriptionService.TranscriptionError.httpError(503)
+            )
+        )
+        XCTAssertFalse(
+            ProviderFailurePolicy.isTransient(
+                TranscriptionService.TranscriptionError.httpError(401)
+            )
+        )
+    }
+
+    func testAutomaticCloudFallsBackToConfiguredProvider() throws {
+        let unavailable = MockSpeechTranscriber(
+            text: "OpenAI",
+            isReady: false,
+            identifier: "openai"
+        )
+        let fallback = MockSpeechTranscriber(
+            text: "Groq",
+            identifier: "groq"
+        )
+        let router = TranscriptionRouter(
+            registrations: [
+                (
+                    ProviderDescriptor(
+                        id: unavailable.identifier,
+                        displayName: "OpenAI",
+                        locality: .cloud,
+                        supportedLocales: ["fr"],
+                        availability: .available
+                    ),
+                    unavailable
+                ),
+                (
+                    ProviderDescriptor(
+                        id: fallback.identifier,
+                        displayName: "Groq",
+                        locality: .cloud,
+                        supportedLocales: ["fr"],
+                        availability: .available
+                    ),
+                    fallback
+                )
+            ],
+            automaticCloudProviderID: unavailable.identifier
+        )
+        var mode = NativeModeCatalog.visibleModes[0]
+        mode.providerPolicy = .cloudAllowed
+
+        XCTAssertEqual(
+            try router.provider(for: mode, capabilities: .current).identifier,
+            fallback.identifier
+        )
+    }
+
     func testPreferLocalSelectsAvailableSystemProvider() throws {
         let cloud = MockSpeechTranscriber(text: "Cloud")
         let local = MockSpeechTranscriber(
@@ -1078,6 +1501,126 @@ final class ProviderRoutingTests: XCTestCase {
         XCTAssertNotEqual(base.consentSignature, changedSources.consentSignature)
     }
 }
+#endif
+
+final class SimpleProviderRoutingTests: XCTestCase {
+    func testOpenAIIsTheDefaultEngine() throws {
+        let suiteName = "SimpleProviderRoutingTests.openai.\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        let openAI = MockSpeechTranscriber(text: "Cloud", identifier: "openai")
+        let local = MockSpeechTranscriber(
+            text: "Local",
+            identifier: "whisperkit",
+            locality: .local
+        )
+        let router = makeSimpleRouter(openAI: openAI, local: local, defaults: defaults)
+
+        XCTAssertEqual(
+            try router.provider(
+                for: NativeModeCatalog.visibleModes[0],
+                capabilities: .current
+            ).identifier,
+            "openai"
+        )
+    }
+
+    func testWhisperKitIsSelectedExplicitlyWithoutCloudFallback() throws {
+        let suiteName = "SimpleProviderRoutingTests.local.\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        defaults.set(
+            TranscriptionEngine.whisperKit.rawValue,
+            forKey: Constants.transcriptionEngineKey
+        )
+        let openAI = MockSpeechTranscriber(text: "Cloud", identifier: "openai")
+        let local = MockSpeechTranscriber(
+            text: "Local",
+            identifier: "whisperkit",
+            locality: .local
+        )
+        let router = makeSimpleRouter(openAI: openAI, local: local, defaults: defaults)
+
+        XCTAssertEqual(
+            try router.provider(
+                for: NativeModeCatalog.visibleModes[0],
+                capabilities: .current
+            ).identifier,
+            "whisperkit"
+        )
+    }
+
+    private func makeSimpleRouter(
+        openAI: MockSpeechTranscriber,
+        local: MockSpeechTranscriber,
+        defaults: UserDefaults
+    ) -> TranscriptionRouter {
+        TranscriptionRouter(
+            registrations: [
+                (
+                    .init(
+                        id: openAI.identifier,
+                        displayName: "OpenAI",
+                        locality: .cloud,
+                        supportedLocales: ["fr", "en"],
+                        availability: .available
+                    ),
+                    openAI
+                ),
+                (
+                    .init(
+                        id: local.identifier,
+                        displayName: "WhisperKit",
+                        locality: .local,
+                        supportedLocales: ["fr", "en"],
+                        availability: .available
+                    ),
+                    local
+                )
+            ],
+            automaticCloudProviderID: openAI.identifier,
+            automaticLocalProviderIDs: [local.identifier],
+            defaults: defaults
+        )
+    }
+}
+
+final class SafeActionPolicyTests: XCTestCase {
+    func testModelSuppliedRiskCannotDowngradeExternalOrForbiddenAction() {
+        let openURL = SafeActionPolicy.normalized(
+            ActionProposal(
+                kind: .openURL,
+                parameters: ["url": "https://example.com"],
+                summary: "Ouvrir",
+                risk: .automatic
+            )
+        )
+        let remote = SafeActionPolicy.normalized(
+            ActionProposal(
+                kind: .createRemoteResource,
+                summary: "Créer",
+                risk: .automatic
+            )
+        )
+
+        XCTAssertEqual(openURL.risk, .confirmationRequired)
+        XCTAssertEqual(remote.risk, .forbidden)
+    }
+
+    func testIdempotencyFingerprintIsStableAndParameterOrderIndependent() {
+        let first = SafeActionPolicy.fingerprint(
+            kind: .createReminderDraft,
+            parameters: ["text": "Appeler", "date": "demain"]
+        )
+        let second = SafeActionPolicy.fingerprint(
+            kind: .createReminderDraft,
+            parameters: ["date": "demain", "text": "Appeler"]
+        )
+
+        XCTAssertEqual(first, second)
+        XCTAssertFalse(first.isEmpty)
+    }
+}
 
 final class FocusedElementValidatorTests: XCTestCase {
     func testStableIdentifierAcceptsRecreatedAccessibilityElement() {
@@ -1137,7 +1680,7 @@ final class FocusedElementValidatorTests: XCTestCase {
         )
     }
 
-    func testSecureOrNonEditableCurrentElementIsAlwaysRejected() {
+    func testSecureOrNonEditableCurrentElementIsRejectedByDefault() {
         let snapshot = makeSnapshot(
             elementIdentifier: "message-composer",
             elementFrameHash: nil
@@ -1163,6 +1706,38 @@ final class FocusedElementValidatorTests: XCTestCase {
                 currentSubrole: nil,
                 currentIsSecure: false,
                 currentIsEditable: false
+            )
+        )
+    }
+
+    func testPasteOnlyAppAcceptsStableNonEditableAccessibilityElement() {
+        let snapshot = makeSnapshot(
+            elementIdentifier: "message-composer",
+            elementFrameHash: nil
+        )
+
+        XCTAssertTrue(
+            FocusedElementValidator.matches(
+                snapshot: snapshot,
+                currentIdentifier: "message-composer",
+                currentFrameHash: nil,
+                currentRole: "AXTextArea",
+                currentSubrole: nil,
+                currentIsSecure: false,
+                currentIsEditable: false,
+                allowsPasteOnlyTarget: true
+            )
+        )
+        XCTAssertFalse(
+            FocusedElementValidator.matches(
+                snapshot: snapshot,
+                currentIdentifier: "message-composer",
+                currentFrameHash: nil,
+                currentRole: "AXTextArea",
+                currentSubrole: nil,
+                currentIsSecure: true,
+                currentIsEditable: false,
+                allowsPasteOnlyTarget: true
             )
         )
     }
@@ -1299,6 +1874,113 @@ final class DeliveryPreferencePolicyTests: XCTestCase {
             DeliveryPreferencePolicy.prefersPaste(
                 bundleIdentifier: "com.apple.Notes",
                 isElectron: false
+            )
+        )
+    }
+
+    func testInstantDictationAvoidsAccessibilityMutationInElectronApp() {
+        XCTAssertFalse(
+            DeliveryPreferencePolicy.shouldUseAccessibilityReplacement(
+                canWriteSelectedText: true,
+                prefersPaste: true,
+                isInstantDictation: true
+            )
+        )
+    }
+
+    func testInstantDictationUsesApplicationMenuPasteInElectronApp() {
+        XCTAssertTrue(
+            DeliveryPreferencePolicy.shouldUseApplicationMenuPaste(
+                prefersPaste: true,
+                isInstantDictation: true
+            )
+        )
+    }
+
+    func testTransformationDoesNotUseApplicationMenuPaste() {
+        XCTAssertFalse(
+            DeliveryPreferencePolicy.shouldUseApplicationMenuPaste(
+                prefersPaste: true,
+                isInstantDictation: false
+            )
+        )
+    }
+
+    func testTransformationKeepsPastePreferenceForElectronApp() {
+        XCTAssertFalse(
+            DeliveryPreferencePolicy.shouldUseAccessibilityReplacement(
+                canWriteSelectedText: true,
+                prefersPaste: true,
+                isInstantDictation: false
+            )
+        )
+    }
+
+    func testAccessibilityReplacementRequiresWritableSelectedText() {
+        XCTAssertFalse(
+            DeliveryPreferencePolicy.shouldUseAccessibilityReplacement(
+                canWriteSelectedText: false,
+                prefersPaste: false,
+                isInstantDictation: true
+            )
+        )
+    }
+
+}
+
+final class AccessibilityValueInsertionTests: XCTestCase {
+    func testInsertsAtUTF16CursorLocation() {
+        XCTAssertEqual(
+            AccessibilityValueInsertion.replacingSelection(
+                in: "Bonjour monde",
+                location: 8,
+                length: 0,
+                with: "beau "
+            ),
+            AccessibilityValueReplacement(
+                value: "Bonjour beau monde",
+                cursorLocation: 13
+            )
+        )
+    }
+
+    func testReplacesSelectedText() {
+        XCTAssertEqual(
+            AccessibilityValueInsertion.replacingSelection(
+                in: "Bonjour monde",
+                location: 8,
+                length: 5,
+                with: "Codex"
+            ),
+            AccessibilityValueReplacement(
+                value: "Bonjour Codex",
+                cursorLocation: 13
+            )
+        )
+    }
+
+    func testUsesUTF16LengthForEmoji() {
+        XCTAssertEqual(
+            AccessibilityValueInsertion.replacingSelection(
+                in: "ab",
+                location: 1,
+                length: 0,
+                with: "🙂"
+            ),
+            AccessibilityValueReplacement(
+                value: "a🙂b",
+                cursorLocation: 3
+            )
+        )
+    }
+
+    func testRejectsOutOfBoundsRange() {
+        XCTAssertNil(
+            AccessibilityValueInsertion.replacingSelection(
+                in: "abc",
+                location: 4,
+                length: 0,
+                with: "x"
             )
         )
     }
@@ -1515,6 +2197,287 @@ final class SessionCoordinatorTests: XCTestCase {
         XCTAssertTrue(delivery.didUndo)
         XCTAssertEqual(coordinator.lastNotice, "Insertion annulée")
     }
+
+    func testInstantDictationRemovesKnownHallucinationBeforeDelivery() async throws {
+        let dictatedText = "Et là, ça marche, j'espère qu'il n'y a plus d'erreurs."
+        let delivery = MockTextDeliverer(shouldInsert: true)
+        let history = MockHistoryRepository()
+        let coordinator = makeCoordinator(
+            audio: MockAudioCapturer(result: speechResult()),
+            transcriber: MockSpeechTranscriber(
+                text: "\(dictatedText) Faites ce que vous voulez"
+            ),
+            context: MockContextCapturer(
+                result: ContextCaptureResult(
+                    target: makeTarget(
+                        processIdentifier: 4321,
+                        bundleIdentifier: "com.openai.codex"
+                    ),
+                    context: ContextSnapshot(
+                        applicationBundleIdentifier: "com.openai.codex",
+                        applicationName: "Codex",
+                        sources: [.application]
+                    )
+                )
+            ),
+            delivery: delivery,
+            history: history
+        )
+
+        coordinator.startCapture()
+        coordinator.stopCaptureAndQueue()
+        try await waitUntilFinished(coordinator)
+
+        XCTAssertEqual(delivery.insertedTexts, [dictatedText])
+        XCTAssertEqual(history.records.first?.rawText, dictatedText)
+        XCTAssertEqual(history.records.first?.finalText, dictatedText)
+    }
+
+    func testNonEditableInitialTargetIsRecoveredWhileRecording() async throws {
+        let provisional = TextInjectionTarget(
+            snapshot: TargetSnapshot(
+                processIdentifier: 4321,
+                bundleIdentifier: "com.example.editor",
+                applicationName: "Editor",
+                windowTitle: "Document",
+                elementRole: nil,
+                elementSubrole: nil,
+                selectedTextHash: nil,
+                isSecure: false,
+                isEditable: false
+            ),
+            focusedElement: nil
+        )
+        let recovered = makeTarget(
+            processIdentifier: 4321,
+            bundleIdentifier: "com.example.editor"
+        )
+        let context = MockContextCapturer(
+            result: .init(
+                target: provisional,
+                context: ContextSnapshot(
+                    applicationBundleIdentifier: "com.example.editor",
+                    applicationName: "Editor",
+                    windowTitle: "Document",
+                    sources: [.application, .windowTitle]
+                )
+            ),
+            recoveredResult: .init(
+                target: recovered,
+                context: ContextSnapshot(
+                    applicationBundleIdentifier: "com.example.editor",
+                    applicationName: "Editor",
+                    windowTitle: "Document",
+                    sources: [.application, .windowTitle]
+                )
+            )
+        )
+        let audio = MockAudioCapturer(result: speechResult())
+        let delivery = MockTextDeliverer(shouldInsert: true)
+        let coordinator = makeCoordinator(
+            audio: audio,
+            transcriber: MockSpeechTranscriber(text: "Cible retrouvée"),
+            context: context,
+            delivery: delivery,
+            history: MockHistoryRepository()
+        )
+
+        coordinator.startCapture()
+        XCTAssertTrue(audio.didStart)
+        for _ in 0..<100 where coordinator.captureSession?.target?.isEditable != true {
+            try await Task.sleep(for: .milliseconds(5))
+        }
+        XCTAssertEqual(context.recoveryCallCount, 1)
+        XCTAssertEqual(coordinator.captureSession?.target?.isEditable, true)
+
+        coordinator.stopCaptureAndQueue()
+        try await waitUntilFinished(coordinator)
+        let deliveredTarget = try XCTUnwrap(delivery.targets.first ?? nil)
+        XCTAssertEqual(deliveredTarget.snapshot, recovered.snapshot)
+    }
+
+    func testOpenAIDictationUsesOneBatchRequestAfterRelease() async throws {
+        let audio = MockAudioCapturer(result: speechResult())
+        let transcriber = MockSpeechTranscriber(
+            text: "Résultat OpenAI",
+            identifier: "openai"
+        )
+        let delivery = MockTextDeliverer(shouldInsert: true)
+        let coordinator = makeCoordinator(
+            audio: audio,
+            transcriber: transcriber,
+            context: MockContextCapturer(
+                result: .init(
+                    target: makeTarget(
+                        processIdentifier: 4321,
+                        bundleIdentifier: "com.example.editor"
+                    ),
+                    context: .empty
+                )
+            ),
+            delivery: delivery,
+            history: MockHistoryRepository()
+        )
+
+        coordinator.startCapture()
+        XCTAssertEqual(transcriber.callCount, 0)
+        coordinator.stopCaptureAndQueue()
+        try await waitUntilFinished(coordinator)
+
+        XCTAssertEqual(transcriber.callCount, 1)
+        XCTAssertEqual(delivery.dictationInsertCount, 1)
+        XCTAssertEqual(delivery.insertedTexts, ["Résultat OpenAI"])
+    }
+
+    func testASecondDictationIsNotQueuedWhileTranscriptionIsRunning() async throws {
+        let audio = MockAudioCapturer(result: speechResult())
+        let transcriber = MockSpeechTranscriber(
+            text: "Résultat lent",
+            delay: .seconds(2)
+        )
+        let coordinator = makeCoordinator(
+            audio: audio,
+            transcriber: transcriber,
+            context: MockContextCapturer(result: .init(target: nil, context: .empty)),
+            delivery: MockTextDeliverer(shouldInsert: true),
+            history: MockHistoryRepository()
+        )
+
+        coordinator.startCapture()
+        coordinator.stopCaptureAndQueue()
+        for _ in 0..<100 where !coordinator.isTranscribing {
+            try await Task.sleep(for: .milliseconds(5))
+        }
+
+        audio.didStart = false
+        coordinator.startCapture()
+
+        XCTAssertNil(coordinator.captureSession)
+        XCTAssertFalse(audio.didStart)
+        XCTAssertEqual(coordinator.pendingCount, 0)
+        coordinator.cancelProcessing()
+        try await waitUntilCancelled(coordinator)
+    }
+
+#if false // Removed with the Deepgram streaming provider.
+    func testLiveTranscriptionStreamsAudioAndSkipsBatchRequest() async throws {
+        let audio = MockAudioCapturer(result: speechResult())
+        let live = MockLiveSpeechTranscriber(text: "Résultat temps réel")
+        let delivery = MockTextDeliverer(shouldInsert: true)
+        let coordinator = makeCoordinator(
+            audio: audio,
+            transcriber: live,
+            context: MockContextCapturer(
+                result: .init(
+                    target: makeTarget(
+                        processIdentifier: 4321,
+                        bundleIdentifier: "com.example.editor"
+                    ),
+                    context: .empty
+                )
+            ),
+            delivery: delivery,
+            history: MockHistoryRepository()
+        )
+
+        coordinator.startCapture()
+        audio.onAudioChunk?(Data([1, 2, 3, 4]))
+        coordinator.stopCaptureAndQueue()
+        try await waitUntilFinished(coordinator)
+
+        XCTAssertEqual(live.startCount, 1)
+        XCTAssertEqual(live.finishCount, 1)
+        XCTAssertEqual(live.batchCallCount, 0)
+        XCTAssertEqual(live.receivedAudio, Data([1, 2, 3, 4]))
+        XCTAssertEqual(delivery.insertedTexts, ["Résultat temps réel"])
+    }
+
+    func testLivePartialTranscriptDoesNotWaitForSlowFinalization() async throws {
+        let audio = MockAudioCapturer(result: speechResult())
+        let live = MockLiveSpeechTranscriber(
+            text: "Final trop lent",
+            partialText: "Résultat déjà visible",
+            finishDelay: .seconds(5)
+        )
+        let delivery = MockTextDeliverer(shouldInsert: true)
+        let coordinator = makeCoordinator(
+            audio: audio,
+            transcriber: live,
+            context: MockContextCapturer(
+                result: .init(
+                    target: makeTarget(
+                        processIdentifier: 4321,
+                        bundleIdentifier: "com.example.editor"
+                    ),
+                    context: .empty
+                )
+            ),
+            delivery: delivery,
+            history: MockHistoryRepository()
+        )
+
+        let startedAt = ContinuousClock.now
+        coordinator.startCapture()
+        audio.onAudioChunk?(Data([1, 2, 3, 4]))
+        coordinator.stopCaptureAndQueue()
+        try await waitUntilFinished(coordinator)
+
+        XCTAssertLessThan(startedAt.duration(to: .now), .seconds(1))
+        XCTAssertEqual(delivery.insertedTexts, ["Résultat déjà visible"])
+        XCTAssertEqual(live.batchCallCount, 0)
+    }
+
+    func testConsecutiveLiveDictationsUseIndependentSessions() async throws {
+        let audio = MockAudioCapturer(result: speechResult())
+        let live = MockLiveSpeechTranscriber(
+            text: "Final trop lent",
+            partialText: "Résultat immédiat",
+            finishDelay: .seconds(5)
+        )
+        let delivery = MockTextDeliverer(shouldInsert: true)
+        let coordinator = makeCoordinator(
+            audio: audio,
+            transcriber: live,
+            context: MockContextCapturer(
+                result: .init(
+                    target: makeTarget(
+                        processIdentifier: 4321,
+                        bundleIdentifier: "com.example.editor"
+                    ),
+                    context: .empty
+                )
+            ),
+            delivery: delivery,
+            history: MockHistoryRepository()
+        )
+
+        for _ in 0..<2 {
+            let startedAt = ContinuousClock.now
+            coordinator.startCapture()
+            let sessionID = try XCTUnwrap(coordinator.captureSession?.id)
+            audio.onAudioChunk?(Data([1, 2, 3, 4]))
+            coordinator.stopCaptureAndQueue()
+            for _ in 0..<100 {
+                if coordinator.lastSession?.id == sessionID,
+                   coordinator.lastSession?.state == .completed {
+                    break
+                }
+                try await Task.sleep(for: .milliseconds(10))
+            }
+            XCTAssertEqual(coordinator.lastSession?.id, sessionID)
+            XCTAssertEqual(coordinator.lastSession?.state, .completed)
+            XCTAssertLessThan(startedAt.duration(to: .now), .seconds(1))
+        }
+
+        XCTAssertEqual(live.createdSessionCount, 2)
+        XCTAssertEqual(live.startCount, 2)
+        XCTAssertEqual(live.batchCallCount, 0)
+        XCTAssertEqual(
+            delivery.insertedTexts,
+            ["Résultat immédiat", "Résultat immédiat"]
+        )
+    }
+#endif
 
     func testSilentCaptureNeverCallsTranscriberOrDelivery() {
         let audio = MockAudioCapturer(result: silentResult())
@@ -1981,6 +2944,32 @@ final class SessionCoordinatorTests: XCTestCase {
         XCTAssertEqual(delivery.copiedTexts, ["Idée sans cible"])
     }
 
+    func testDeliveryFailureReasonIsPreservedAfterFallbackCopy() async throws {
+        let delivery = MockTextDeliverer(
+            shouldInsert: false,
+            failure: .accessibilityNotGranted
+        )
+        let coordinator = makeCoordinator(
+            audio: MockAudioCapturer(result: speechResult()),
+            transcriber: MockSpeechTranscriber(text: "Texte de secours"),
+            context: MockContextCapturer(
+                result: .init(target: nil, context: .empty)
+            ),
+            delivery: delivery,
+            history: MockHistoryRepository()
+        )
+
+        coordinator.startCapture()
+        coordinator.stopCaptureAndQueue()
+        try await waitUntilFinished(coordinator)
+
+        XCTAssertEqual(delivery.copiedTexts, ["Texte de secours"])
+        XCTAssertEqual(
+            coordinator.lastNotice,
+            "Texte copié — l’autorisation Accessibilité n’est pas reconnue"
+        )
+    }
+
     func testCorrectionSelectsRecentInsertionBeforeVoiceTransformation() {
         let delivery = MockTextDeliverer(
             shouldInsert: true,
@@ -2016,7 +3005,7 @@ final class SessionCoordinatorTests: XCTestCase {
 
     private func makeCoordinator(
         audio: MockAudioCapturer,
-        transcriber: MockSpeechTranscriber,
+        transcriber: any SpeechTranscribing,
         context: MockContextCapturer,
         delivery: MockTextDeliverer,
         history: MockHistoryRepository,
@@ -2164,25 +3153,107 @@ private final class MockSpeechTranscriber: SpeechTranscribing {
     let isReady: Bool
     let locality: ProviderLocality
     let text: String
+    let delay: Duration
     var callCount = 0
 
     init(
         text: String,
         isReady: Bool = true,
         identifier: String = "mock",
-        locality: ProviderLocality = .cloud
+        locality: ProviderLocality = .cloud,
+        delay: Duration = .zero
     ) {
         self.text = text
         self.isReady = isReady
         self.identifier = identifier
         self.locality = locality
+        self.delay = delay
     }
 
     func transcribe(audioURL: URL) async throws -> TranscriptionResult {
         callCount += 1
+        try await Task.sleep(for: delay)
         return TranscriptionResult(text: text, averageLogProbability: 0)
     }
 }
+
+#if false // Removed with the Deepgram streaming provider.
+private final class MockLiveSpeechTranscriber: LiveSpeechTranscribing {
+    let identifier = "deepgram"
+    let isReady = true
+    let locality: ProviderLocality = .cloud
+    let text: String
+    let partialText: String?
+    let finishDelay: Duration
+    var startCount = 0
+    var finishCount = 0
+    var batchCallCount = 0
+    var cancelCount = 0
+    var receivedAudio = Data()
+    var createdSessionCount = 0
+
+    init(
+        text: String,
+        partialText: String? = nil,
+        finishDelay: Duration = .zero
+    ) {
+        self.text = text
+        self.partialText = partialText
+        self.finishDelay = finishDelay
+    }
+
+    func makeLiveSession(
+        onPartialTranscript: @escaping (String) -> Void
+    ) throws -> any LiveTranscriptionSession {
+        createdSessionCount += 1
+        return MockLiveTranscriptionSession(
+            owner: self,
+            onPartialTranscript: onPartialTranscript
+        )
+    }
+
+    func transcribe(audioURL: URL) async throws -> TranscriptionResult {
+        batchCallCount += 1
+        return TranscriptionResult(text: "Fallback batch", averageLogProbability: 0)
+    }
+}
+
+private final class MockLiveTranscriptionSession: LiveTranscriptionSession {
+    private let owner: MockLiveSpeechTranscriber
+    private let onPartialTranscript: (String) -> Void
+
+    init(
+        owner: MockLiveSpeechTranscriber,
+        onPartialTranscript: @escaping (String) -> Void
+    ) {
+        self.owner = owner
+        self.onPartialTranscript = onPartialTranscript
+    }
+
+    func start() async throws {
+        owner.startCount += 1
+    }
+
+    func sendAudio(_ data: Data) async throws {
+        owner.receivedAudio.append(data)
+        if let partialText = owner.partialText {
+            onPartialTranscript(partialText)
+        }
+    }
+
+    func finish() async throws -> TranscriptionResult {
+        owner.finishCount += 1
+        if owner.finishDelay > .zero {
+            try await Task.sleep(for: owner.finishDelay)
+        }
+        return TranscriptionResult(text: owner.text, averageLogProbability: 0)
+    }
+
+    func cancel() async {
+        owner.cancelCount += 1
+    }
+}
+#endif
 
 private final class MockTextProcessor: TextProcessing {
     let identifier = "mock-processing"
@@ -2246,13 +3317,17 @@ private final class MockModeResolver: ModeResolving {
 private final class MockContextCapturer: ContextCapturing {
     let result: ContextCaptureResult
     let fallbackResult: ContextCaptureResult?
+    let recoveredResult: ContextCaptureResult?
+    var recoveryCallCount = 0
 
     init(
         result: ContextCaptureResult,
-        fallbackResult: ContextCaptureResult? = nil
+        fallbackResult: ContextCaptureResult? = nil,
+        recoveredResult: ContextCaptureResult? = nil
     ) {
         self.result = result
         self.fallbackResult = fallbackResult
+        self.recoveredResult = recoveredResult
     }
 
     func capture() -> ContextCaptureResult {
@@ -2263,6 +3338,13 @@ private final class MockContextCapturer: ContextCapturing {
         from initialCapture: ContextCaptureResult
     ) async -> ContextCaptureResult {
         fallbackResult ?? initialCapture
+    }
+
+    func recoverEditableTarget(
+        from initialCapture: ContextCaptureResult
+    ) async -> ContextCaptureResult {
+        recoveryCallCount += 1
+        return recoveredResult ?? initialCapture
     }
 }
 
@@ -2295,6 +3377,7 @@ private final class MockTextDeliverer: TextDelivering {
     var insertedTexts: [String] = []
     var targets: [TextInjectionTarget?] = []
     var copiedTexts: [String] = []
+    var dictationInsertCount = 0
     var didUndo = false
     var didPrepareReplacement = false
     var canUndoLastInsertion: Bool { shouldInsert && !insertedTexts.isEmpty && !didUndo }
@@ -2314,6 +3397,11 @@ private final class MockTextDeliverer: TextDelivering {
         insertedTexts.append(text)
         targets.append(target)
         return shouldInsert
+    }
+
+    func injectDictation(text: String, target: TextInjectionTarget?) async -> Bool {
+        dictationInsertCount += 1
+        return await inject(text: text, target: target)
     }
 
     func copyToPasteboard(_ text: String) {

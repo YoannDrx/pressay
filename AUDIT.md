@@ -2,6 +2,74 @@
 
 Date : 27 juillet 2026
 
+## Audit de simplification — OpenAI + WhisperKit (2 août 2026)
+
+### Décision appliquée
+
+Le routage multi-provider (Deepgram, Groq, Anthropic et moteurs Apple
+conditionnels) augmentait le nombre d’états, de clés, de fallbacks et de chemins
+temps réel à diagnostiquer. Pressay revient à deux moteurs de transcription
+explicites :
+
+1. **OpenAI** pour le cloud et les transformations ;
+2. **WhisperKit Small** pour une transcription locale hors ligne.
+
+Il n’existe plus de fallback silencieux entre fournisseurs. Un choix local non
+prêt échoue immédiatement avec une instruction de téléchargement ; une clé
+OpenAI absente échoue avant de démarrer le micro. Les overrides historiques de
+provider dans les modes ne sont plus exposés dans l’interface.
+
+### Chemin critique de latence
+
+Le chemin OpenAI nominal est désormais : M4A 16 kHz mono envoyé une seule fois à
+`gpt-4o-mini-transcribe` au relâchement → texte final → transformation OpenAI
+éventuelle → insertion. La tentative WebSocket et son repli en cascade ont été
+retirés, et aucune file d’attente ne retient les dictées. Un choix WhisperKit
+local ne déclenche toujours aucun envoi cloud.
+
+Le HUD reste visible uniquement pendant le travail réel. Les états terminaux se
+ferment automatiquement en 0,9 seconde par défaut et l’utilisateur conserve
+Échap pour annuler la tâche. Une dictée OpenAI fidèle a une échéance ferme de dix
+secondes. Le modèle WhisperKit reste chargé en mémoire après la première
+utilisation afin que les dictées suivantes évitent le coût de chargement Core ML.
+
+### Écarts corrigés par rapport à Paseru/whisper#1
+
+La PR de référence validait le principe Cloud/Local, mais son implémentation
+présentait plusieurs risques relevés dans sa revue : modèle actif non suivi,
+initialisations concurrentes, progression observée après le téléchargement et
+état « prêt » ambigu. Pressay utilise un seul modèle local, un chemin de
+téléchargement persistant, une initialisation sérialisée sur le MainActor et un
+état explicite `notDownloaded/downloading/loading/ready/failed`.
+
+### Publication Mac App Store
+
+WhisperKit 1.0.0 est épinglé par Swift Package Manager pour les deux cibles.
+La cible App Store reste sandboxée, sans Sparkle, AX, Carbon ni CGEvent. Elle ne
+peut pas promettre `Fn` + collage universel dans une autre application : ce
+parcours reste propre à la distribution directe. L’édition Store démarre la
+capture dans sa propre interface et copie le résultat dans le presse-papiers.
+
+Le modèle WhisperKit est une ressource Core ML non exécutable, téléchargée à la
+demande et supprimable. Les notes App Review doivent le préciser. Avant
+soumission, il reste impératif de produire l’archive 12005, de la tester via
+TestFlight sur un Mac propre et de refaire les captures montrant le nouvel écran
+OpenAI/WhisperKit.
+
+### Améliorations recommandées après cette release
+
+- mesurer localement P50/P95 pour relâchement → texte collé, séparément pour
+  OpenAI et WhisperKit, sans conserver le contenu ;
+- ajouter un corpus audio FR/EN reproductible pour comparer le modèle Small aux
+  erreurs réelles de noms propres et de ponctuation ;
+- précharger WhisperKit au lancement seulement si le moteur local est choisi,
+  avec une limite mémoire mesurée sur Mac 8 Go ;
+- ajouter un test UI automatisé du cycle complet HUD listening → transcribing →
+  success/cancelled ;
+- mesurer séparément le chemin OpenAI sur Intel ; WhisperKit est désactivé avec
+  un message explicite sur cette architecture, conformément à son ciblage Apple
+  Silicon.
+
 ## État du socle
 
 Pressay 1.0.0 est le nouveau point de départ public de l’application macOS

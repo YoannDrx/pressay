@@ -42,6 +42,12 @@ final class UpdateService: NSObject,
     private var controller: SPUStandardUpdaterController?
     private var checkForUpdatesAction: (() -> Void)?
     private let defaults: UserDefaults
+    private var defaultsObserver: NSObjectProtocol?
+    private var activationDepth = 0
+    private var previousActivationPolicy: NSApplication.ActivationPolicy?
+
+    private static let hasLaunchedBeforeKey = "SUHasLaunchedBefore"
+    private static let automaticChecksKey = "SUEnableAutomaticChecks"
 
     override convenience init() {
         self.init(defaults: .standard)
@@ -53,6 +59,10 @@ final class UpdateService: NSObject,
             forKey: Constants.includeBetaUpdatesKey
         )
         super.init()
+        if Self.needsAutomaticCheckPermissionPrompt(defaults: defaults) {
+            beginInteractiveWindowSession()
+            observeAutomaticCheckPermissionResponse()
+        }
         let controller = SPUStandardUpdaterController(
             startingUpdater: true,
             updaterDelegate: self,
@@ -79,7 +89,21 @@ final class UpdateService: NSObject,
     }
 
     func checkForUpdates() {
+        beginInteractiveWindowSession()
         checkForUpdatesAction?()
+    }
+
+    static func needsAutomaticCheckPermissionPrompt(defaults: UserDefaults) -> Bool {
+        defaults.bool(forKey: hasLaunchedBeforeKey)
+            && defaults.object(forKey: automaticChecksKey) == nil
+    }
+
+    func standardUserDriverWillShowModalAlert() {
+        beginInteractiveWindowSession()
+    }
+
+    func standardUserDriverDidShowModalAlert() {
+        endInteractiveWindowSession()
     }
 
     func allowedChannels(for updater: SPUUpdater) -> Set<String> {
@@ -103,12 +127,66 @@ final class UpdateService: NSObject,
         state: SPUUserUpdateState
     ) {
         guard handleShowingUpdate else { return }
-        NSApp.setActivationPolicy(.regular)
-        NSApp.activate(ignoringOtherApps: true)
+        beginInteractiveWindowSession()
     }
 
     func standardUserDriverWillFinishUpdateSession() {
-        NSApp.setActivationPolicy(.accessory)
+        endAllInteractiveWindowSessions()
+    }
+
+    private func observeAutomaticCheckPermissionResponse() {
+        defaultsObserver = NotificationCenter.default.addObserver(
+            forName: UserDefaults.didChangeNotification,
+            object: defaults,
+            queue: .main
+        ) { [weak self] _ in
+            Task { @MainActor in
+                guard let self,
+                      self.defaults.object(forKey: Self.automaticChecksKey) != nil else {
+                    return
+                }
+                if let observer = self.defaultsObserver {
+                    NotificationCenter.default.removeObserver(observer)
+                    self.defaultsObserver = nil
+                }
+                self.endAllInteractiveWindowSessions()
+            }
+        }
+    }
+
+    private func beginInteractiveWindowSession() {
+        if activationDepth == 0 {
+            previousActivationPolicy = NSApp.activationPolicy()
+            NSApp.setActivationPolicy(.regular)
+        }
+        activationDepth += 1
+        NSApp.activate(ignoringOtherApps: true)
+        DispatchQueue.main.async {
+            NSApp.activate(ignoringOtherApps: true)
+            NSApp.windows
+                .filter(\.isVisible)
+                .forEach { $0.orderFrontRegardless() }
+        }
+    }
+
+    private func endInteractiveWindowSession() {
+        guard activationDepth > 0 else { return }
+        activationDepth -= 1
+        guard activationDepth == 0 else { return }
+        restoreActivationPolicy()
+    }
+
+    private func endAllInteractiveWindowSessions() {
+        activationDepth = 0
+        restoreActivationPolicy()
+    }
+
+    private func restoreActivationPolicy() {
+        let policy = previousActivationPolicy ?? .accessory
+        previousActivationPolicy = nil
+        DispatchQueue.main.async {
+            NSApp.setActivationPolicy(policy)
+        }
     }
 }
 #endif
