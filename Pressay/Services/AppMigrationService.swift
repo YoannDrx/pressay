@@ -6,6 +6,42 @@ struct LegacyIdentitySource {
     let keychain: KeychainStoring
 }
 
+/// Creates the one-time proof that this Mac ran Pressay before the commercial
+/// paywall. The opaque value can later be claimed by an authenticated account;
+/// it never contains user data and is never regenerated after a successful
+/// write.
+struct FoundingEligibilityService {
+    private let keychain: KeychainStoring
+    private let generateMarker: () -> Data
+
+    init(
+        keychain: KeychainStoring = KeychainHelper.shared,
+        generateMarker: @escaping () -> Data = {
+            Data(UUID().uuidString.utf8)
+        }
+    ) {
+        self.keychain = keychain
+        self.generateMarker = generateMarker
+    }
+
+    @discardableResult
+    func createIfNeeded() -> Bool {
+        if keychain.data(account: Constants.keychainFoundingEligibilityAccount) != nil {
+            return true
+        }
+
+        let marker = generateMarker()
+        guard !marker.isEmpty,
+              keychain.save(
+                  data: marker,
+                  account: Constants.keychainFoundingEligibilityAccount
+              ) else {
+            return false
+        }
+        return keychain.data(account: Constants.keychainFoundingEligibilityAccount) == marker
+    }
+}
+
 struct AppMigrationService {
     private let defaults: UserDefaults
     private let currentKeychain: KeychainStoring

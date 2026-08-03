@@ -28,7 +28,8 @@ La cible `PressayTests` couvre :
 - persistance des modes personnalisés et règles d’application ;
 - migration des modes v1 vers le schéma v2 et cycle de vie de la sauvegarde ;
 - requête Responses API sans stockage et exclusion du contexte non autorisé ;
-- file de session, cible initiale, historique et annulation d’insertion ;
+- session unique, refus d'une invocation concurrente, cible initiale,
+  historique et annulation d’insertion ;
 - refus du silence et des champs sécurisés avant tout traitement ;
 - refus du cloud tant que le consentement n’est pas obtenu, payload exact
   autorisé et parcours « Utiliser le brut » ;
@@ -46,9 +47,13 @@ La cible `PressayTests` couvre :
   modèle ou sources ;
 - export de diagnostics par liste blanche sans contenu utilisateur ni clé ;
 - fusion de trois releases stables et cinq bêtas dans l’appcast.
+- restauration exacte d'un presse-papiers riche et multi-item après insertion,
+  avec préservation d'une copie concurrente de l'utilisateur.
 
-La suite contient actuellement **77 tests Swift et 2 tests Python**. Cette suite ne remplace ni les
-tests AX réels ni la matrice interapplications.
+La suite contient actuellement **114 tests Swift et 2 tests Python actifs**.
+Les anciens scénarios multi-provider/OIDC placés derrière `#if false` ne sont
+pas comptés. Cette suite ne remplace ni les tests AX réels ni la matrice
+interapplications.
 
 ## Vérifications de release automatisées
 
@@ -100,7 +105,8 @@ AX manuelle.
 | --- | --- |
 | Appuyer sur Fn sans parler puis relâcher | Aucun appel utile, aucun collage, message « Aucune parole détectée » |
 | Dictée courte après le signal | Texte inséré dans l'application initialement active |
-| Démarrer une seconde dictée pendant la transcription | Seconde dictée mise en file, sans écraser la première cible |
+| Démarrer une seconde dictée pendant la transcription | Invocation refusée explicitement, sans modifier la première cible |
+| Coller après une insertion Pressay réussie | Le contenu copié avant la dictée est de nouveau collé |
 | Annuler pendant l'appel API | Fichier temporaire supprimé, aucun collage |
 | Refuser le microphone | Aucun prompt au lancement, explication dans les réglages |
 | Refuser l'accessibilité | Résultat copié dans le presse-papiers, aucun texte perdu |

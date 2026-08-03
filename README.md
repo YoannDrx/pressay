@@ -71,6 +71,11 @@ La page de téléchargement publique est également disponible sur
 version stable publiée est `v1.2.2` ; les utilisateurs ayant activé le canal
 bêta recevront aussi cette version stable.
 
+La branche de développement prépare `v1.2.3` (build `12102`). Elle restaure le
+presse-papiers présent avant une insertion Pressay réussie. La stable publique
+reste `v1.2.2` tant que la matrice interapplications, le test Intel réel,
+l'installation propre et sept jours sans P0/P1 ne sont pas validés.
+
 ### Compiler depuis les sources
 
 1. **Clone le dépôt**

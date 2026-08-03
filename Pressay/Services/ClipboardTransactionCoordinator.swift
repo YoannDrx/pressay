@@ -30,19 +30,65 @@ import AppKit
 import Carbon.HIToolbox
 import Foundation
 
+struct PasteboardItemSnapshot: Equatable, Sendable {
+    let values: [String: Data]
+}
+
+enum PasteboardSnapshotCodec {
+    @MainActor
+    static func snapshot(_ pasteboard: NSPasteboard) -> [PasteboardItemSnapshot] {
+        pasteboard.pasteboardItems?.map { item in
+            PasteboardItemSnapshot(
+                values: item.types.reduce(into: [String: Data]()) {
+                    result,
+                    type in
+                    if let data = item.data(forType: type) {
+                        result[type.rawValue] = data
+                    }
+                }
+            )
+        } ?? []
+    }
+
+    @MainActor
+    static func restore(
+        _ snapshots: [PasteboardItemSnapshot],
+        to pasteboard: NSPasteboard
+    ) {
+        pasteboard.clearContents()
+        guard !snapshots.isEmpty else { return }
+        let items = snapshots.map { snapshot in
+            let item = NSPasteboardItem()
+            for (rawType, data) in snapshot.values {
+                item.setData(data, forType: NSPasteboard.PasteboardType(rawType))
+            }
+            return item
+        }
+        pasteboard.writeObjects(items)
+    }
+}
+
+enum ClipboardRestorationPolicy {
+    static func shouldRestore(
+        pasteSucceeded: Bool,
+        expectedChangeCount: Int,
+        currentChangeCount: Int
+    ) -> Bool {
+        pasteSucceeded && expectedChangeCount == currentChangeCount
+    }
+}
+
 actor ClipboardTransactionCoordinator {
     static let shared = ClipboardTransactionCoordinator()
-
-    private struct ItemSnapshot: Sendable {
-        let values: [String: Data]
-    }
 
     private var isBusy = false
     func captureSelection() async -> String? {
         guard tryAcquire() else { return nil }
         defer { release() }
 
-        let initial = await MainActor.run { snapshot(NSPasteboard.general) }
+        let initial = await MainActor.run {
+            PasteboardSnapshotCodec.snapshot(NSPasteboard.general)
+        }
         let preparedCount = await MainActor.run {
             let pasteboard = NSPasteboard.general
             pasteboard.clearContents()
@@ -86,12 +132,14 @@ actor ClipboardTransactionCoordinator {
         guard tryAcquire() else { return false }
         defer { release() }
 
-        let initial = await MainActor.run { snapshot(NSPasteboard.general) }
+        let initial = await MainActor.run {
+            PasteboardSnapshotCodec.snapshot(NSPasteboard.general)
+        }
         let pressayChangeCount: Int? = await MainActor.run {
             let pasteboard = NSPasteboard.general
             pasteboard.clearContents()
             guard pasteboard.setString(text, forType: .string) else {
-                restore(initial, to: pasteboard)
+                PasteboardSnapshotCodec.restore(initial, to: pasteboard)
                 return nil
             }
             return pasteboard.changeCount
@@ -102,7 +150,11 @@ actor ClipboardTransactionCoordinator {
             Self.postKeyboardShortcut(keyCode: CGKeyCode(kVK_ANSI_V))
         }
         try? await Task.sleep(for: .milliseconds(300))
-        await restoreIfUnchanged(initial, expectedChangeCount: pressayChangeCount)
+        await restoreIfUnchanged(
+            initial,
+            expectedChangeCount: pressayChangeCount,
+            pasteSucceeded: posted
+        )
         return posted
     }
 
@@ -113,12 +165,19 @@ actor ClipboardTransactionCoordinator {
         guard tryAcquire() else { return false }
         defer { release() }
 
-        let prepared = await MainActor.run {
+        let initial = await MainActor.run {
+            PasteboardSnapshotCodec.snapshot(NSPasteboard.general)
+        }
+        let pressayChangeCount: Int? = await MainActor.run {
             let pasteboard = NSPasteboard.general
             pasteboard.clearContents()
-            return pasteboard.setString(text, forType: .string)
+            guard pasteboard.setString(text, forType: .string) else {
+                PasteboardSnapshotCodec.restore(initial, to: pasteboard)
+                return nil
+            }
+            return pasteboard.changeCount
         }
-        guard prepared else { return false }
+        guard let pressayChangeCount else { return false }
 
         let pressed = await MainActor.run {
             Self.performPasteMenuItem(processIdentifier: processIdentifier)
@@ -126,26 +185,45 @@ actor ClipboardTransactionCoordinator {
         if pressed {
             try? await Task.sleep(for: .milliseconds(120))
         }
+        await restoreIfUnchanged(
+            initial,
+            expectedChangeCount: pressayChangeCount,
+            pasteSucceeded: pressed
+        )
         return pressed
     }
 
     func pasteDictation(_ text: String) async -> Bool {
-        // Dictation favors latency and predictability. Keep the dictated text
-        // in the clipboard instead of eagerly loading and restoring every
-        // pasteboard representation owned by another application.
+        // Dictation keeps the short paste delay, but the user's clipboard is a
+        // separate piece of state and must survive a successful insertion.
+        // On failure, leaving the dictated text in place keeps it recoverable.
         guard tryAcquire() else { return false }
         defer { release() }
 
-        let prepared = await MainActor.run {
+        let initial = await MainActor.run {
+            PasteboardSnapshotCodec.snapshot(NSPasteboard.general)
+        }
+        let pressayChangeCount: Int? = await MainActor.run {
             let pasteboard = NSPasteboard.general
             pasteboard.clearContents()
-            return pasteboard.setString(text, forType: .string)
+            guard pasteboard.setString(text, forType: .string) else {
+                PasteboardSnapshotCodec.restore(initial, to: pasteboard)
+                return nil
+            }
+            return pasteboard.changeCount
         }
-        guard prepared else { return false }
+        guard let pressayChangeCount else { return false }
         let posted = await MainActor.run {
             Self.postKeyboardShortcut(keyCode: CGKeyCode(kVK_ANSI_V))
         }
-        try? await Task.sleep(for: .milliseconds(120))
+        if posted {
+            try? await Task.sleep(for: .milliseconds(120))
+        }
+        await restoreIfUnchanged(
+            initial,
+            expectedChangeCount: pressayChangeCount,
+            pasteSucceeded: posted
+        )
         return posted
     }
 
@@ -175,13 +253,18 @@ actor ClipboardTransactionCoordinator {
     }
 
     private func restoreIfUnchanged(
-        _ snapshots: [ItemSnapshot],
-        expectedChangeCount: Int
+        _ snapshots: [PasteboardItemSnapshot],
+        expectedChangeCount: Int,
+        pasteSucceeded: Bool = true
     ) async {
         await MainActor.run {
             let pasteboard = NSPasteboard.general
-            guard pasteboard.changeCount == expectedChangeCount else { return }
-            restore(snapshots, to: pasteboard)
+            guard ClipboardRestorationPolicy.shouldRestore(
+                pasteSucceeded: pasteSucceeded,
+                expectedChangeCount: expectedChangeCount,
+                currentChangeCount: pasteboard.changeCount
+            ) else { return }
+            PasteboardSnapshotCodec.restore(snapshots, to: pasteboard)
         }
     }
 
@@ -193,38 +276,6 @@ actor ClipboardTransactionCoordinator {
 
     private func release() {
         isBusy = false
-    }
-
-    @MainActor
-    private func snapshot(_ pasteboard: NSPasteboard) -> [ItemSnapshot] {
-        pasteboard.pasteboardItems?.map { item in
-            ItemSnapshot(
-                values: item.types.reduce(into: [String: Data]()) {
-                    result,
-                    type in
-                    if let data = item.data(forType: type) {
-                        result[type.rawValue] = data
-                    }
-                }
-            )
-        } ?? []
-    }
-
-    @MainActor
-    private func restore(
-        _ snapshots: [ItemSnapshot],
-        to pasteboard: NSPasteboard
-    ) {
-        pasteboard.clearContents()
-        guard !snapshots.isEmpty else { return }
-        let items = snapshots.map { snapshot in
-            let item = NSPasteboardItem()
-            for (rawType, data) in snapshot.values {
-                item.setData(data, forType: NSPasteboard.PasteboardType(rawType))
-            }
-            return item
-        }
-        pasteboard.writeObjects(items)
     }
 
     @MainActor

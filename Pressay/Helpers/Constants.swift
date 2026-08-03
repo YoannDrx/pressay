@@ -15,6 +15,7 @@ enum Constants {
     static let keychainHistoryKeyAccount = "history-encryption-key"
     static let keychainInboxKeyAccount = "inbox-encryption-key"
     static let keychainActionJournalKeyAccount = "action-journal-encryption-key"
+    static let keychainFoundingEligibilityAccount = "founding-eligibility-v1"
     static let identityMigrationCompletedKey = "pressay-identity-migration-v1-completed"
     static let applicationSupportDirectoryName = "Pressay"
     static let legacyApplicationSupportDirectoryName = "Whisper"

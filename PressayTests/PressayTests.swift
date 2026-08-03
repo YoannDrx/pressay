@@ -1,6 +1,81 @@
 import XCTest
+import AppKit
 import Carbon.HIToolbox
 @testable import Pressay
+
+final class ClipboardRestorationPolicyTests: XCTestCase {
+    func testSuccessfulPasteRestoresOnlyWhilePressayStillOwnsClipboard() {
+        XCTAssertTrue(
+            ClipboardRestorationPolicy.shouldRestore(
+                pasteSucceeded: true,
+                expectedChangeCount: 12,
+                currentChangeCount: 12
+            )
+        )
+        XCTAssertFalse(
+            ClipboardRestorationPolicy.shouldRestore(
+                pasteSucceeded: true,
+                expectedChangeCount: 12,
+                currentChangeCount: 13
+            )
+        )
+    }
+
+    func testFailedPasteKeepsDictatedTextRecoverable() {
+        XCTAssertFalse(
+            ClipboardRestorationPolicy.shouldRestore(
+                pasteSucceeded: false,
+                expectedChangeCount: 12,
+                currentChangeCount: 12
+            )
+        )
+    }
+}
+
+@MainActor
+final class PasteboardSnapshotCodecTests: XCTestCase {
+    func testSnapshotRestoresEveryItemAndRepresentation() throws {
+        let pasteboard = NSPasteboard(
+            name: .init("PressayTests.\(UUID().uuidString)")
+        )
+        pasteboard.clearContents()
+
+        let richItem = NSPasteboardItem()
+        let plainText = Data("Avant Pressay".utf8)
+        let html = Data("<strong>Avant Pressay</strong>".utf8)
+        richItem.setData(plainText, forType: .string)
+        richItem.setData(html, forType: .html)
+
+        let customType = NSPasteboard.PasteboardType("app.pressay.fixture")
+        let customItem = NSPasteboardItem()
+        let customData = Data([0x00, 0x7f, 0xff])
+        customItem.setData(customData, forType: customType)
+        XCTAssertTrue(pasteboard.writeObjects([richItem, customItem]))
+
+        let snapshot = PasteboardSnapshotCodec.snapshot(pasteboard)
+        pasteboard.clearContents()
+        XCTAssertTrue(pasteboard.setString("Texte dicté", forType: .string))
+        PasteboardSnapshotCodec.restore(snapshot, to: pasteboard)
+
+        let restoredItems = try XCTUnwrap(pasteboard.pasteboardItems)
+        XCTAssertEqual(restoredItems.count, 2)
+        XCTAssertEqual(restoredItems[0].data(forType: .string), plainText)
+        XCTAssertEqual(restoredItems[0].data(forType: .html), html)
+        XCTAssertEqual(restoredItems[1].data(forType: customType), customData)
+    }
+
+    func testEmptySnapshotRestoresAnEmptyClipboard() {
+        let pasteboard = NSPasteboard(
+            name: .init("PressayTests.\(UUID().uuidString)")
+        )
+        pasteboard.clearContents()
+        pasteboard.setString("Texte dicté", forType: .string)
+
+        PasteboardSnapshotCodec.restore([], to: pasteboard)
+
+        XCTAssertTrue(pasteboard.pasteboardItems?.isEmpty ?? true)
+    }
+}
 
 final class DistributionChannelTests: XCTestCase {
     func testDirectDistributionKeepsUniversalCapabilities() {
@@ -562,6 +637,49 @@ final class AppMigrationServiceTests: XCTestCase {
 
     private func defaultsSuiteName(suffix: String) -> String {
         "fr.yodev.pressay.tests.migration.\(suffix)"
+    }
+}
+
+final class FoundingEligibilityServiceTests: XCTestCase {
+    func testCreatesAndPersistsOpaqueMarker() {
+        let keychain = MemoryKeychainStore()
+        let marker = Data("founding-proof".utf8)
+        let service = FoundingEligibilityService(
+            keychain: keychain,
+            generateMarker: { marker }
+        )
+
+        XCTAssertTrue(service.createIfNeeded())
+        XCTAssertEqual(
+            keychain.data(account: Constants.keychainFoundingEligibilityAccount),
+            marker
+        )
+    }
+
+    func testNeverOverwritesExistingMarker() {
+        let existing = Data("existing-proof".utf8)
+        let keychain = MemoryKeychainStore(items: [
+            Constants.keychainFoundingEligibilityAccount: existing
+        ])
+        let service = FoundingEligibilityService(
+            keychain: keychain,
+            generateMarker: { Data("replacement".utf8) }
+        )
+
+        XCTAssertTrue(service.createIfNeeded())
+        XCTAssertEqual(
+            keychain.data(account: Constants.keychainFoundingEligibilityAccount),
+            existing
+        )
+    }
+
+    func testReportsKeychainWriteFailure() {
+        let service = FoundingEligibilityService(
+            keychain: MemoryKeychainStore(acceptsWrites: false),
+            generateMarker: { Data("founding-proof".utf8) }
+        )
+
+        XCTAssertFalse(service.createIfNeeded())
     }
 }
 

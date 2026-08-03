@@ -1,172 +1,131 @@
-# Audit technique — socle Pressay 1.0.0
+# Audit fonctionnel et technique — Pressay 1.2.3
 
-Date : 27 juillet 2026
+État de référence : 3 août 2026
+Commit de départ : `8c325d9`
+Canal public au début de l'audit : `1.2.2` (`12101`)
 
-## Audit de simplification — OpenAI + WhisperKit (2 août 2026)
+## Règles de lecture
 
-### Décision appliquée
+Une fonctionnalité n'est marquée **fonctionnelle et validée** que si son chemin
+nominal, ses erreurs, ses permissions, sa suppression de données et ses tests
+automatisés et manuels sont terminés. Une compilation ou un test unitaire seul
+ne prouve pas le fonctionnement dans les applications tierces.
 
-Le routage multi-provider (Deepgram, Groq, Anthropic et moteurs Apple
-conditionnels) augmentait le nombre d’états, de clés, de fallbacks et de chemins
-temps réel à diagnostiquer. Pressay revient à deux moteurs de transcription
-explicites :
+| État | Définition |
+| --- | --- |
+| Fonctionnelle et validée | Automatisation et validation manuelle représentative terminées |
+| Fonctionnelle, non validée manuellement | Code et tests actifs verts, gate matériel ou inter-apps ouverte |
+| Partielle | Parcours utile présent, mais erreurs, UX, plateforme ou tests incomplets |
+| Désactivée | Ancien code ou tests conservés hors compilation/runtime |
+| Préparée seulement | Contrats, schéma ou backend présents sans parcours utilisateur complet |
+| Absente | Aucun parcours livrable dans le code actuel |
 
-1. **OpenAI** pour le cloud et les transformations ;
-2. **WhisperKit Small** pour une transcription locale hors ligne.
+## Matrice exhaustive
 
-Il n’existe plus de fallback silencieux entre fournisseurs. Un choix local non
-prêt échoue immédiatement avec une instruction de téléchargement ; une clé
-OpenAI absente échoue avant de démarrer le micro. Les overrides historiques de
-provider dans les modes ne sont plus exposés dans l’interface.
+| Domaine | Parcours utilisateur | Direct | App Store | Preuves actives | Gate restant |
+| --- | --- | --- | --- | --- | --- |
+| Dictée Fidèle OpenAI | Maintenir, parler, relâcher, insérer | Fonctionnelle, non validée manuellement | Partielle : capture depuis l'interface et copie | `SessionCoordinator`, 114 tests Swift actifs | Matrice Tier A/B, réseau réel, Intel |
+| Dictée WhisperKit | Télécharger puis dicter hors ligne | Partielle | Partielle | Service épinglé, états de téléchargement, builds universels | Corpus FR/EN, mémoire/énergie, Apple Silicon réel |
+| Raccourcis globaux | Fn, modificateur droit, combinaison, bascule | Fonctionnelle, non validée manuellement | Non applicable par sandbox | Tests de conflits et transitions | Claviers physiques, dispositions FR/EN |
+| Mains libres | Double pression puis arrêt explicite | Fonctionnelle, non validée manuellement | Absente | Routeur de raccourcis et HUD | Tests UI et session longue |
+| Silence et hallucinations | Ne rien livrer sans parole | Fonctionnelle, non validée manuellement | Fonctionnelle, non validée manuellement | VAD adaptatif et validation de réponse testés | Micros interne/AirPods/USB et bruit réel |
+| Cible AX sûre | Revenir au champ initial | Fonctionnelle, non validée manuellement | Non applicable | Identité, fenêtre, rôle, sélection et hash testés | TextEdit à Word, web et Electron |
+| Insertion native | Remplacer via Accessibilité | Fonctionnelle, non validée manuellement | Non applicable | Tests UTF-16, sélection et rôles AX | Fixture AX réelle et apps Tier A/B |
+| Collage web/Electron | Coller dans navigateur, Slack, Cursor | Fonctionnelle, non validée manuellement | Non applicable | Politique navigateur/Electron testée | Google Docs, Notion, Cursor, Slack réels |
+| Restauration du presse-papiers | Retrouver le contenu copié avant Fn | Fonctionnelle, non validée manuellement | Non applicable : copy-only | Snapshot multiformat et politique de concurrence testés | Collage réel, images, gestionnaires de presse-papiers |
+| Copie de secours | Récupérer le résultat si la cible échoue | Fonctionnelle, non validée manuellement | Fonctionnelle, non validée manuellement | Raisons d'échec et fallback testés | Notifications et erreurs réelles |
+| Annulation | Échap pendant capture ou traitement | Fonctionnelle, non validée manuellement | Partielle | Transitions et nettoyage audio testés | API lente, aperçu et raccourci réel |
+| File de dictées | Démarrer une seconde dictée pendant le traitement | Absente dans le runtime actuel | Absente | Un test actif vérifie désormais le refus de la seconde capture | Décider entre refus explicite et vraie file |
+| Douze modes natifs | Choisir le format de sortie | Fonctionnelle, non validée manuellement | Fonctionnelle, non validée manuellement | Catalogue et résolution testés | Qualité linguistique par mode |
+| Modes personnalisés | Créer prompt, format et exemples | Fonctionnelle, non validée manuellement | Fonctionnelle, non validée manuellement | Persistance atomique et migration v2 testées | UX, erreurs OpenAI, FR/EN |
+| Profils par application | Mode et livraison par bundle | Fonctionnelle, non validée manuellement | Non applicable | Priorités et politiques testées | Matrice apps et migration utilisateur |
+| Transformation de sélection | Parler pour modifier une sélection | Fonctionnelle, non validée manuellement | Non applicable | Capture AX/fallback, aperçu et revalidation testés | Sélections web/Office et changements concurrents |
+| Contexte contrôlé | Choisir les sources envoyées | Fonctionnelle, non validée manuellement | Partielle | Restriction, manifeste et 50 injections passives testés | Inspection réseau et VoiceOver |
+| Consentement cloud | Voir et autoriser le payload exact | Fonctionnelle, non validée manuellement | Fonctionnelle, non validée manuellement | Refus, brut et invalidation de signature testés | Expiration réelle et parcours complet |
+| Historique chiffré | Chercher, taguer, exporter, retraiter | Fonctionnelle, non validée manuellement | Fonctionnelle, non validée manuellement | Rétention, enrichissement et export testés | Migration SQLite future, gros volumes |
+| Voice Inbox | Structurer et archiver les idées | Fonctionnelle, non validée manuellement | Fonctionnelle, non validée manuellement | Opt-in, extraction locale et chiffrement testés | UX complète, suppression et exports réels |
+| Actions sûres | Préparer note, rappel ou événement | Partielle | Partielle | Risque, idempotence et journal local testés | Exécuteurs système et validations bout en bout |
+| OpenAI | Transcription et transformation BYOK | Fonctionnelle, non validée manuellement | Fonctionnelle, non validée manuellement | Multipart, Responses `store:false`, erreurs principales | Matrice HTTP complète et clés restreintes réelles |
+| Groq, Deepgram, Anthropic | Choisir un fournisseur alternatif | Désactivée | Désactivée | Tests historiques sous `#if false` | Contrats v2, UI, benchmarks et consentement |
+| Onboarding | Première valeur en moins de deux minutes | Partielle | Partielle | Fenêtres et permissions compilées | Chemin WhisperKit sans clé OpenAI, test UI |
+| Lancement au démarrage | Activer Pressay avec macOS | Fonctionnelle, non validée manuellement | Fonctionnelle, non validée manuellement | `SMAppService` et état UI | Redémarrage réel et refus système |
+| HUD et correction | Suivre, corriger, copier, annuler | Fonctionnelle, non validée manuellement | Partielle | États, actions et politiques testés indirectement | Tests UI, VoiceOver, réduction des animations |
+| Migrations Whisper → Pressay | Conserver préférences, clés et fichiers | Fonctionnelle, non validée manuellement | Non applicable | Priorité, idempotence et reprise Keychain testées | Installation d'anciennes builds réelles |
+| Sparkle | Détecter et installer une mise à jour | Partielle | Non applicable | Configuration et appcast signés ; feed 1.2.2 restauré le 3 août | Mise à jour stable → stable signée |
+| DMG Developer ID | Télécharger et installer sans alerte | Partielle | Non applicable | Workflow, notarisation historique et scripts | Rejouer 1.2.3, session propre, Intel |
+| Pressay Companion | Installer depuis le Mac App Store | Partielle | Partielle | Build 12005 sandbox universel validé | Nouvelle archive, TestFlight et App Review |
+| Compte Pressay | Se connecter par navigateur | Préparée seulement | Préparée seulement | Backend OIDC local ; tests client historiques désactivés | Client PKCE actif, Clerk et suppression de compte |
+| Entitlements Free/Pro | Déverrouiller les fonctions achetées | Préparée seulement | Préparée seulement | Endpoint complet et snapshot Ed25519 backend ; client absent | Validation client, feature gates et grâce hors ligne |
+| Stripe Direct | Acheter mensuel, annuel ou lifetime | Préparée seulement | Non applicable | Checkout, Portal, essai, webhooks et réconciliation, 13 tests backend actifs | Test mode réel et taxes |
+| StoreKit 2 | Acheter dans l'édition App Store | Absente | Absente | Schéma serveur seulement | StoreKit, notifications Apple et restauration |
+| Landing `press-say.app` | Découvrir, comparer et acheter | Préparée seulement | Préparée seulement | Next.js 16 FR/EN déployé sur alias Vercel, 8 tests Playwright, Lighthouse ≥ 96 | DNS canonique, Clerk/Stripe staging et QA domaine |
+| Portfolio | Découvrir et télécharger la stable | Fonctionnelle et validée pour 1.2.2 | Non concerné | Build Next.js et redirection publique vérifiés | Mise à jour 1.2.3 après publication |
+| Localisation FR/EN de l'app | Utiliser toute l'interface en anglais | Partielle | Partielle | Quelques libellés et modes | Catalogue de chaînes et QA complète |
+| Métriques privées | Voir des durées sans contenu | Fonctionnelle, non validée manuellement | Fonctionnelle, non validée manuellement | Agrégats et export allowlisté testés | Vérification des écrans et gros volumes |
 
-### Chemin critique de latence
+## Complétude par domaine
 
-Le chemin OpenAI nominal est désormais : M4A 16 kHz mono envoyé une seule fois à
-`gpt-4o-mini-transcribe` au relâchement → texte final → transformation OpenAI
-éventuelle → insertion. La tentative WebSocket et son repli en cascade ont été
-retirés, et aucune file d’attente ne retient les dictées. Un choix WhisperKit
-local ne déclenche toujours aucun envoi cloud.
+Les pourcentages sont des indicateurs de pilotage fondés sur les gates terminés,
+pas une mesure de couverture de lignes.
 
-Le HUD reste visible uniquement pendant le travail réel. Les états terminaux se
-ferment automatiquement en 0,9 seconde par défaut et l’utilisateur conserve
-Échap pour annuler la tâche. Une dictée OpenAI fidèle a une échéance ferme de dix
-secondes. Le modèle WhisperKit reste chargé en mémoire après la première
-utilisation afin que les dictées suivantes évitent le coût de chargement Core ML.
+| Domaine | Complétude | Motif principal |
+| --- | ---: | --- |
+| Dictée et protections | 78 % | Automatisation forte, matrice réelle encore ouverte |
+| Modes, contexte et transformation | 72 % | Parcours codés, qualité/UX inter-apps à prouver |
+| Données locales et récupération | 74 % | Historique/Inbox riches, migration SQLite ouverte |
+| Providers et local | 48 % | OpenAI solide, WhisperKit non benchmarké, autres désactivés |
+| Distribution Direct | 62 % | Chaîne présente, 1.2.3 et mise à jour signée à rejouer |
+| Mac App Store | 55 % | Binaire conforme, nouveau TestFlight et revue absents |
+| Comptes et monétisation | 42 % | Backend staging prêt, aucun entitlement client actif |
+| Landing et acquisition | 68 % | Site autonome déployé, domaine et commerce non configurés |
 
-### Écarts corrigés par rapport à Paseru/whisper#1
+## Écarts prioritaires
 
-La PR de référence validait le principe Cloud/Local, mais son implémentation
-présentait plusieurs risques relevés dans sa revue : modèle actif non suivi,
-initialisations concurrentes, progression observée après le téléchargement et
-état « prêt » ambigu. Pressay utilise un seul modèle local, un chemin de
-téléchargement persistant, une initialisation sérialisée sur le MainActor et un
-état explicite `notDownloaded/downloading/loading/ready/failed`.
+### P0 — bloque une release
 
-### Publication Mac App Store
+- terminer la validation manuelle du presse-papiers après le correctif ;
+- vérifier une mise à jour Sparkle signée `1.2.2 → 1.2.3` ;
+- rejouer la matrice Tier A/B sur Apple Silicon et Intel ;
+- conserver l'appcast public en `200` et faire échouer la release sinon.
 
-WhisperKit 1.0.0 est épinglé par Swift Package Manager pour les deux cibles.
-La cible App Store reste sandboxée, sans Sparkle, AX, Carbon ni CGEvent. Elle ne
-peut pas promettre `Fn` + collage universel dans une autre application : ce
-parcours reste propre à la distribution directe. L’édition Store démarre la
-capture dans sa propre interface et copie le résultat dans le presse-papiers.
+### P1 — bloque le lancement payant
 
-Le modèle WhisperKit est une ressource Core ML non exécutable, téléchargée à la
-demande et supprimable. Les notes App Review doivent le préciser. Avant
-soumission, il reste impératif de produire l’archive 12005, de la tester via
-TestFlight sur un Mac propre et de refaire les captures montrant le nouvel écran
-OpenAI/WhisperKit.
+- activer le client Clerk/OAuth PKCE et la suppression de compte ;
+- implémenter la validation d'entitlement, le claim Founding et la grâce hors ligne côté client ;
+- durcir la preuve Founding avant production : le marqueur local est unique et
+  borné par version/date/appareil, mais un client Direct ne fournit pas à lui
+  seul une attestation matérielle infalsifiable ;
+- tester Stripe en mode test, y compris annulation, remboursement et désordre ;
+- ajouter les feature gates sans supprimer ni rendre inexportables les données ;
+- relier la landing et les pages légales à `press-say.app` après QA staging.
 
-### Améliorations recommandées après cette release
+### P2 — améliore rétention et différenciation
 
-- mesurer localement P50/P95 pour relâchement → texte collé, séparément pour
-  OpenAI et WhisperKit, sans conserver le contenu ;
-- ajouter un corpus audio FR/EN reproductible pour comparer le modèle Small aux
-  erreurs réelles de noms propres et de ponctuation ;
-- précharger WhisperKit au lancement seulement si le moteur local est choisi,
-  avec une limite mémoire mesurée sur Mac 8 Go ;
-- ajouter un test UI automatisé du cycle complet HUD listening → transcribing →
-  success/cancelled ;
-- mesurer séparément le chemin OpenAI sur Intel ; WhisperKit est désactivé avec
-  un message explicite sur cette architecture, conformément à son ciblage Apple
-  Silicon.
+- terminer la localisation FR/EN et l'onboarding WhisperKit sans clé ;
+- ajouter mémoire explicite et pack développeur ;
+- benchmarker WhisperKit puis réévaluer les providers alternatifs ;
+- terminer les intégrations locales avant les réunions et Teams.
 
-## État du socle
+## Preuves exécutées le 3 août 2026
 
-Pressay 1.0.0 est le nouveau point de départ public de l’application macOS
-anciennement distribuée en développement sous le nom Whisper. Le produit cible
-macOS 14+, Apple Silicon et Intel, avec un bundle public
-`fr.yodev.pressay`.
+- 114 tests Swift actifs réussis après le correctif presse-papiers et le marqueur Founding ;
+- build Release App Store universel `arm64 + x86_64` validé ;
+- typecheck backend et 13 tests Vitest actifs réussis ;
+- migrations 0001–0003 et parcours d'intégration validés sur une branche Neon temporaire ;
+- gate locale complète 1.2.3 : Direct/App Store universels et scripts de distribution verts ;
+- lint et build Next.js du portfolio réussis ;
+- lint, typecheck, build, 8 tests Playwright et Lighthouse 97/96/100/100 du site autonome réussis ;
+- déploiement Vercel technique `pressay-web.vercel.app` vérifié en HTTP 200 ;
+- branche `gh-pages` restaurée depuis l'appcast signé de `1.2.2` ;
+- `https://yoanndrx.github.io/pressay/appcast.xml` vérifié en HTTP 200.
 
-Le cœur de la version publique 1.0 est volontairement limité :
+## Gates manuels non exécutés
 
-1. maintenir Fn/Globe — ou un modificateur droit configurable — pour enregistrer ;
-2. relâcher pour terminer ;
-3. rejeter localement le silence et les pics trop courts ;
-4. transcrire avec la clé OpenAI personnelle de l’utilisateur ;
-5. valider la réponse contre les échos de prompt connus ;
-6. restituer le texte dans l’application initialement ciblée ;
-7. conserver facultativement un historique local chiffré.
-
-La branche de développement ajoute désormais la fondation 1.1 et la première
-tranche 1.2 : coordinateur de sessions, capture AX sûre, modes contextuels et
-transformation de sélection avec aperçu. Les commandes, moteurs locaux, comptes
-Pro, intégrations et réunions appartiennent toujours à la roadmap. Aucun bouton
-ne doit les présenter comme disponibles avant leur livraison de bout en bout.
-
-## Risque corrigé : transcription fantôme
-
-Un enregistrement silencieux pouvait auparavant renvoyer le prompt de vocabulaire
-technique comme transcription. Pressay cumule désormais deux barrières :
-
-- un VAD énergétique adaptatif exécuté avant tout appel réseau ;
-- une validation de sortie rejetant une réponse vide ou égale au vocabulaire ou
-  au prompt normalisé.
-
-La suite couvre le silence, les enregistrements trop courts, les pics sonores,
-la voix au-dessus du bruit ambiant ainsi que les échos de prompt français et
-anglais.
-
-## Identité et migration
-
-La migration reconnaît, dans cet ordre :
-
-1. les données Pressay déjà présentes ;
-2. `fr.yodev.whisper` ;
-3. `com.hyrak.whisper`.
-
-Elle migre les préférences connues, la clé API, la clé d’historique et
-`Application Support/Whisper`. Une ancienne entrée Keychain n’est supprimée
-qu’après écriture et relecture réussies sous `fr.yodev.pressay`. Le marqueur
-Pressay est indépendant des migrations historiques et l’opération peut être
-rejouée après une interruption.
-
-Le changement de bundle oblige les installations de développement existantes à
-réaccorder Microphone et Accessibilité. Les nouveaux utilisateurs ne sont pas
-concernés.
-
-## Distribution
-
-La configuration de release contient :
-
-- Sparkle 2.9.2 épinglé par Swift Package Manager ;
-- une clé publique Ed25519 intégrée et aucun profil système envoyé ;
-- un workflow de tag `v*` isolé dans l’environnement GitHub `release` ;
-- un certificat Developer ID importé dans un Keychain CI temporaire ;
-- la fabrication d’un DMG universel, sa signature, sa notarisation et son
-  agrafage ;
-- les contrôles `codesign`, `lipo`, `stapler`, `spctl`, montage du DMG, SHA-256
-  et appcast à URL immuable.
-
-Le certificat local disponible est :
-`Developer ID Application: Yoann ANDRIEUX (G9WFV7HNV6)`.
-
-La release ne doit pas être taguée tant que les modifications Pressay ne sont pas
-relues, poussées et que le test d’installation sur une session propre n’est pas
-prêt. Aucun ancien tag ou DMG Whisper ne doit être publié.
-
-## Vérifications de la baseline 1.0 effectuées
-
-- 19 tests Xcode réussis ;
-- `xcodebuild analyze` en Release réussi ;
-- archive Release non signée réussie avec `arm64 + x86_64` ;
-- validation `v1.0.0`, build `1`, bundle `fr.yodev.pressay` réussie ;
-- `pnpm lint` et `pnpm build` réussis sur le portfolio ;
-- secrets GitHub `release`, règle de tag `v*` et approbateur vérifiés sans
-  exposer leurs valeurs.
-
-La branche 1.1/1.2 porte la suite automatisée à 54 tests Swift et 2 tests
-Python. L’archive Release build 12001 signée Developer ID a été validée en
-`arm64 + x86_64`, Hardened Runtime est actif, et la fixture AX est elle aussi
-universelle. Le feed GitHub Pages est actif et les anciens feeds du portfolio
-redirigent vers lui. La notarisation du DMG et surtout la matrice
-interapplications restent des gates séparés documentés dans `TESTING.md`.
-
-## Gates encore externes
-
-- recherche formelle de marque INPI/EUIPO ;
-- création/vérification de l’App ID explicite Apple ;
-- première exécution réelle du workflow de notarisation Pressay ;
-- installation du DMG et dictée sur session macOS propre ;
-- mise à jour Sparkle entre deux builds signés ;
-- capture réelle de l’interface Pressay pour le portfolio ;
-- activation du CTA uniquement après disponibilité effective de `v1.2.0`.
+- Tier A/B complet et applications distantes/Citrix ;
+- AirPods et micro USB dans plusieurs environnements acoustiques ;
+- Mac Intel réel ;
+- installation propre du futur DMG 1.2.3 ;
+- mise à jour Sparkle signée 1.2.2 → 1.2.3 ;
+- TestFlight 12005 sur compte propre ;
+- Stripe, Clerk et suppression de compte en environnements réels ;
+- bascule DNS OVH vers Vercel et validation de `press-say.app`.
