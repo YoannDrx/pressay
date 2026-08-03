@@ -166,36 +166,15 @@ final class TextInjector: TextDelivering {
             return fail(.selectionChanged)
         }
 
-        if DeliveryPreferencePolicy.shouldUseFullValueReplacement(
-            canWriteValue: activeTarget.snapshot.canWriteValue,
-            prefersPaste: prefersPaste,
-            isInstantDictation: isInstantDictation
-        ),
-           await replaceValueUsingAccessibility(
-               cleanText,
-               in: activeTarget
-           ) {
-            rememberUndo(for: activeTarget, insertedText: cleanText)
-            lastDeliveryStrategy = .accessibilityReplacement
-            return true
-        }
-
         if DeliveryPreferencePolicy.shouldUseAccessibilityReplacement(
             canWriteSelectedText: activeTarget.snapshot.canWriteSelectedText,
             prefersPaste: prefersPaste,
             isInstantDictation: isInstantDictation
         ),
-           let element = activeTarget.focusedElement,
-           let expectedValue = expectedValue(
-               afterInserting: cleanText,
-               in: element
-           ),
-           AXUIElementSetAttributeValue(
-               element,
-               kAXSelectedTextAttribute as CFString,
-               cleanText as CFString
-           ) == .success,
-           await value(of: element, becomes: expectedValue.value) {
+           await insertSelectedTextUsingAccessibility(
+               cleanText,
+               in: activeTarget
+           ) {
             rememberUndo(for: activeTarget, insertedText: cleanText)
             lastDeliveryStrategy = .accessibilityReplacement
             return true
@@ -233,45 +212,33 @@ final class TextInjector: TextDelivering {
         return didPaste
     }
 
-    private func replaceValueUsingAccessibility(
+    private func insertSelectedTextUsingAccessibility(
         _ text: String,
         in target: TextInjectionTarget
     ) async -> Bool {
-        guard let element = target.focusedElement,
-              let replacement = expectedValue(
-                afterInserting: text,
-                in: element
-              ) else {
+        guard let element = target.focusedElement else {
             return false
         }
+        let expectedValue = expectedValue(
+            afterInserting: text,
+            in: element
+        )
         guard AXUIElementSetAttributeValue(
             element,
-            kAXValueAttribute as CFString,
-            replacement.value as CFString
+            kAXSelectedTextAttribute as CFString,
+            text as CFString
         ) == .success else {
             return false
         }
 
-        var cursorRange = CFRange(
-            location: replacement.cursorLocation,
-            length: 0
-        )
-        if let rangeValue = AXValueCreate(.cfRange, &cursorRange) {
-            _ = AXUIElementSetAttributeValue(
-                element,
-                kAXSelectedTextRangeAttribute as CFString,
-                rangeValue
-            )
-        }
-        let confirmed = await value(of: element, becomes: replacement.value)
-        if !confirmed {
-            // Chromium can apply AXValue immediately while publishing the old
-            // accessibility value for several run-loop turns. Unlike
-            // AXSelectedText, the full-value setter is deterministic: once it
-            // accepts the complete reconstructed value, retrying with Cmd+V
-            // can duplicate text that is already visible.
+        if let expectedValue,
+           !(await value(of: element, becomes: expectedValue.value)) {
+            // Chromium can apply AXSelectedText while continuing to publish a
+            // stale AXValue. The setter only receives the new dictation, so it
+            // cannot reintroduce text from an obsolete editor snapshot. Do not
+            // retry with Cmd+V after a successful setter or text may duplicate.
             logger.debug(
-                "Electron accepted full-value insertion before AX verification caught up"
+                "Accessibility accepted selected-text insertion before AX verification caught up"
             )
         }
         return true
@@ -811,13 +778,6 @@ enum DeliveryPreferencePolicy {
         canWriteSelectedText && (isInstantDictation || !prefersPaste)
     }
 
-    static func shouldUseFullValueReplacement(
-        canWriteValue: Bool,
-        prefersPaste: Bool,
-        isInstantDictation: Bool
-    ) -> Bool {
-        canWriteValue && prefersPaste && isInstantDictation
-    }
 }
 #endif
 

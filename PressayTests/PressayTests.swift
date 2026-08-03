@@ -1908,25 +1908,6 @@ final class DeliveryPreferencePolicyTests: XCTestCase {
         )
     }
 
-    func testInstantDictationUsesFullValueReplacementInElectronApp() {
-        XCTAssertTrue(
-            DeliveryPreferencePolicy.shouldUseFullValueReplacement(
-                canWriteValue: true,
-                prefersPaste: true,
-                isInstantDictation: true
-            )
-        )
-    }
-
-    func testNativeAppDoesNotNeedFullValueReplacement() {
-        XCTAssertFalse(
-            DeliveryPreferencePolicy.shouldUseFullValueReplacement(
-                canWriteValue: true,
-                prefersPaste: false,
-                isInstantDictation: true
-            )
-        )
-    }
 }
 
 final class AccessibilityValueInsertionTests: XCTestCase {
