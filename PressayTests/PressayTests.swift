@@ -1805,6 +1805,36 @@ final class DeliveryPreferencePolicyTests: XCTestCase {
             )
         )
     }
+
+    func testInstantDictationUsesWritableAccessibilityTargetInElectronApp() {
+        XCTAssertTrue(
+            DeliveryPreferencePolicy.shouldUseAccessibilityReplacement(
+                canWriteSelectedText: true,
+                prefersPaste: true,
+                isInstantDictation: true
+            )
+        )
+    }
+
+    func testTransformationKeepsPastePreferenceForElectronApp() {
+        XCTAssertFalse(
+            DeliveryPreferencePolicy.shouldUseAccessibilityReplacement(
+                canWriteSelectedText: true,
+                prefersPaste: true,
+                isInstantDictation: false
+            )
+        )
+    }
+
+    func testAccessibilityReplacementRequiresWritableSelectedText() {
+        XCTAssertFalse(
+            DeliveryPreferencePolicy.shouldUseAccessibilityReplacement(
+                canWriteSelectedText: false,
+                prefersPaste: false,
+                isInstantDictation: true
+            )
+        )
+    }
 }
 
 final class TargetSelectionValidatorTests: XCTestCase {

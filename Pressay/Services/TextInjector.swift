@@ -108,6 +108,18 @@ final class TextInjector: TextDelivering {
     }
 
     func inject(text: String, target: TextInjectionTarget?) async -> Bool {
+        await deliver(text: text, target: target, isInstantDictation: false)
+    }
+
+    func injectDictation(text: String, target: TextInjectionTarget?) async -> Bool {
+        await deliver(text: text, target: target, isInstantDictation: true)
+    }
+
+    private func deliver(
+        text: String,
+        target: TextInjectionTarget?,
+        isInstantDictation: Bool
+    ) async -> Bool {
         let cleanText = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !cleanText.isEmpty else { return fail(.emptyText) }
         guard TextInjector.hasAccessibilityPermission() else {
@@ -154,8 +166,11 @@ final class TextInjector: TextDelivering {
             return fail(.selectionChanged)
         }
 
-        if activeTarget.snapshot.canWriteSelectedText,
-           !prefersPaste,
+        if DeliveryPreferencePolicy.shouldUseAccessibilityReplacement(
+            canWriteSelectedText: activeTarget.snapshot.canWriteSelectedText,
+            prefersPaste: prefersPaste,
+            isInstantDictation: isInstantDictation
+        ),
            let element = activeTarget.focusedElement,
            AXUIElementSetAttributeValue(
                element,
@@ -167,7 +182,11 @@ final class TextInjector: TextDelivering {
             return true
         }
 
-        let didPaste = await ClipboardTransactionCoordinator.shared.paste(cleanText)
+        let didPaste = if isInstantDictation {
+            await ClipboardTransactionCoordinator.shared.pasteDictation(cleanText)
+        } else {
+            await ClipboardTransactionCoordinator.shared.paste(cleanText)
+        }
         if didPaste,
            activeTarget.focusedElement != nil,
            activeTarget.selectionRange != nil {
@@ -178,62 +197,6 @@ final class TextInjector: TextDelivering {
             return fail(.clipboardPasteFailed)
         }
         return didPaste
-    }
-
-    func injectDictation(text: String, target: TextInjectionTarget?) async -> Bool {
-        let cleanText = text.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !cleanText.isEmpty else { return fail(.emptyText) }
-        guard TextInjector.hasAccessibilityPermission() else {
-            return fail(.accessibilityNotGranted)
-        }
-        guard let target else { return fail(.missingTarget) }
-        guard !target.snapshot.isSecure else { return fail(.secureTarget) }
-        guard let app = NSRunningApplication(
-            processIdentifier: target.processIdentifier
-        ), !app.isTerminated else {
-            return fail(.targetApplicationUnavailable)
-        }
-
-        lastUndoToken = nil
-        lastDeliveryStrategy = .copied
-        lastDeliveryFailure = nil
-        guard NSWorkspace.shared.frontmostApplication?.processIdentifier
-                == target.processIdentifier else {
-            return fail(.targetApplicationNotFrontmost)
-        }
-
-        // The Fn path does not need a clipboard transaction, restoration or
-        // target revalidation. Put the result on the pasteboard and post Cmd+V
-        // immediately, like the original Whisper app.
-        let pasteboard = NSPasteboard.general
-        pasteboard.clearContents()
-        guard pasteboard.setString(cleanText, forType: .string) else {
-            return fail(.clipboardPasteFailed)
-        }
-        let didPaste = Self.postPasteShortcut()
-        lastDeliveryStrategy = didPaste ? .paste : .copied
-        return didPaste ? true : fail(.clipboardPasteFailed)
-    }
-
-    private static func postPasteShortcut() -> Bool {
-        guard let source = CGEventSource(stateID: .hidSystemState),
-              let keyDown = CGEvent(
-                keyboardEventSource: source,
-                virtualKey: CGKeyCode(kVK_ANSI_V),
-                keyDown: true
-              ),
-              let keyUp = CGEvent(
-                keyboardEventSource: source,
-                virtualKey: CGKeyCode(kVK_ANSI_V),
-                keyDown: false
-              ) else {
-            return false
-        }
-        keyDown.flags = .maskCommand
-        keyUp.flags = .maskCommand
-        keyDown.post(tap: .cghidEventTap)
-        keyUp.post(tap: .cghidEventTap)
-        return true
     }
 
     private func prefersPasteDelivery(for target: TextInjectionTarget) -> Bool {
@@ -724,6 +687,14 @@ enum DeliveryPreferencePolicy {
     ) -> Bool {
         isElectron
             || bundleIdentifier.map(browserBundleIdentifiers.contains) == true
+    }
+
+    static func shouldUseAccessibilityReplacement(
+        canWriteSelectedText: Bool,
+        prefersPaste: Bool,
+        isInstantDictation: Bool
+    ) -> Bool {
+        canWriteSelectedText && (isInstantDictation || !prefersPaste)
     }
 }
 #endif
