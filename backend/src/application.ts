@@ -11,6 +11,7 @@ import type Stripe from "stripe";
 import { z } from "zod";
 import { authenticationMiddleware, type AuthVariables } from "./auth.js";
 import {
+  checkoutSessionParameters,
   checkoutInputSchema,
   persistStripeEvent,
   priceID
@@ -488,14 +489,15 @@ export function createApp(
     const subject = context.get("authSubject");
     const rows = await database`
       select a.id, a.email, b.stripe_customer_id,
-             (${input.deviceID ?? null}::uuid is not null
-               and exists (
+             (not exists (
+                 select 1 from account_trials t where t.account_id = a.id
+               ) and (
+                 ${input.deviceID ?? null}::uuid is null
+                 or exists (
                  select 1 from devices d
                  where d.id = ${input.deviceID ?? null}::uuid
                    and d.account_id = a.id and d.revoked_at is null
                )
-               and not exists (
-                 select 1 from account_trials t where t.account_id = a.id
                )) as trial_eligible
       from accounts a
       left join billing_customers b on b.account_id = a.id
@@ -527,33 +529,17 @@ export function createApp(
       plan_code: input.plan,
       ...(trialEligible && input.deviceID ? { device_id: input.deviceID } : {})
     };
-    const session = input.interval === "lifetime"
-      ? await stripe.checkout.sessions.create({
-          mode: "payment",
-          customer: customerID,
-          line_items: [{ price: selectedPriceID, quantity: 1 }],
-          metadata,
-          payment_intent_data: { metadata },
-          success_url: config.PRESSAY_CHECKOUT_SUCCESS_URL,
-          cancel_url: config.PRESSAY_CHECKOUT_CANCEL_URL
-        })
-      : await stripe.checkout.sessions.create({
-          mode: "subscription",
-          customer: customerID,
-          line_items: [{ price: selectedPriceID, quantity: 1 }],
-          metadata,
-          subscription_data: { metadata },
-          ...(trialEligible ? {
-            payment_method_collection: "if_required" as const,
-            subscription_data: {
-              metadata,
-              trial_period_days: 14
-            }
-          } : {}),
-          allow_promotion_codes: true,
-          success_url: config.PRESSAY_CHECKOUT_SUCCESS_URL,
-          cancel_url: config.PRESSAY_CHECKOUT_CANCEL_URL
-        });
+    const session = await stripe.checkout.sessions.create(
+      checkoutSessionParameters({
+        customerID,
+        priceID: selectedPriceID,
+        metadata,
+        interval: input.interval,
+        trialEligible,
+        successURL: config.PRESSAY_CHECKOUT_SUCCESS_URL,
+        cancelURL: config.PRESSAY_CHECKOUT_CANCEL_URL
+      })
+    );
     await database`
       update billing_customers set last_checkout_at = now(), updated_at = now()
       where account_id = ${String(account.id)}::uuid

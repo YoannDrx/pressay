@@ -1,6 +1,6 @@
 # Audit fonctionnel et technique — Pressay 1.2.3
 
-État de référence : 3 août 2026
+État de référence : 4 août 2026
 Commit de départ : `8c325d9`
 Canal public au début de l'audit : `1.2.2` (`12101`)
 
@@ -56,9 +56,9 @@ ne prouve pas le fonctionnement dans les applications tierces.
 | Pressay Companion | Installer depuis le Mac App Store | Partielle | Partielle | Build 12005 sandbox universel validé | Nouvelle archive, TestFlight et App Review |
 | Compte Pressay | Se connecter par navigateur | Préparée seulement | Préparée seulement | Backend OIDC local ; tests client historiques désactivés | Client PKCE actif, Clerk et suppression de compte |
 | Entitlements Free/Pro | Déverrouiller les fonctions achetées | Préparée seulement | Préparée seulement | Endpoint complet et snapshot Ed25519 backend ; client absent | Validation client, feature gates et grâce hors ligne |
-| Stripe Direct | Acheter mensuel, annuel ou lifetime | Préparée seulement | Non applicable | Checkout, Portal, essai, webhooks et réconciliation, 13 tests backend actifs | Test mode réel et taxes |
+| Stripe Direct | Acheter mensuel, annuel ou lifetime | Partielle | Non applicable | Catalogues test/live créés, Checkout TTC et essai sans carte durcis, Portal, webhooks et réconciliation, 16 tests backend actifs | Clerk, API/Neon production, webhook live, immatriculation fiscale et paiement E2E |
 | StoreKit 2 | Acheter dans l'édition App Store | Absente | Absente | Schéma serveur seulement | StoreKit, notifications Apple et restauration |
-| Landing `press-say.app` | Découvrir, comparer et acheter | Préparée seulement | Préparée seulement | Next.js 16 FR/EN déployé sur alias Vercel, 8 tests Playwright, Lighthouse ≥ 96 | DNS canonique, Clerk/Stripe staging et QA domaine |
+| Landing `press-say.app` | Découvrir, comparer et acheter | Partielle | Partielle | Domaine canonique et Next.js 16 FR/EN déployés, trois CTA tarifaires, 8 tests Playwright | Clerk, API live, DNS `api`, paiement et portail E2E |
 | Portfolio | Découvrir et télécharger la stable | Fonctionnelle et validée pour 1.2.2 | Non concerné | Build Next.js et redirection publique vérifiés | Mise à jour 1.2.3 après publication |
 | Localisation FR/EN de l'app | Utiliser toute l'interface en anglais | Partielle | Partielle | Quelques libellés et modes | Catalogue de chaînes et QA complète |
 | Métriques privées | Voir des durées sans contenu | Fonctionnelle, non validée manuellement | Fonctionnelle, non validée manuellement | Agrégats et export allowlisté testés | Vérification des écrans et gros volumes |
@@ -76,8 +76,8 @@ pas une mesure de couverture de lignes.
 | Providers et local | 48 % | OpenAI solide, WhisperKit non benchmarké, autres désactivés |
 | Distribution Direct | 62 % | Chaîne présente, 1.2.3 et mise à jour signée à rejouer |
 | Mac App Store | 55 % | Binaire conforme, nouveau TestFlight et revue absents |
-| Comptes et monétisation | 42 % | Backend staging prêt, aucun entitlement client actif |
-| Landing et acquisition | 68 % | Site autonome déployé, domaine et commerce non configurés |
+| Comptes et monétisation | 55 % | Catalogue Stripe live prêt et backend durci ; identité, API et entitlement client restent à activer |
+| Landing et acquisition | 78 % | Site et domaine public en ligne ; les CTA commerciaux attendent Clerk et l'API live |
 
 ## Écarts prioritaires
 
@@ -95,7 +95,8 @@ pas une mesure de couverture de lignes.
 - durcir la preuve Founding avant production : le marqueur local est unique et
   borné par version/date/appareil, mais un client Direct ne fournit pas à lui
   seul une attestation matérielle infalsifiable ;
-- tester Stripe en mode test, y compris annulation, remboursement et désordre ;
+- terminer le paiement Stripe E2E en mode test, y compris annulation,
+  remboursement, paiement asynchrone et désordre ;
 - ajouter les feature gates sans supprimer ni rendre inexportables les données ;
 - relier la landing et les pages légales à `press-say.app` après QA staging.
 
@@ -110,12 +111,15 @@ pas une mesure de couverture de lignes.
 
 - 114 tests Swift actifs réussis après le correctif presse-papiers et le marqueur Founding ;
 - build Release App Store universel `arm64 + x86_64` validé ;
-- typecheck backend et 13 tests Vitest actifs réussis ;
-- migrations 0001–0003 et parcours d'intégration validés sur une branche Neon temporaire ;
+- typecheck backend et 16 tests Vitest actifs réussis ;
+- migrations 0001–0004 et essai web sans appareil validés sur la branche Neon
+  `preview/pressay-commercial-foundation` ;
 - gate locale complète 1.2.3 : Direct/App Store universels et scripts de distribution verts ;
 - lint et build Next.js du portfolio réussis ;
 - lint, typecheck, build, 8 tests Playwright et Lighthouse 97/96/100/100 du site autonome réussis ;
-- déploiement Vercel technique `pressay-web.vercel.app` vérifié en HTTP 200 ;
+- déploiement Vercel et domaine canonique `press-say.app` vérifiés ;
+- catalogues Stripe test et live créés avec visuel, code fiscal SaaS, tarifs
+  mensuel/annuel/Lifetime TTC, clés de recherche et métadonnées d'entitlement ;
 - branche `gh-pages` restaurée depuis l'appcast signé de `1.2.2` ;
 - `https://yoanndrx.github.io/pressay/appcast.xml` vérifié en HTTP 200.
 

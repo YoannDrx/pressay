@@ -7,7 +7,7 @@ const schema = z.object({
   PRESSAY_JWT_JWKS_URL: z.string().url(),
   CLERK_SECRET_KEY: z.string().startsWith("sk_").optional(),
   CRON_SECRET: z.string().min(32).optional(),
-  STRIPE_SECRET_KEY: z.string().startsWith("sk_").optional(),
+  STRIPE_SECRET_KEY: z.string().regex(/^(?:sk|rk)_(?:test|live)_/).optional(),
   STRIPE_WEBHOOK_SECRET: z.string().startsWith("whsec_").optional(),
   STRIPE_PRICE_PRO_BYOK_MONTHLY: z.string().startsWith("price_").optional(),
   STRIPE_PRICE_PRO_BYOK_ANNUAL: z.string().startsWith("price_").optional(),

@@ -12,6 +12,20 @@ export const purchasablePlans = [
 export type PurchasablePlan = (typeof purchasablePlans)[number];
 export type BillingInterval = "monthly" | "annual" | "lifetime";
 
+type CheckoutSessionInput = {
+  customerID: string;
+  priceID: string;
+  metadata: {
+    account_id: string;
+    plan_code: PurchasablePlan;
+    device_id?: string;
+  };
+  interval: BillingInterval;
+  trialEligible: boolean;
+  successURL: string;
+  cancelURL: string;
+};
+
 export const checkoutInputSchema = z.object({
   plan: z.enum(purchasablePlans),
   interval: z.enum(["monthly", "annual", "lifetime"]),
@@ -64,18 +78,80 @@ export function priceID(
   return undefined;
 }
 
+export function checkoutSessionParameters(
+  input: CheckoutSessionInput
+): Stripe.Checkout.SessionCreateParams {
+  const common = {
+    customer: input.customerID,
+    line_items: [{ price: input.priceID, quantity: 1 }],
+    metadata: input.metadata,
+    client_reference_id: input.metadata.account_id,
+    automatic_tax: { enabled: true },
+    billing_address_collection: "auto" as const,
+    customer_update: {
+      address: "auto" as const,
+      name: "auto" as const
+    },
+    tax_id_collection: { enabled: true },
+    allow_promotion_codes: true,
+    branding_settings: {
+      display_name: "Pressay",
+      background_color: "#111015",
+      button_color: "#5B6CFF",
+      border_style: "rounded" as const,
+      font_family: "inter" as const
+    },
+    success_url: input.successURL,
+    cancel_url: input.cancelURL
+  };
+
+  if (input.interval === "lifetime") {
+    return {
+      ...common,
+      mode: "payment",
+      payment_intent_data: { metadata: input.metadata }
+    };
+  }
+
+  return {
+    ...common,
+    mode: "subscription",
+    subscription_data: input.trialEligible
+      ? {
+          metadata: input.metadata,
+          trial_period_days: 14,
+          trial_settings: {
+            end_behavior: { missing_payment_method: "cancel" }
+          }
+        }
+      : { metadata: input.metadata },
+    ...(input.trialEligible
+      ? { payment_method_collection: "if_required" as const }
+      : {})
+  };
+}
+
 export function eventProjection(event: Stripe.Event): StripeEventProjection | null {
-  if (event.type === "checkout.session.completed") {
+  if (
+    event.type === "checkout.session.completed" ||
+    event.type === "checkout.session.async_payment_succeeded"
+  ) {
     const session = event.data.object;
     const accountID = session.metadata?.account_id;
     const plan = parsePlan(session.metadata?.plan_code);
     if (!accountID || !plan) return null;
+    // Subscription lifecycle events are the source of truth for Pro. For the
+    // one-time Lifetime offer, never grant an entitlement before Stripe marks
+    // the Checkout payment as paid (important for asynchronous methods).
+    if (plan !== "lifetime_byok" || session.payment_status !== "paid") {
+      return null;
+    }
     return {
       accountID,
       plan,
       status: "active",
       stripeCustomerID: stripeID(session.customer),
-      stripeSubscriptionID: stripeID(session.subscription),
+      stripeSubscriptionID: null,
       currentPeriodEnd: null,
       trialEnd: null,
       trialDeviceID: session.metadata?.device_id ?? null,
@@ -192,13 +268,10 @@ export async function persistStripeEvent(
       select ${projection.accountID}::uuid,
              ${projection.trialDeviceID}::uuid,
              ${projection.eventCreatedAt.toISOString()}::timestamptz,
-             ${(
-               projection.trialEnd
-                 ?? new Date(projection.eventCreatedAt.getTime() + 14 * 86_400_000)
-             ).toISOString()}::timestamptz
+             ${projection.trialEnd?.toISOString() ?? null}::timestamptz
       from inserted_event
       where ${projection.plan} = 'pro_byok'
-        and ${projection.trialDeviceID}::uuid is not null
+        and ${projection.trialEnd?.toISOString() ?? null}::timestamptz is not null
         and ${projection.stripeSubscriptionID} is not null
       on conflict (account_id) do nothing
       returning account_id

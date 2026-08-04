@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { createApp } from "../src/app.js";
+import { createApp } from "../src/application.js";
 import { readConfig } from "../src/config.js";
 import type { Database } from "../src/db.js";
 

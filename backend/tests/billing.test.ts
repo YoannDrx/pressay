@@ -1,6 +1,7 @@
 import type Stripe from "stripe";
 import { describe, expect, it } from "vitest";
 import {
+  checkoutSessionParameters,
   checkoutInputSchema,
   eventProjection,
   priceID
@@ -35,6 +36,10 @@ describe("Stripe billing", () => {
     expect(stripeIsConfigured(readConfig(byokOnly))).toBe(true);
     const { STRIPE_WEBHOOK_SECRET: _, ...incomplete } = environment;
     expect(stripeIsConfigured(readConfig(incomplete))).toBe(false);
+    expect(readConfig({
+      ...environment,
+      STRIPE_SECRET_KEY: "rk_live_pressay_restricted"
+    }).STRIPE_SECRET_KEY).toBe("rk_live_pressay_restricted");
   });
 
   it("maps a server-side plan and interval to an allowlisted Price ID", () => {
@@ -55,7 +60,69 @@ describe("Stripe billing", () => {
     })).toThrow();
   });
 
-  it("derives entitlements only from signed Stripe event metadata", () => {
+  it("creates a no-card trial that cancels if no payment method is added", () => {
+    const parameters = checkoutSessionParameters({
+      customerID: "cus_pressay",
+      priceID: "price_byok_year",
+      metadata: {
+        account_id: "9e944211-0ccf-48c2-8bca-f10f66bd428b",
+        plan_code: "pro_byok"
+      },
+      interval: "annual",
+      trialEligible: true,
+      successURL: "https://press-say.app/checkout/success",
+      cancelURL: "https://press-say.app/checkout/cancel"
+    });
+
+    expect(parameters).toMatchObject({
+      mode: "subscription",
+      automatic_tax: { enabled: true },
+      billing_address_collection: "auto",
+      tax_id_collection: { enabled: true },
+      allow_promotion_codes: true,
+      branding_settings: {
+        display_name: "Pressay",
+        background_color: "#111015",
+        button_color: "#5B6CFF",
+        border_style: "rounded",
+        font_family: "inter"
+      },
+      payment_method_collection: "if_required",
+      subscription_data: {
+        trial_period_days: 14,
+        trial_settings: {
+          end_behavior: { missing_payment_method: "cancel" }
+        }
+      }
+    });
+  });
+
+  it("enables tax and promotion codes for the one-time Lifetime offer", () => {
+    const parameters = checkoutSessionParameters({
+      customerID: "cus_pressay",
+      priceID: "price_lifetime",
+      metadata: {
+        account_id: "9e944211-0ccf-48c2-8bca-f10f66bd428b",
+        plan_code: "lifetime_byok"
+      },
+      interval: "lifetime",
+      trialEligible: false,
+      successURL: "https://press-say.app/checkout/success",
+      cancelURL: "https://press-say.app/checkout/cancel"
+    });
+
+    expect(parameters).toMatchObject({
+      mode: "payment",
+      automatic_tax: { enabled: true },
+      allow_promotion_codes: true,
+      branding_settings: { display_name: "Pressay" },
+      payment_intent_data: {
+        metadata: { plan_code: "lifetime_byok" }
+      }
+    });
+  });
+
+  it("derives a paid Lifetime entitlement only from signed Stripe metadata", () => {
     const event = {
       id: "evt_pressay",
       created: 1_780_000_000,
@@ -64,25 +131,47 @@ describe("Stripe billing", () => {
         object: {
           metadata: {
             account_id: "9e944211-0ccf-48c2-8bca-f10f66bd428b",
-            plan_code: "pro_byok"
+            plan_code: "lifetime_byok"
           },
+          payment_status: "paid",
           customer: "cus_pressay",
-          subscription: "sub_pressay"
+          subscription: null
         }
       }
     } as unknown as Stripe.Event;
 
     expect(eventProjection(event)).toEqual({
       accountID: "9e944211-0ccf-48c2-8bca-f10f66bd428b",
-      plan: "pro_byok",
+      plan: "lifetime_byok",
       status: "active",
       stripeCustomerID: "cus_pressay",
-      stripeSubscriptionID: "sub_pressay",
+      stripeSubscriptionID: null,
       currentPeriodEnd: null,
       trialEnd: null,
       trialDeviceID: null,
       eventCreatedAt: new Date(1_780_000_000_000)
     });
+  });
+
+  it("does not grant Lifetime before an asynchronous payment succeeds", () => {
+    const event = {
+      id: "evt_unpaid_lifetime",
+      created: 1_780_000_000,
+      type: "checkout.session.completed",
+      data: {
+        object: {
+          metadata: {
+            account_id: "9e944211-0ccf-48c2-8bca-f10f66bd428b",
+            plan_code: "lifetime_byok"
+          },
+          payment_status: "unpaid",
+          customer: "cus_pressay",
+          subscription: null
+        }
+      }
+    } as unknown as Stripe.Event;
+
+    expect(eventProjection(event)).toBeNull();
   });
 
   it("revokes a lifetime entitlement after a signed refund event", () => {
