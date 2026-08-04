@@ -10,7 +10,7 @@ Sparkle.
 
 | Canal | Produit | Bundle ID | Version initiale | Livraison du texte |
 | --- | --- | --- | --- | --- |
-| Direct | `Pressay.app` | `fr.yodev.pressay` | 1.2.3 (12102), stable publique | Insertion universelle lorsque la cible est vérifiable |
+| Direct | `Pressay.app` | `fr.yodev.pressay` | 1.2.4 (12103), stable publique | Insertion universelle lorsque la cible est vérifiable |
 | Mac App Store | `Pressay Companion.app` | `fr.yodev.pressay` | 1.2.0 (12005) | Presse-papiers et Voice Inbox |
 
 La variante App Store ne doit jamais promettre la dictée universelle. Elle

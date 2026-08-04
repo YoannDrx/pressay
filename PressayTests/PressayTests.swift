@@ -2131,6 +2131,100 @@ final class AccessibilityValueInsertionTests: XCTestCase {
     }
 }
 
+final class TargetActivationPolicyTests: XCTestCase {
+    func testAlreadyFrontmostTargetIsNotReactivated() {
+        XCTAssertFalse(
+            TargetActivationPolicy.shouldActivate(
+                targetProcessIdentifier: 42,
+                frontmostProcessIdentifier: 42
+            )
+        )
+    }
+
+    func testBackgroundOrUnknownTargetIsActivated() {
+        XCTAssertTrue(
+            TargetActivationPolicy.shouldActivate(
+                targetProcessIdentifier: 42,
+                frontmostProcessIdentifier: 84
+            )
+        )
+        XCTAssertTrue(
+            TargetActivationPolicy.shouldActivate(
+                targetProcessIdentifier: 42,
+                frontmostProcessIdentifier: nil
+            )
+        )
+    }
+}
+
+final class MissingAccessibilityTargetPolicyTests: XCTestCase {
+    func testCodexInstantDictationCanUseMenuWhenComposerIsNotExposed() {
+        XCTAssertTrue(
+            MissingAccessibilityTargetPolicy.canUseApplicationMenuPaste(
+                bundleIdentifier: "com.openai.codex",
+                isInstantDictation: true,
+                prefersPaste: true,
+                isSecure: false,
+                hasFocusedElement: false
+            )
+        )
+    }
+
+    func testFallbackDoesNotApplyToUnknownElectronApps() {
+        XCTAssertFalse(
+            MissingAccessibilityTargetPolicy.canUseApplicationMenuPaste(
+                bundleIdentifier: "com.example.electron",
+                isInstantDictation: true,
+                prefersPaste: true,
+                isSecure: false,
+                hasFocusedElement: false
+            )
+        )
+    }
+
+    func testFallbackNeverBypassesSecureOrExistingAccessibilityTargets() {
+        XCTAssertFalse(
+            MissingAccessibilityTargetPolicy.canUseApplicationMenuPaste(
+                bundleIdentifier: "com.openai.codex",
+                isInstantDictation: true,
+                prefersPaste: true,
+                isSecure: true,
+                hasFocusedElement: false
+            )
+        )
+        XCTAssertFalse(
+            MissingAccessibilityTargetPolicy.canUseApplicationMenuPaste(
+                bundleIdentifier: "com.openai.codex",
+                isInstantDictation: true,
+                prefersPaste: true,
+                isSecure: false,
+                hasFocusedElement: true
+            )
+        )
+    }
+
+    func testFallbackIsLimitedToInstantPasteDelivery() {
+        XCTAssertFalse(
+            MissingAccessibilityTargetPolicy.canUseApplicationMenuPaste(
+                bundleIdentifier: "com.openai.codex",
+                isInstantDictation: false,
+                prefersPaste: true,
+                isSecure: false,
+                hasFocusedElement: false
+            )
+        )
+        XCTAssertFalse(
+            MissingAccessibilityTargetPolicy.canUseApplicationMenuPaste(
+                bundleIdentifier: "com.openai.codex",
+                isInstantDictation: true,
+                prefersPaste: false,
+                isSecure: false,
+                hasFocusedElement: false
+            )
+        )
+    }
+}
+
 final class TargetSelectionValidatorTests: XCTestCase {
     func testOriginalSelectionIsAccepted() {
         let snapshot = makeSnapshot(

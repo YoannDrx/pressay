@@ -149,12 +149,42 @@ final class TextInjector: TextDelivering {
         lastDeliveryStrategy = .copied
         lastDeliveryFailure = nil
 
-        app.activate(options: [.activateAllWindows])
+        let frontmostProcessIdentifier = NSWorkspace.shared
+            .frontmostApplication?.processIdentifier
+        if TargetActivationPolicy.shouldActivate(
+            targetProcessIdentifier: target.processIdentifier,
+            frontmostProcessIdentifier: frontmostProcessIdentifier
+        ) {
+            app.activate(options: [.activateAllWindows])
+        }
         guard await waitForTargetApplication(target.processIdentifier) else {
             return fail(.targetApplicationNotFrontmost)
         }
         guard windowStillMatches(target) else {
             return fail(.targetWindowChanged)
+        }
+        let usesApplicationMenuPaste = DeliveryPreferencePolicy
+            .shouldUseApplicationMenuPaste(
+                prefersPaste: prefersPaste,
+                isInstantDictation: isInstantDictation
+            )
+        if MissingAccessibilityTargetPolicy.canUseApplicationMenuPaste(
+            bundleIdentifier: target.snapshot.bundleIdentifier,
+            isInstantDictation: isInstantDictation,
+            prefersPaste: prefersPaste,
+            isSecure: target.snapshot.isSecure,
+            hasFocusedElement: target.focusedElement != nil
+        ) {
+            logger.info(
+                "Using application-menu compatibility delivery for accessibility-limited target"
+            )
+            let didPaste = await ClipboardTransactionCoordinator.shared
+                .pasteDictationUsingApplicationMenu(
+                    cleanText,
+                    processIdentifier: target.processIdentifier
+                )
+            lastDeliveryStrategy = didPaste ? .paste : .copied
+            return didPaste ? true : fail(.clipboardPasteFailed)
         }
         guard let activeTarget = matchingFocusedTarget(
             target,
@@ -170,10 +200,7 @@ final class TextInjector: TextDelivering {
             expectedValue(afterInserting: cleanText, in: $0)
         }
 
-        if DeliveryPreferencePolicy.shouldUseApplicationMenuPaste(
-            prefersPaste: prefersPaste,
-            isInstantDictation: isInstantDictation
-        ),
+        if usesApplicationMenuPaste,
            await ClipboardTransactionCoordinator.shared
             .pasteDictationUsingApplicationMenu(
                 cleanText,
@@ -800,6 +827,42 @@ enum DeliveryPreferencePolicy {
         isInstantDictation: Bool
     ) -> Bool {
         prefersPaste && isInstantDictation
+    }
+}
+
+enum TargetActivationPolicy {
+    static func shouldActivate(
+        targetProcessIdentifier: pid_t,
+        frontmostProcessIdentifier: pid_t?
+    ) -> Bool {
+        targetProcessIdentifier != frontmostProcessIdentifier
+    }
+}
+
+enum MissingAccessibilityTargetPolicy {
+    // Codex currently exposes its focused window and enabled Paste menu item,
+    // but not the custom composer as AXFocusedUIElement. Keep this fallback
+    // deliberately allowlisted: applying it to every Electron app would also
+    // bypass Pressay's secure-field and changed-focus validation.
+    private static let compatibleBundleIdentifiers: Set<String> = [
+        "com.openai.codex"
+    ]
+
+    static func canUseApplicationMenuPaste(
+        bundleIdentifier: String?,
+        isInstantDictation: Bool,
+        prefersPaste: Bool,
+        isSecure: Bool,
+        hasFocusedElement: Bool
+    ) -> Bool {
+        guard isInstantDictation,
+              prefersPaste,
+              !isSecure,
+              !hasFocusedElement,
+              let bundleIdentifier else {
+            return false
+        }
+        return compatibleBundleIdentifiers.contains(bundleIdentifier)
     }
 }
 #endif
