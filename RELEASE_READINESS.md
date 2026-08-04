@@ -1,6 +1,6 @@
 # Pressay — préparation de publication
 
-État de référence : 3 août 2026
+État de référence : 4 août 2026
 
 Ce document distingue ce qui est automatisable dans le dépôt des actions qui
 nécessitent App Store Connect, des certificats, un Mac de test ou une décision
@@ -25,7 +25,7 @@ risque StoreKit, les coûts d'inférence de Pressay ou une dépendance au backen
 
 ## État des deux canaux
 
-| Gate | Direct 1.2.3 (12102), stable publiée | Mac App Store 1.2.0 (12005) |
+| Gate | Direct 1.2.4 (12103), hotfix Codex | Mac App Store 1.2.0 (12005) |
 | --- | --- | --- |
 | Bundle | `fr.yodev.pressay` | `fr.yodev.pressay` |
 | Architectures | `arm64 + x86_64` | `arm64 + x86_64` |
@@ -33,7 +33,7 @@ risque StoreKit, les coûts d'inférence de Pressay ou une dépendance au backen
 | Mise à jour | Sparkle signé | Mac App Store uniquement |
 | Confidentialité | manifeste inclus | manifeste inclus |
 | Automatisation | DMG, notarisation, checksum, appcast | archive et export App Store |
-| État externe | GitHub Release, DMG, checksum et appcast 1.2.3 publics et revérifiés sur Apple Silicon ; Intel/matrice/dogfood restent ouverts | 12001 est en TestFlight interne ; 12002 à 12004 sont obsolètes ; 12005 doit être archivé et téléversé |
+| État externe | Parcours Fn réel dans Codex et gate locale validés ; publication GitHub, DMG, checksum et appcast 1.2.4 automatisés par le workflow Release ; Intel/matrice/dogfood restent ouverts | 12001 est en TestFlight interne ; 12002 à 12004 sont obsolètes ; 12005 doit être archivé et téléversé |
 
 La gate locale complète est :
 

@@ -11,17 +11,17 @@ implémentation automatisée réussie ne vaut pas validation de release : la
 matrice interapplications, la signature et le test sur une session macOS propre
 restent des gates distincts.
 
-## État d’implémentation au 3 août 2026
+## État d’implémentation au 4 août 2026
 
 | Lot | État du code | Gate restant |
 | --- | --- | --- |
 | 1.0 — Dictée fiable | Livré dans le socle existant | Gates de distribution 1.0 documentés dans `AUDIT.md` |
 | 1.1 — Fondation | Machine d’état, coordinateur injectable, capture AX, validation de cible, annulation, session unique, HUD audio, double pression, enregistreur de raccourcis et canal Sparkle bêta codés | Matrice manuelle et validation matérielle |
-| 1.2 — Modes et transformation | Schéma v2 migrable, 12 modes natifs, modes personnalisés, profils opt-in, consentement cloud interactif, sélection AX/fallback transactionnel, aperçu, replay mémoire, HUD configurable, correction vocale, Inbox chiffrée et politiques de livraison par app codés ; stable 1.2.3 (12102) notarialisée et publique avec restauration du presse-papiers et 114 tests Swift actifs | Sept jours de dogfood sans P0/P1, matrice Tier A/B, Intel réel et mise à jour Sparkle interactive 1.2.2 → 1.2.3 |
+| 1.2 — Modes et transformation | Schéma v2 migrable, 12 modes natifs, modes personnalisés, profils opt-in, consentement cloud interactif, sélection AX/fallback transactionnel, aperçu, replay mémoire, HUD configurable, correction vocale, Inbox chiffrée et politiques de livraison par app codés ; stable 1.2.4 (12103) avec restauration du presse-papiers et compatibilité Codex, 120 tests Swift actifs | Sept jours de dogfood sans P0/P1, matrice Tier A/B, Intel réel et mise à jour Sparkle interactive 1.2.3 → 1.2.4 |
 | 1.3 — Local/hybride | Routeurs, catalogue signé/SHA-256, SpeechAnalyzer, installation des assets système, Foundation Models et sélection des fournisseurs par mode codés derrière les gardes SDK/compiler | Chaîne Xcode 26 dédiée, tests audio réels FR/EN, benchmark M2, fournisseurs téléchargés FluidAudio/whisper.cpp/llama.cpp, interface Modèles complète et corpus |
 | 1.4 à 2.1 | Contrats de domaine préparés pour les actions, l’historique et les capacités | Implémentation produit et gates propres à chaque lot |
 
-La suite automatisée contient actuellement **114 tests Swift et 2 tests Python actifs**.
+La suite automatisée contient actuellement **120 tests Swift et 5 tests Python actifs**.
 Elle complète, sans remplacer, la matrice interapplications et matérielle.
 
 ## 1.0.0 — Identité et dictée fiable

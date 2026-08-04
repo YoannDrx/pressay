@@ -1,6 +1,6 @@
 # Pressay — Master Roadmap produit, technique et go-to-market
 
-État de référence : 3 août 2026
+État de référence : 4 août 2026
 
 Ce document pilote l’ordre de livraison. `AUDIT.md` décrit les preuves et
 écarts actuels ; `ROADMAP.md` conserve l’historique fonctionnel ;
@@ -8,10 +8,10 @@ Ce document pilote l’ordre de livraison. `AUDIT.md` décrit les preuves et
 
 ## 1. État vérifié
 
-- La stable publique est `v1.2.3` (12102), signée et notarialisée.
+- La stable publique est `v1.2.4` (12103), avec le correctif de dictée Codex.
 - L’appcast canonique GitHub Pages a été restauré et répond `200` avec l’URL
   immuable et la signature EdDSA de 1.2.3, tout en conservant 1.2.2.
-- La stable Direct `v1.2.3` restaure tous les items
+- La stable Direct restaure tous les items
   et formats du presse-papiers après une insertion réussie, sans écraser une
   copie concurrente de l’utilisateur.
 - Le canal App Store reste 1.2.0 (12005), sandboxé et volontairement copy-only.
@@ -61,12 +61,13 @@ Trousseau, réclamable une fois et convertie en droit Lifetime/legacy.
 
 ## 4. Tracks et gates
 
-### Track A — Stabiliser Direct 1.2.3
+### Track A — Stabiliser Direct 1.2.4
 
 - [x] restaurer l’appcast public 1.2.2 ;
 - [x] implémenter le contrat transactionnel du presse-papiers ;
 - [x] ajouter les tests texte riche, multi-item, vide et modification concurrente ;
 - [x] passer version/build à 1.2.3 (12102) ;
+- [x] corriger la dictée Codex et passer version/build à 1.2.4 (12103) ;
 - [x] durcir le workflow pour recréer `gh-pages` et vérifier l’appcast public ;
 - [x] créer la preuve Founding locale, sans activer le paywall ;
 - [ ] rejouer la matrice Tier A/B dans les applications cibles ;

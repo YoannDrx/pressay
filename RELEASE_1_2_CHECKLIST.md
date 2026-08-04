@@ -100,6 +100,9 @@ Tier B — au moins quatre applications, avec un testeur par application :
   1.2.3, retélécharger les trois artefacts, vérifier SHA-256, ticket agrafé,
   Gatekeeper, signature, Team ID, Hardened Runtime, `arm64 + x86_64`, appcast
   public et installation dans `/Applications` sur Apple Silicon.
+- [x] Valider le correctif Codex de 1.2.4 build 12103 avec une dictée Fn réelle,
+  le presse-papiers préservé, 120 tests Swift et les builds universels Direct et
+  App Store.
 
 ## Socle 1.3 non publiable
 

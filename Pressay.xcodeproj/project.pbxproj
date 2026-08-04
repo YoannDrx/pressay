@@ -726,7 +726,7 @@
 				CODE_SIGN_IDENTITY = "Apple Development";
 				CODE_SIGN_STYLE = Automatic;
 				COMBINE_HIDPI_IMAGES = YES;
-				CURRENT_PROJECT_VERSION = 12102;
+				CURRENT_PROJECT_VERSION = 12103;
 				DEVELOPMENT_TEAM = G9WFV7HNV6;
 				ENABLE_HARDENED_RUNTIME = NO;
 				GENERATE_INFOPLIST_FILE = NO;
@@ -738,7 +738,7 @@
 					"$(inherited)",
 					"@executable_path/../Frameworks",
 				);
-				MARKETING_VERSION = 1.2.3;
+				MARKETING_VERSION = 1.2.4;
 				PRODUCT_BUNDLE_IDENTIFIER = fr.yodev.pressay.debug;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				PRESSAY_DISPLAY_NAME = "Pressay Local";
@@ -758,7 +758,7 @@
 				CODE_SIGN_INJECT_BASE_ENTITLEMENTS = NO;
 				CODE_SIGN_STYLE = Automatic;
 				COMBINE_HIDPI_IMAGES = YES;
-				CURRENT_PROJECT_VERSION = 12102;
+				CURRENT_PROJECT_VERSION = 12103;
 				DEVELOPMENT_TEAM = "";
 				ENABLE_HARDENED_RUNTIME = YES;
 				GENERATE_INFOPLIST_FILE = NO;
@@ -770,7 +770,7 @@
 					"$(inherited)",
 					"@executable_path/../Frameworks",
 				);
-				MARKETING_VERSION = 1.2.3;
+				MARKETING_VERSION = 1.2.4;
 				PRODUCT_BUNDLE_IDENTIFIER = fr.yodev.pressay;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				PRESSAY_DISPLAY_NAME = Pressay;
