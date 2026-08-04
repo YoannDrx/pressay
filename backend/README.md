@@ -54,7 +54,10 @@ Endpoints :
 
 Les événements sont dédupliqués avec l’ID Stripe et projetés selon leur date
 fournisseur afin qu’un événement ancien ne puisse pas écraser un état récent.
-Appliquer les migrations `0001` à `0003` dans l’ordre.
+Appliquer les migrations `0001` à `0004` dans l’ordre. La migration `0004`
+autorise un essai lié au compte depuis le site lorsque aucun identifiant de Mac
+n'est encore disponible ; les checkouts natifs continuent d'associer l'essai à
+un appareil enregistré.
 
 En production, `CLERK_SECRET_KEY` est requis pour que `DELETE /v1/me` supprime
 aussi l’identité externe. `PRESSAY_ENTITLEMENT_SIGNING_PRIVATE_KEY` signe les
