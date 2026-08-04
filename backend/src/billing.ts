@@ -94,6 +94,13 @@ export function checkoutSessionParameters(
     },
     tax_id_collection: { enabled: true },
     allow_promotion_codes: true,
+    branding_settings: {
+      display_name: "Pressay",
+      background_color: "#111015",
+      button_color: "#5B6CFF",
+      border_style: "rounded" as const,
+      font_family: "inter" as const
+    },
     success_url: input.successURL,
     cancel_url: input.cancelURL
   };

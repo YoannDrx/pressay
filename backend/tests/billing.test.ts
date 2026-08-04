@@ -80,6 +80,13 @@ describe("Stripe billing", () => {
       billing_address_collection: "auto",
       tax_id_collection: { enabled: true },
       allow_promotion_codes: true,
+      branding_settings: {
+        display_name: "Pressay",
+        background_color: "#111015",
+        button_color: "#5B6CFF",
+        border_style: "rounded",
+        font_family: "inter"
+      },
       payment_method_collection: "if_required",
       subscription_data: {
         trial_period_days: 14,
@@ -108,6 +115,7 @@ describe("Stripe billing", () => {
       mode: "payment",
       automatic_tax: { enabled: true },
       allow_promotion_codes: true,
+      branding_settings: { display_name: "Pressay" },
       payment_intent_data: {
         metadata: { plan_code: "lifetime_byok" }
       }
