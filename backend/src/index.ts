@@ -1,4 +1,4 @@
-import { createApp } from "./app.js";
+import { createApp } from "./application.js";
 import { createStripeClient } from "./billing.js";
 import { readConfig, stripeIsConfigured } from "./config.js";
 import { createDatabase } from "./db.js";
