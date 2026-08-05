@@ -149,15 +149,10 @@ final class TextInjector: TextDelivering {
         lastDeliveryStrategy = .copied
         lastDeliveryFailure = nil
 
-        let frontmostProcessIdentifier = NSWorkspace.shared
-            .frontmostApplication?.processIdentifier
-        if TargetActivationPolicy.shouldActivate(
-            targetProcessIdentifier: target.processIdentifier,
-            frontmostProcessIdentifier: frontmostProcessIdentifier
-        ) {
-            app.activate(options: [.activateAllWindows])
-        }
-        guard await waitForTargetApplication(target.processIdentifier) else {
+        guard await restoreTargetApplication(
+            app,
+            processIdentifier: target.processIdentifier
+        ) else {
             return fail(.targetApplicationNotFrontmost)
         }
         guard windowStillMatches(target) else {
@@ -542,6 +537,49 @@ final class TextInjector: TextDelivering {
             try? await Task.sleep(for: .milliseconds(25))
         }
         return false
+    }
+
+    private func restoreTargetApplication(
+        _ application: NSRunningApplication,
+        processIdentifier: pid_t
+    ) async -> Bool {
+        let frontmostProcessIdentifier = NSWorkspace.shared
+            .frontmostApplication?.processIdentifier
+        guard TargetActivationPolicy.shouldActivate(
+            targetProcessIdentifier: processIdentifier,
+            frontmostProcessIdentifier: frontmostProcessIdentifier
+        ) else {
+            return true
+        }
+
+        // macOS 14+ prefers a cooperative hand-off. Menu-bar and Control
+        // Center interactions can still leave another process active, so give
+        // that request a short opportunity before using the legacy force flag.
+        // The fallback is intentionally scoped to the PID captured before the
+        // recording; all window, focused-element and selection checks still run
+        // before any text is delivered.
+        NSApp.yieldActivation(to: application)
+        _ = application.activate(
+            from: NSRunningApplication.current,
+            options: [.activateAllWindows]
+        )
+        if await waitForTargetApplication(
+            processIdentifier,
+            timeout: .milliseconds(200)
+        ) {
+            return true
+        }
+
+        logger.notice(
+            "Cooperative target activation did not complete; retrying captured PID"
+        )
+        _ = application.activate(
+            options: [.activateAllWindows, .activateIgnoringOtherApps]
+        )
+        return await waitForTargetApplication(
+            processIdentifier,
+            timeout: .seconds(1)
+        )
     }
 
     private func selectedTextRange(from element: AXUIElement) -> CFRange? {
