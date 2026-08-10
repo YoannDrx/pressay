@@ -98,6 +98,45 @@ final class DistributionChannelTests: XCTestCase {
     }
 }
 
+final class ProviderFailurePolicyTests: XCTestCase {
+    func testDNSFailureIsRetriedOnceThenSucceeds() async throws {
+        var attempts = 0
+        let value: String = try await ProviderFailurePolicy.performWithOneSafeRetry {
+            attempts += 1
+            if attempts == 1 { throw URLError(.dnsLookupFailed) }
+            return "ok"
+        }
+
+        XCTAssertEqual(value, "ok")
+        XCTAssertEqual(attempts, 2)
+    }
+
+    func testAmbiguousTimeoutIsNotAutomaticallyRetried() async {
+        var attempts = 0
+        do {
+            let _: String = try await ProviderFailurePolicy.performWithOneSafeRetry {
+                attempts += 1
+                throw URLError(.timedOut)
+            }
+            XCTFail("Le délai devait rester un échec explicite")
+        } catch {
+            XCTAssertEqual((error as? URLError)?.code, .timedOut)
+        }
+        XCTAssertEqual(attempts, 1)
+    }
+
+    func testRateLimitKeepsStatusAndRetryAfter() {
+        let error = TranscriptionService.TranscriptionError.httpFailure(
+            status: 429,
+            message: "rate limited",
+            retryAfter: 1.5
+        )
+
+        XCTAssertTrue(ProviderFailurePolicy.isSafeToRetry(error))
+        XCTAssertEqual(ProviderFailurePolicy.retryDelay(for: error), .seconds(1.5))
+    }
+}
+
 @MainActor
 final class VoiceInboxPrivacyDefaultsTests: XCTestCase {
     func testVoiceInboxDoesNotPersistWithoutExplicitOptIn() {
@@ -290,6 +329,117 @@ final class TranscriptionRequestPolicyTests: XCTestCase {
                 model: "whisper-1"
             )
         )
+    }
+}
+
+final class OpenAILiveSmokeTests: XCTestCase {
+    func testBatchRealtimeAndResponsesAgainstOpenAI() async throws {
+        let environment = ProcessInfo.processInfo.environment
+        let defaultAudioPath = "/private/tmp/pressay-openai-smoke.wav"
+        let audioPath = environment["PRESSAY_LIVE_AUDIO_PATH"] ?? defaultAudioPath
+        try XCTSkipUnless(
+            environment["PRESSAY_RUN_LIVE_OPENAI_TESTS"] == "1"
+                || FileManager.default.fileExists(atPath: defaultAudioPath),
+            "Test OpenAI réel désactivé"
+        )
+        let audioURL = URL(fileURLWithPath: audioPath)
+        XCTAssertTrue(FileManager.default.fileExists(atPath: audioURL.path))
+
+        let suiteName = "OpenAILiveSmokeTests.\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        defaults.set("fr", forKey: Constants.transcriptionLanguageKey)
+        defaults.set("general", forKey: Constants.vocabularyProfileKey)
+        defaults.set(
+            Constants.defaultTranscriptionModel,
+            forKey: Constants.transcriptionModelKey
+        )
+        defaults.set(
+            Constants.defaultProcessingModel,
+            forKey: Constants.processingModelKey
+        )
+
+        let transcriber = TranscriptionService(defaults: defaults)
+        let batch = try await transcriber.transcribe(audioURL: audioURL)
+        XCTAssertTrue(Self.looksLikeSmokeTranscript(batch.text), batch.text)
+        XCTAssertNotNil(batch.networkMetrics)
+
+        let realtimePCM = try Self.pcmPayload(fromWAV: audioURL)
+        do {
+            try await transcriber.startRealtimeTranscription()
+        } catch {
+            XCTFail("Démarrage Realtime: \(error)")
+            throw error
+        }
+        for chunkStart in stride(from: 0, to: realtimePCM.count, by: 4_800) {
+            let chunkEnd = min(chunkStart + 4_800, realtimePCM.count)
+            transcriber.appendRealtimeAudio(
+                realtimePCM.subdata(in: chunkStart..<chunkEnd)
+            )
+            try await Task.sleep(for: .milliseconds(100))
+        }
+        let realtime: TranscriptionResult
+        do {
+            realtime = try await transcriber.finishRealtimeTranscription()
+        } catch {
+            XCTFail("Finalisation Realtime: \(error)")
+            throw error
+        }
+        XCTAssertTrue(Self.looksLikeSmokeTranscript(realtime.text), realtime.text)
+
+        let processor = OpenAITextProcessingService(defaults: defaults)
+        let cleanMode = try XCTUnwrap(
+            NativeModeCatalog.visibleModes.first { $0.id == NativeModeCatalog.cleanID }
+        )
+        let processed: TextProcessingResult
+        do {
+            processed = try await processor.process(
+                TextProcessingRequest(
+                    text: "Bonjour euh Pressay, ceci ceci est un test automatique.",
+                    mode: cleanMode,
+                    context: .empty
+                )
+            )
+        } catch {
+            XCTFail("Transformation Responses: \(error)")
+            throw error
+        }
+        XCTAssertTrue(Self.looksLikeSmokeTranscript(processed.text), processed.text)
+        XCTAssertNotNil(processed.networkMetrics)
+    }
+
+    private static func looksLikeSmokeTranscript(_ text: String) -> Bool {
+        let normalized = TranscriptionResponseValidator.normalized(text)
+        return normalized.contains("bonjour") && normalized.contains("test")
+    }
+
+    private static func pcmPayload(fromWAV url: URL) throws -> Data {
+        let wav = try Data(contentsOf: url)
+        guard wav.count >= 12,
+              String(decoding: wav[0..<4], as: UTF8.self) == "RIFF",
+              String(decoding: wav[8..<12], as: UTF8.self) == "WAVE" else {
+            throw LiveSmokeError.invalidWAV
+        }
+
+        var offset = 12
+        while offset + 8 <= wav.count {
+            let name = String(decoding: wav[offset..<(offset + 4)], as: UTF8.self)
+            let sizeRange = (offset + 4)..<(offset + 8)
+            let size = wav[sizeRange].enumerated().reduce(0) { partial, item in
+                partial | (Int(item.element) << (item.offset * 8))
+            }
+            let payloadStart = offset + 8
+            let payloadEnd = payloadStart + size
+            guard payloadEnd <= wav.count else { throw LiveSmokeError.invalidWAV }
+            if name == "data" { return wav.subdata(in: payloadStart..<payloadEnd) }
+            offset = payloadEnd + (size % 2)
+        }
+        throw LiveSmokeError.missingPCMPayload
+    }
+
+    private enum LiveSmokeError: Error {
+        case invalidWAV
+        case missingPCMPayload
     }
 }
 
@@ -2805,6 +2955,138 @@ final class SessionCoordinatorTests: XCTestCase {
         XCTAssertEqual(delivery.insertedTexts, ["Résultat OpenAI"])
     }
 
+    func testRealtimeDictationStreamsPCMAndSkipsBatchFallback() async throws {
+        let audio = MockAudioCapturer(result: speechResult())
+        let transcriber = MockRealtimeSpeechTranscriber(
+            realtimeText: "Résultat temps réel"
+        )
+        let delivery = MockTextDeliverer(shouldInsert: true)
+        let coordinator = makeCoordinator(
+            audio: audio,
+            transcriber: transcriber,
+            context: MockContextCapturer(
+                result: .init(
+                    target: makeTarget(
+                        processIdentifier: 4321,
+                        bundleIdentifier: "com.example.editor"
+                    ),
+                    context: .empty
+                )
+            ),
+            delivery: delivery,
+            history: MockHistoryRepository()
+        )
+
+        coordinator.startCapture()
+        audio.onPCMChunk?(Data([1, 2, 3, 4]))
+        coordinator.stopCaptureAndQueue()
+        try await waitUntilFinished(coordinator)
+
+        XCTAssertEqual(transcriber.startCount, 1)
+        XCTAssertEqual(transcriber.finishCount, 1)
+        XCTAssertEqual(transcriber.batchCallCount, 0)
+        XCTAssertEqual(transcriber.receivedAudio, Data([1, 2, 3, 4]))
+        XCTAssertEqual(delivery.insertedTexts, ["Résultat temps réel"])
+    }
+
+    func testRealtimeFailureFallsBackToBatchTranscription() async throws {
+        let audio = MockAudioCapturer(result: speechResult())
+        let transcriber = MockRealtimeSpeechTranscriber(
+            realtimeText: "",
+            batchText: "Repli batch",
+            finishError: URLError(.networkConnectionLost)
+        )
+        let delivery = MockTextDeliverer(shouldInsert: true)
+        let coordinator = makeCoordinator(
+            audio: audio,
+            transcriber: transcriber,
+            context: MockContextCapturer(
+                result: .init(target: nil, context: .empty)
+            ),
+            delivery: delivery,
+            history: MockHistoryRepository()
+        )
+
+        coordinator.startCapture()
+        audio.onPCMChunk?(Data([9, 8, 7]))
+        coordinator.stopCaptureAndQueue()
+        try await waitUntilFinished(coordinator)
+
+        XCTAssertEqual(transcriber.finishCount, 1)
+        XCTAssertEqual(transcriber.batchCallCount, 1)
+        XCTAssertEqual(delivery.insertedTexts, ["Repli batch"])
+    }
+
+    func testCloudTranscriptionTimeoutNamesTheFailingPhase() async throws {
+        let coordinator = makeCoordinator(
+            audio: MockAudioCapturer(result: speechResult()),
+            transcriber: MockSpeechTranscriber(
+                text: "Trop lent",
+                delay: .seconds(1)
+            ),
+            context: MockContextCapturer(
+                result: .init(target: nil, context: .empty)
+            ),
+            delivery: MockTextDeliverer(shouldInsert: true),
+            history: MockHistoryRepository(),
+            timeoutPolicy: SessionTimeoutPolicy(cloudTranscription: 0.03)
+        )
+
+        coordinator.startCapture()
+        coordinator.stopCaptureAndQueue()
+        try await waitUntilError(coordinator)
+
+        XCTAssertTrue(
+            coordinator.lastError?.contains("Transcription OpenAI interrompue")
+                == true
+        )
+        guard case .failed = coordinator.lastSession?.state else {
+            return XCTFail("La session devait être marquée en échec")
+        }
+    }
+
+    func testFailedInstantDictationCanRetryRetainedAudio() async throws {
+        let url = FileManager.default.temporaryDirectory
+            .appendingPathComponent("pressay-retry-\(UUID().uuidString).wav")
+        try Data([1, 2, 3, 4]).write(to: url)
+        defer { try? FileManager.default.removeItem(at: url) }
+        let audioResult = CapturedAudio(
+            url: url,
+            duration: 1,
+            detection: SpeechDetectionResult(
+                containsSpeech: true,
+                threshold: -40,
+                voicedDuration: 0.8
+            )
+        )
+        let transcriber = MockSpeechTranscriber(
+            text: "Deuxième tentative",
+            error: URLError(.cannotFindHost)
+        )
+        let delivery = MockTextDeliverer(shouldInsert: true)
+        let replay = InMemoryReplayBuffer()
+        let coordinator = makeCoordinator(
+            audio: MockAudioCapturer(result: audioResult),
+            transcriber: transcriber,
+            context: MockContextCapturer(
+                result: .init(target: nil, context: .empty)
+            ),
+            delivery: delivery,
+            history: MockHistoryRepository(),
+            replayBuffer: replay
+        )
+
+        coordinator.startCapture()
+        coordinator.stopCaptureAndQueue()
+        try await waitUntilError(coordinator)
+        transcriber.error = nil
+        coordinator.retryLastFailedResult()
+        try await waitUntilFinished(coordinator)
+
+        XCTAssertEqual(transcriber.callCount, 2)
+        XCTAssertEqual(delivery.insertedTexts, ["Deuxième tentative"])
+    }
+
     func testASecondDictationIsNotQueuedWhileTranscriptionIsRunning() async throws {
         let audio = MockAudioCapturer(result: speechResult())
         let transcriber = MockSpeechTranscriber(
@@ -3489,7 +3771,9 @@ final class SessionCoordinatorTests: XCTestCase {
         textProcessor: MockTextProcessor? = nil,
         modeResolver: MockModeResolver? = nil,
         previewPresenter: MockPreviewPresenter? = nil,
-        cloudConsent: CloudConsentRequesting = AllowingCloudConsentService()
+        cloudConsent: CloudConsentRequesting = AllowingCloudConsentService(),
+        replayBuffer: ReplayBuffer? = nil,
+        timeoutPolicy: SessionTimeoutPolicy = SessionTimeoutPolicy()
     ) -> SessionCoordinator {
         SessionCoordinator(
             audioCapturer: audio,
@@ -3504,7 +3788,9 @@ final class SessionCoordinatorTests: XCTestCase {
             inbox: inbox,
             sounds: MockSoundFeedback(),
             metrics: MockMetricsRecorder(),
-            hud: MockHUDPresenter()
+            hud: MockHUDPresenter(),
+            replayBuffer: replayBuffer,
+            timeoutPolicy: timeoutPolicy
         )
     }
 
@@ -3595,9 +3881,10 @@ final class SessionCoordinatorTests: XCTestCase {
     }
 }
 
-private final class MockAudioCapturer: AudioCapturing {
+private final class MockAudioCapturer: AudioCapturing, PCMChunkProviding {
     var hasPermission = true
     var onLevelUpdate: ((Float) -> Void)?
+    var onPCMChunk: ((Data) -> Void)?
     var result: CapturedAudio?
     var didStart = false
     var didCleanupCurrentRecording = false
@@ -3630,6 +3917,7 @@ private final class MockSpeechTranscriber: SpeechTranscribing {
     let locality: ProviderLocality
     let text: String
     let delay: Duration
+    var error: Error?
     var callCount = 0
 
     init(
@@ -3637,19 +3925,72 @@ private final class MockSpeechTranscriber: SpeechTranscribing {
         isReady: Bool = true,
         identifier: String = "mock",
         locality: ProviderLocality = .cloud,
-        delay: Duration = .zero
+        delay: Duration = .zero,
+        error: Error? = nil
     ) {
         self.text = text
         self.isReady = isReady
         self.identifier = identifier
         self.locality = locality
         self.delay = delay
+        self.error = error
     }
 
     func transcribe(audioURL: URL) async throws -> TranscriptionResult {
         callCount += 1
         try await Task.sleep(for: delay)
+        if let error { throw error }
         return TranscriptionResult(text: text, averageLogProbability: 0)
+    }
+}
+
+private final class MockRealtimeSpeechTranscriber: RealtimeSpeechTranscribing {
+    let identifier = "openai"
+    let isReady = true
+    let locality: ProviderLocality = .cloud
+    let realtimeText: String
+    let batchText: String
+    let finishError: Error?
+    var startCount = 0
+    var finishCount = 0
+    var batchCallCount = 0
+    var cancelCount = 0
+    var receivedAudio = Data()
+
+    init(
+        realtimeText: String,
+        batchText: String = "Repli batch",
+        finishError: Error? = nil
+    ) {
+        self.realtimeText = realtimeText
+        self.batchText = batchText
+        self.finishError = finishError
+    }
+
+    func startRealtimeTranscription() async throws {
+        startCount += 1
+    }
+
+    func appendRealtimeAudio(_ data: Data) {
+        receivedAudio.append(data)
+    }
+
+    func finishRealtimeTranscription() async throws -> TranscriptionResult {
+        finishCount += 1
+        if let finishError { throw finishError }
+        return TranscriptionResult(
+            text: realtimeText,
+            averageLogProbability: nil
+        )
+    }
+
+    func cancelRealtimeTranscription() {
+        cancelCount += 1
+    }
+
+    func transcribe(audioURL: URL) async throws -> TranscriptionResult {
+        batchCallCount += 1
+        return TranscriptionResult(text: batchText, averageLogProbability: 0)
     }
 }
 

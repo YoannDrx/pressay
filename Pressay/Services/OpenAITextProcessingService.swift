@@ -38,10 +38,57 @@ final class OpenAITextProcessingService: TextProcessing {
             throw ProcessingError.noAPIKey
         }
         let urlRequest = try makeRequest(for: request, apiKey: apiKey)
-        let (data, response) = try await session.data(for: urlRequest)
-        try Task.checkCancellation()
-        let text = try decodeResponse(data: data, response: response)
-        return TextProcessingResult(text: text, providerIdentifier: identifier)
+        let text: String
+        var requestMetrics: [NetworkRequestMetrics] = []
+        do {
+            text = try await ProviderFailurePolicy.performWithOneSafeRetry {
+                let collector = NetworkTaskMetricsCollector()
+                let startedAt = Date()
+                let data: Data
+                let response: URLResponse
+                do {
+                    (data, response) = try await self.session.data(
+                        for: urlRequest,
+                        delegate: collector
+                    )
+                } catch {
+                    requestMetrics.append(
+                        collector.snapshot(
+                            fallbackTotal: Date().timeIntervalSince(startedAt)
+                        )
+                    )
+                    throw error
+                }
+                requestMetrics.append(
+                    collector.snapshot(
+                        fallbackTotal: Date().timeIntervalSince(startedAt)
+                    )
+                )
+                try Task.checkCancellation()
+                return try self.decodeResponse(data: data, response: response)
+            }
+        } catch {
+            if Task.isCancelled
+                || error is CancellationError
+                || (error as? URLError)?.code == .cancelled {
+                throw error
+            }
+            let underlying: Error
+            if let networkError = ProviderNetworkError(error) {
+                underlying = networkError
+            } else {
+                underlying = error
+            }
+            throw ProviderRequestFailure(
+                underlying: underlying,
+                networkMetrics: .combined(requestMetrics)
+            )
+        }
+        return TextProcessingResult(
+            text: text,
+            providerIdentifier: identifier,
+            networkMetrics: .combined(requestMetrics)
+        )
     }
 
     func makeRequest(
@@ -150,10 +197,19 @@ final class OpenAITextProcessingService: TextProcessing {
             throw ProcessingError.invalidResponse
         }
         guard http.statusCode == 200 else {
+            let retryAfter = Self.retryAfter(from: http)
             if let error = try? JSONDecoder().decode(ErrorResponse.self, from: data) {
-                throw ProcessingError.apiError(error.error.message)
+                throw ProcessingError.httpFailure(
+                    status: http.statusCode,
+                    message: error.error.message,
+                    retryAfter: retryAfter
+                )
             }
-            throw ProcessingError.httpError(http.statusCode)
+            throw ProcessingError.httpFailure(
+                status: http.statusCode,
+                message: nil,
+                retryAfter: retryAfter
+            )
         }
         let decoded = try JSONDecoder().decode(ResponseEnvelope.self, from: data)
         let text = decoded.output
@@ -166,6 +222,19 @@ final class OpenAITextProcessingService: TextProcessing {
             throw ProcessingError.emptyResponse
         }
         return text
+    }
+
+    private static func retryAfter(from response: HTTPURLResponse) -> TimeInterval? {
+        guard let value = response.value(forHTTPHeaderField: "Retry-After") else {
+            return nil
+        }
+        if let seconds = TimeInterval(value) { return seconds }
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.timeZone = TimeZone(secondsFromGMT: 0)
+        formatter.dateFormat = "EEE',' dd MMM yyyy HH':'mm':'ss z"
+        guard let date = formatter.date(from: value) else { return nil }
+        return max(0, date.timeIntervalSinceNow)
     }
 
     private struct ResponseRequest: Encodable {
@@ -224,6 +293,11 @@ final class OpenAITextProcessingService: TextProcessing {
         case emptyResponse
         case apiError(String)
         case httpError(Int)
+        case httpFailure(
+            status: Int,
+            message: String?,
+            retryAfter: TimeInterval?
+        )
 
         var errorDescription: String? {
             switch self {
@@ -239,6 +313,11 @@ final class OpenAITextProcessingService: TextProcessing {
                 return "Erreur API de traitement : \(message)"
             case .httpError(let code):
                 return "Erreur HTTP de traitement : \(code)"
+            case .httpFailure(let status, let message, _):
+                if let message, !message.isEmpty {
+                    return "Traitement OpenAI (HTTP \(status)) : \(message)"
+                }
+                return "Le traitement OpenAI a répondu avec l’erreur HTTP \(status)"
             }
         }
     }

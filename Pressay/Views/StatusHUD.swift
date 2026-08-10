@@ -57,6 +57,7 @@ final class StatusHUDController: ObservableObject {
     @Published private(set) var audioLevel: Float = 0
     @Published var isUndoAvailable = false
     @Published private(set) var canRetranscribe = false
+    @Published private(set) var retranscribeLabel = "Retranscrire"
     @Published private(set) var canCompareRawAndFinal = false
     @Published private(set) var canCorrect = false
     @Published private(set) var hudSize: HUDSize = .comfortable
@@ -88,6 +89,14 @@ final class StatusHUDController: ObservableObject {
         if state == .listening {
             listeningStartedAt = Date()
             isUndoAvailable = false
+            canRetranscribe = false
+            canCompareRawAndFinal = false
+            canCorrect = false
+            retranscribeLabel = "Retranscrire"
+            onCopy = nil
+            onRetranscribe = nil
+            onCompareRawAndFinal = nil
+            onCorrect = nil
         } else if state == .success || state == .copied || state == .cancelled {
             listeningStartedAt = nil
         }
@@ -125,6 +134,7 @@ final class StatusHUDController: ObservableObject {
 
     func configureResultActions(
         canRetranscribe: Bool,
+        retranscribeLabel: String,
         canCompareRawAndFinal: Bool,
         canCorrect: Bool,
         onCopy: @escaping () -> Void,
@@ -133,6 +143,7 @@ final class StatusHUDController: ObservableObject {
         onCorrect: @escaping () -> Void
     ) {
         self.canRetranscribe = canRetranscribe
+        self.retranscribeLabel = retranscribeLabel
         self.canCompareRawAndFinal = canCompareRawAndFinal
         self.canCorrect = canCorrect
         self.onCopy = onCopy
@@ -194,7 +205,8 @@ final class StatusHUDController: ObservableObject {
         hideTask?.cancel()
         hideTask = Task { [weak self] in
             let delay: Duration
-            if self?.state == .success || self?.state == .copied {
+            if self?.state == .success || self?.state == .copied
+                || (self?.state == .cancelled && self?.canRetranscribe == true) {
                 guard let resultDelay = self?.resultDuration.delay else { return }
                 delay = resultDelay
             } else {
@@ -396,15 +408,21 @@ private struct StatusHUDView: View {
                 .fixedSize()
                 .accessibilityLabel("Changer le mode de cette dictée")
             }
-            if controller.state == .success || controller.state == .copied {
+            if controller.state == .success || controller.state == .copied
+                || (controller.state == .cancelled && controller.canRetranscribe) {
                 HStack(spacing: 7) {
                     if controller.showsResultActions {
-                        Button("Copier", action: controller.copyResult)
-                            .accessibilityHint(
-                                "Copie le résultat visible dans le presse-papiers"
-                            )
+                        if controller.state != .cancelled {
+                            Button("Copier", action: controller.copyResult)
+                                .accessibilityHint(
+                                    "Copie le résultat visible dans le presse-papiers"
+                                )
+                        }
                         if controller.canRetranscribe {
-                            Button("Retranscrire", action: controller.retranscribeResult)
+                            Button(
+                                controller.retranscribeLabel,
+                                action: controller.retranscribeResult
+                            )
                                 .accessibilityHint(
                                     "Relance la transcription depuis l’audio temporaire"
                                 )

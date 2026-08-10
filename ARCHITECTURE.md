@@ -38,7 +38,13 @@ flowchart LR
     B --> C["AccessibilityContextService"]
     B --> D["AudioRecorder"]
     C --> E["ModeResolverService"]
-    D --> F["TranscriptionRouter"]
+    D --> Q{"Moteur"}
+    Q -->|"OpenAI"| R["Realtime WebSocket"]
+    R -->|"Repli"| S["Transcription batch"]
+    Q -->|"Local"| T["WhisperKit préchargé"]
+    R --> F["TranscriptionRouter"]
+    S --> F
+    T --> F
     E --> G["ProcessingRouter"]
     F --> G
     G --> H{"Cloud ?"}
@@ -186,18 +192,43 @@ global et explicite ; aucun fallback silencieux ne peut envoyer au cloud une
 dictée prévue en local. Les politiques historiques des modes ne peuvent que
 forcer le chemin local.
 
-Pour OpenAI, `TranscriptionService` envoie le M4A 16 kHz mono une seule fois à
-`gpt-4o-mini-transcribe` au relâchement. La requête interactive est bornée à
-huit secondes côté réseau et le coordinateur coupe le chemin fidèle après dix
-secondes. Il n’existe ni WebSocket, ni retry, ni file d’attente de dictées.
+Pour OpenAI, `AudioRecorder` convertit le micro en PCM 16 bits mono à 24 kHz et
+écrit simultanément un WAV temporaire. Les blocs sont retenus localement jusqu’à
+ce que la politique de détection confirme de la parole, puis envoyés par
+WebSocket via `/v1/realtime?intent=transcription`, puis à
+`gpt-live-transcribe` dans la configuration audio. Pressay attend l’accusé
+`session.updated` avant le premier bloc PCM. Au relâchement, la finalisation
+temps réel est bornée à huit secondes. En cas d’échec,
+`gpt-4o-mini-transcribe` reçoit le WAV comme repli batch. Une requête batch
+n’est répétée qu’une fois, uniquement après un échec DNS/connexion sûr ou une
+réponse HTTP 408, 429 ou 5xx explicite.
+
+Le coordinateur applique des échéances par phase : 30 secondes pour la
+transcription cloud batch, 75 secondes pour la préparation ou la transcription
+locale et 45 secondes pour la transformation. La confirmation humaine reste en
+dehors de ces échéances. Les erreurs réseau sont traduites par catégorie au lieu
+d’exposer directement le message système anglophone. L’audio d’une session en
+échec est conservé au plus cinq minutes dans `InMemoryReplayBuffer` afin que le
+HUD puisse proposer une relance ; le fichier temporaire est supprimé.
 
 `WhisperKitTranscriptionService` télécharge à la demande une seule variante
 épinglée (`small_216MB`) dans `Application Support/Pressay/WhisperKit`, expose
-une progression claire et conserve le modèle chargé après la première dictée.
+une progression claire et conserve le modèle chargé. `prepare()` préchauffe le
+modèle dès que WhisperKit est sélectionné, au lancement si ce choix est déjà
+actif, et en parallèle de la capture si nécessaire.
 Le téléchargement n’est jamais déclenché au milieu d’une transcription et le
 modèle peut être supprimé depuis les réglages. Le moteur local est disponible
 sur Apple Silicon ; la build Intel conserve OpenAI et affiche une indisponibilité
 explicite pour WhisperKit.
+
+## Observabilité locale
+
+Lorsque l’option de mesures est activée, `URLSessionTaskMetrics` alimente des
+traces locales avec DNS, connexion, TLS, envoi, temps jusqu’au premier octet,
+réponse, total et nombre de tentatives. Les réglages affichent la médiane et le
+p95 des trente dernières sessions. Les échecs sont comptés par phase et par
+catégorie technique allowlistée. Aucune URL, clé, donnée audio, transcription ou
+source de contexte n’est enregistrée dans ces traces.
 
 ## Extensions prévues
 
