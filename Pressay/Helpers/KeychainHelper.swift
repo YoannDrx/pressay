@@ -11,6 +11,9 @@ final class KeychainHelper: KeychainStoring {
     static let shared = KeychainHelper()
 
     private let service: String
+    private let apiKeyCacheLock = NSLock()
+    private var apiKeyCacheLoaded = false
+    private var cachedAPIKey: String?
 
     init(service: String = Constants.keychainService) {
         self.service = service
@@ -22,8 +25,25 @@ final class KeychainHelper: KeychainStoring {
     }
 
     func getAPIKey() -> String? {
-        guard let data = data(account: Constants.keychainAPIKeyAccount) else { return nil }
-        return String(data: data, encoding: .utf8)
+        apiKeyCacheLock.lock()
+        if apiKeyCacheLoaded {
+            let value = cachedAPIKey
+            apiKeyCacheLock.unlock()
+            return value
+        }
+        apiKeyCacheLock.unlock()
+
+        let loadedValue = data(account: Constants.keychainAPIKeyAccount)
+            .flatMap { String(data: $0, encoding: .utf8) }
+
+        apiKeyCacheLock.lock()
+        if !apiKeyCacheLoaded {
+            cachedAPIKey = loadedValue
+            apiKeyCacheLoaded = true
+        }
+        let value = cachedAPIKey
+        apiKeyCacheLock.unlock()
+        return value
     }
 
     func save(data: Data, account: String) -> Bool {
@@ -35,7 +55,13 @@ final class KeychainHelper: KeychainStoring {
             kSecValueData as String: data,
             kSecAttrAccessible as String: kSecAttrAccessibleWhenUnlocked
         ]
-        return SecItemAdd(query as CFDictionary, nil) == errSecSuccess
+        let saved = SecItemAdd(query as CFDictionary, nil) == errSecSuccess
+        if account == Constants.keychainAPIKeyAccount {
+            updateCachedAPIKey(
+                saved ? String(data: data, encoding: .utf8) : nil
+            )
+        }
+        return saved
     }
 
     func data(account: String) -> Data? {
@@ -66,10 +92,21 @@ final class KeychainHelper: KeychainStoring {
         ]
 
         let status = SecItemDelete(query as CFDictionary)
-        return status == errSecSuccess || status == errSecItemNotFound
+        let deleted = status == errSecSuccess || status == errSecItemNotFound
+        if deleted, account == Constants.keychainAPIKeyAccount {
+            updateCachedAPIKey(nil)
+        }
+        return deleted
     }
 
     var hasAPIKey: Bool {
         getAPIKey() != nil
+    }
+
+    private func updateCachedAPIKey(_ value: String?) {
+        apiKeyCacheLock.lock()
+        cachedAPIKey = value
+        apiKeyCacheLoaded = true
+        apiKeyCacheLock.unlock()
     }
 }

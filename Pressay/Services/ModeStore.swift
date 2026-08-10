@@ -185,7 +185,8 @@ final class ModeStore: ObservableObject {
     }
 
     var applicationRules: [String: UUID] {
-        Dictionary(
+        guard AccountService.shared.allows("profiles.app") else { return [:] }
+        return Dictionary(
             uniqueKeysWithValues: applicationProfiles
                 .filter(\.isEnabled)
                 .map { ($0.bundleIdentifier, $0.modeID) }
@@ -193,8 +194,12 @@ final class ModeStore: ObservableObject {
     }
 
     var visibleModes: [ModeDefinition] {
-        NativeModeCatalog.visibleModes.map(applyingOverrides)
-            + customModes.filter(\.isEnabled).map(applyingOverrides)
+        NativeModeCatalog.visibleModes
+            .filter(hasCommercialAccess)
+            .map(applyingOverrides)
+            + customModes
+                .filter { $0.isEnabled && hasCommercialAccess(to: $0) }
+                .map(applyingOverrides)
     }
 
     var selectedModeID: UUID {
@@ -216,7 +221,8 @@ final class ModeStore: ObservableObject {
     func mode(withID id: UUID) -> ModeDefinition? {
         let definition = NativeModeCatalog.allModes.first { $0.id == id }
             ?? customModes.first { $0.id == id }
-        return definition.map(applyingOverrides)
+        guard let definition, hasCommercialAccess(to: definition) else { return nil }
+        return applyingOverrides(definition)
     }
 
     func isBuiltIn(_ id: UUID) -> Bool {
@@ -224,7 +230,8 @@ final class ModeStore: ObservableObject {
     }
 
     func addCustomMode(_ mode: ModeDefinition) {
-        guard NativeModeCatalog.allModes.allSatisfy({ $0.id != mode.id }),
+        guard AccountService.shared.allows("modes.custom"),
+              NativeModeCatalog.allModes.allSatisfy({ $0.id != mode.id }),
               customModes.allSatisfy({ $0.id != mode.id }) else {
             return
         }
@@ -233,7 +240,8 @@ final class ModeStore: ObservableObject {
     }
 
     func updateCustomMode(_ mode: ModeDefinition) {
-        guard let index = customModes.firstIndex(where: { $0.id == mode.id }) else {
+        guard AccountService.shared.allows("modes.custom"),
+              let index = customModes.firstIndex(where: { $0.id == mode.id }) else {
             return
         }
         customModes[index] = mode
@@ -251,6 +259,7 @@ final class ModeStore: ObservableObject {
     }
 
     func setApplicationRule(bundleIdentifier: String, modeID: UUID?) {
+        guard AccountService.shared.allows("profiles.app") else { return }
         if let modeID, mode(withID: modeID)?.isEnabled == true {
             if let index = applicationProfiles.firstIndex(where: {
                 $0.bundleIdentifier == bundleIdentifier
@@ -276,7 +285,8 @@ final class ModeStore: ObservableObject {
     }
 
     func upsertApplicationProfile(_ profile: ApplicationProfile) {
-        guard mode(withID: profile.modeID) != nil else { return }
+        guard AccountService.shared.allows("profiles.app"),
+              mode(withID: profile.modeID) != nil else { return }
         applicationProfiles.removeAll {
             $0.id == profile.id
                 || $0.bundleIdentifier == profile.bundleIdentifier
@@ -290,6 +300,7 @@ final class ModeStore: ObservableObject {
     }
 
     func setApplicationProfileEnabled(id: UUID, isEnabled: Bool) {
+        guard AccountService.shared.allows("profiles.app") else { return }
         guard let index = applicationProfiles.firstIndex(where: { $0.id == id })
         else { return }
         applicationProfiles[index].isEnabled = isEnabled
@@ -299,6 +310,24 @@ final class ModeStore: ObservableObject {
     func deleteApplicationProfile(id: UUID) {
         applicationProfiles.removeAll { $0.id == id }
         save()
+    }
+
+    private func hasCommercialAccess(to mode: ModeDefinition) -> Bool {
+        if !isBuiltIn(mode.id) {
+            return AccountService.shared.allows("modes.custom")
+        }
+        switch mode.id {
+        case NativeModeCatalog.faithfulID:
+            return AccountService.shared.allows("modes.faithful")
+        case NativeModeCatalog.cleanID:
+            return AccountService.shared.allows("modes.clean")
+        case NativeModeCatalog.messageID:
+            return AccountService.shared.allows("modes.message")
+        case NativeModeCatalog.transformSelectionID:
+            return AccountService.shared.allows("transformations.unlimited_byok")
+        default:
+            return AccountService.shared.allows("modes.all")
+        }
     }
 
     func setProviderPolicyOverride(modeID: UUID, policy: ProviderPolicy?) {
@@ -555,7 +584,8 @@ final class ModeResolverService: ModeResolving {
     func deliveryPolicy(
         for applicationBundleIdentifier: String?
     ) -> ApplicationDeliveryPolicy {
-        guard let applicationBundleIdentifier,
+        guard AccountService.shared.allows("profiles.app"),
+              let applicationBundleIdentifier,
               let profile = store.applicationProfiles.first(where: {
                 $0.isEnabled
                     && $0.bundleIdentifier == applicationBundleIdentifier

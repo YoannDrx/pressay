@@ -181,8 +181,32 @@ final class TextInjector: TextDelivering {
             lastDeliveryStrategy = didPaste ? .paste : .copied
             return didPaste ? true : fail(.clipboardPasteFailed)
         }
+        guard let currentFocusedElement = currentFocusedElement(
+            processIdentifier: target.processIdentifier
+        ) else {
+            if BrowserFocusLossPastePolicy.canUseApplicationMenuPaste(
+                bundleIdentifier: target.snapshot.bundleIdentifier,
+                isInstantDictation: isInstantDictation,
+                prefersPaste: prefersPaste,
+                hadOriginalFocusedElement: target.focusedElement != nil,
+                isSecure: target.snapshot.isSecure
+            ) {
+                logger.info(
+                    "Using browser focus-loss compatibility delivery"
+                )
+                let didPaste = await ClipboardTransactionCoordinator.shared
+                    .pasteDictationUsingApplicationMenu(
+                        cleanText,
+                        processIdentifier: target.processIdentifier
+                    )
+                lastDeliveryStrategy = didPaste ? .paste : .copied
+                return didPaste ? true : fail(.clipboardPasteFailed)
+            }
+            return fail(.focusedElementUnavailable)
+        }
         guard let activeTarget = matchingFocusedTarget(
             target,
+            currentElement: currentFocusedElement,
             allowsPasteOnlyTarget: prefersPaste
         ) else {
             return false
@@ -204,7 +228,20 @@ final class TextInjector: TextDelivering {
             if let element = activeTarget.focusedElement,
                let expectedPastedValue,
                !(await value(of: element, becomes: expectedPastedValue.value)) {
-                return fail(.clipboardPasteFailed)
+                guard ApplicationMenuPasteVerificationPolicy
+                    .allowsStaleAccessibilityValue(
+                        bundleIdentifier: activeTarget.snapshot.bundleIdentifier
+                    ) else {
+                    return fail(.clipboardPasteFailed)
+                }
+                // Codex applies the menu paste immediately but can keep
+                // publishing its pre-paste AXValue. Treating that stale value
+                // as a delivery failure causes the coordinator to copy the
+                // dictation permanently, overwriting the clipboard that the
+                // transaction has just restored.
+                logger.debug(
+                    "Application menu accepted paste before AXValue caught up"
+                )
             }
             rememberUndo(for: activeTarget, insertedText: cleanText)
             lastDeliveryStrategy = .paste
@@ -442,27 +479,40 @@ final class TextInjector: TextDelivering {
         recordsFailure: Bool = true,
         allowsPasteOnlyTarget: Bool = false
     ) -> TextInjectionTarget? {
+        guard target.focusedElement != nil else {
+            if recordsFailure {
+                _ = fail(.focusedElementUnavailable)
+            }
+            return nil
+        }
+        guard let currentElement = currentFocusedElement(
+            processIdentifier: target.processIdentifier
+        ) else {
+            if recordsFailure {
+                _ = fail(.focusedElementUnavailable)
+            }
+            return nil
+        }
+        return matchingFocusedTarget(
+            target,
+            currentElement: currentElement,
+            recordsFailure: recordsFailure,
+            allowsPasteOnlyTarget: allowsPasteOnlyTarget
+        )
+    }
+
+    private func matchingFocusedTarget(
+        _ target: TextInjectionTarget,
+        currentElement: AXUIElement,
+        recordsFailure: Bool = true,
+        allowsPasteOnlyTarget: Bool = false
+    ) -> TextInjectionTarget? {
         guard let originalElement = target.focusedElement else {
             if recordsFailure {
                 _ = fail(.focusedElementUnavailable)
             }
             return nil
         }
-        let appElement = AXUIElementCreateApplication(target.processIdentifier)
-        var currentValue: CFTypeRef?
-        guard AXUIElementCopyAttributeValue(
-            appElement,
-            kAXFocusedUIElementAttribute as CFString,
-            &currentValue
-        ) == .success,
-              let currentValue,
-              CFGetTypeID(currentValue) == AXUIElementGetTypeID() else {
-            if recordsFailure {
-                _ = fail(.focusedElementUnavailable)
-            }
-            return nil
-        }
-        let currentElement = unsafeBitCast(currentValue, to: AXUIElement.self)
         if CFEqual(currentElement, originalElement) {
             return target
         }
@@ -523,6 +573,23 @@ final class TextInjector: TextDelivering {
         )
     }
 
+    private func currentFocusedElement(
+        processIdentifier: pid_t
+    ) -> AXUIElement? {
+        let appElement = AXUIElementCreateApplication(processIdentifier)
+        var currentValue: CFTypeRef?
+        guard AXUIElementCopyAttributeValue(
+            appElement,
+            kAXFocusedUIElementAttribute as CFString,
+            &currentValue
+        ) == .success,
+              let currentValue,
+              CFGetTypeID(currentValue) == AXUIElementGetTypeID() else {
+            return nil
+        }
+        return unsafeBitCast(currentValue, to: AXUIElement.self)
+    }
+
     private func waitForTargetApplication(
         _ processIdentifier: pid_t,
         timeout: Duration = .seconds(1)
@@ -574,7 +641,7 @@ final class TextInjector: TextDelivering {
             "Cooperative target activation did not complete; retrying captured PID"
         )
         _ = application.activate(
-            options: [.activateAllWindows, .activateIgnoringOtherApps]
+            options: [.activateAllWindows]
         )
         return await waitForTargetApplication(
             processIdentifier,
@@ -849,7 +916,11 @@ enum DeliveryPreferencePolicy {
         isElectron: Bool
     ) -> Bool {
         isElectron
-            || bundleIdentifier.map(browserBundleIdentifiers.contains) == true
+            || isBrowser(bundleIdentifier: bundleIdentifier)
+    }
+
+    static func isBrowser(bundleIdentifier: String?) -> Bool {
+        bundleIdentifier.map(browserBundleIdentifiers.contains) == true
     }
 
     static func shouldUseAccessibilityReplacement(
@@ -868,6 +939,24 @@ enum DeliveryPreferencePolicy {
     }
 }
 
+enum BrowserFocusLossPastePolicy {
+    static func canUseApplicationMenuPaste(
+        bundleIdentifier: String?,
+        isInstantDictation: Bool,
+        prefersPaste: Bool,
+        hadOriginalFocusedElement: Bool,
+        isSecure: Bool
+    ) -> Bool {
+        isInstantDictation
+            && prefersPaste
+            && hadOriginalFocusedElement
+            && !isSecure
+            && DeliveryPreferencePolicy.isBrowser(
+                bundleIdentifier: bundleIdentifier
+            )
+    }
+}
+
 enum TargetActivationPolicy {
     static func shouldActivate(
         targetProcessIdentifier: pid_t,
@@ -878,13 +967,12 @@ enum TargetActivationPolicy {
 }
 
 enum MissingAccessibilityTargetPolicy {
-    // Codex currently exposes its focused window and enabled Paste menu item,
-    // but not the custom composer as AXFocusedUIElement. Keep this fallback
-    // deliberately allowlisted: applying it to every Electron app would also
-    // bypass Pressay's secure-field and changed-focus validation.
-    private static let compatibleBundleIdentifiers: Set<String> = [
-        "com.openai.codex"
-    ]
+    // Codex and Chromium web editors can keep their native/DOM focus while
+    // temporarily publishing no AXFocusedUIElement. The caller has already
+    // restored the captured application and verified the captured window;
+    // keep the fallback limited to instant paste delivery and known browsers
+    // instead of applying it to every Electron application.
+    private static let compatibleBundleIdentifiers: Set<String> = ["com.openai.codex"]
 
     static func canUseApplicationMenuPaste(
         bundleIdentifier: String?,
@@ -901,6 +989,23 @@ enum MissingAccessibilityTargetPolicy {
             return false
         }
         return compatibleBundleIdentifiers.contains(bundleIdentifier)
+            || DeliveryPreferencePolicy.isBrowser(
+                bundleIdentifier: bundleIdentifier
+            )
+    }
+}
+
+enum ApplicationMenuPasteVerificationPolicy {
+    private static let staleAccessibilityValueBundleIdentifiers: Set<String> = [
+        "com.openai.codex"
+    ]
+
+    static func allowsStaleAccessibilityValue(
+        bundleIdentifier: String?
+    ) -> Bool {
+        bundleIdentifier.map(
+            staleAccessibilityValueBundleIdentifiers.contains
+        ) == true
     }
 }
 #endif

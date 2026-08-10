@@ -9,12 +9,15 @@ import { cors } from "hono/cors";
 import { secureHeaders } from "hono/secure-headers";
 import type Stripe from "stripe";
 import { z } from "zod";
-import { authenticationMiddleware, type AuthVariables } from "./auth.js";
+import { authenticationMiddleware } from "./auth.js";
+import { registerAdminRoutes, type AdminVariables } from "./admin.js";
+import { processReferralStripeEvent, registerCommercialRoutes } from "./commercial.js";
 import {
   checkoutSessionParameters,
   checkoutInputSchema,
   persistStripeEvent,
-  priceID
+  priceID,
+  reconcileStripeSubscriptions
 } from "./billing.js";
 import type { AppConfig } from "./config.js";
 import type { Database } from "./db.js";
@@ -26,7 +29,7 @@ import {
   type PlanCode
 } from "./entitlements.js";
 
-type Bindings = { Variables: AuthVariables & { requestID: string } };
+type Bindings = { Variables: AdminVariables };
 
 const usageSchema = z.object({
   transcriptionSeconds: z.number().int().nonnegative().max(14_400).default(0),
@@ -38,7 +41,24 @@ const usageSchema = z.object({
 const deviceSchema = z.object({
   deviceIdentifier: z.string().min(8).max(128),
   platform: z.literal("macos"),
-  appVersion: z.string().min(1).max(32)
+  appVersion: z.string().min(1).max(32),
+  distributionChannel: z.enum(["direct", "app_store"]).default("direct"),
+  architecture: z.enum(["arm64", "x86_64", "unknown"]).default("unknown"),
+  osMajor: z.number().int().min(10).max(99).optional(),
+  transcriptionEngine: z.enum(["openai", "whisperkit", "unknown"]).default("unknown"),
+  localModelID: z.string().min(1).max(100).optional(),
+  telemetryConsent: z.boolean().default(false)
+});
+
+const downloadSchema = z.object({
+  anonymousID: z.string().uuid(),
+  assetType: z.enum(["dmg", "checksum", "model"]).default("dmg"),
+  appVersion: z.string().min(1).max(32).optional(),
+  source: z.string().max(100).optional(),
+  campaign: z.string().max(100).optional(),
+  referralCode: z.string().max(16).optional(),
+  architecture: z.enum(["arm64", "x86_64", "unknown"]).optional(),
+  occurredAt: z.string().datetime().optional()
 });
 
 const foundingClaimSchema = z.object({
@@ -61,7 +81,7 @@ export function createApp(
   app.use("*", cors({
     origin: allowedOrigins,
     allowHeaders: ["Authorization", "Content-Type", "X-Request-ID"],
-    allowMethods: ["GET", "POST", "DELETE", "OPTIONS"],
+    allowMethods: ["GET", "POST", "PATCH", "DELETE", "OPTIONS"],
     maxAge: 86_400
   }));
   app.use("*", secureHeaders({
@@ -95,8 +115,40 @@ export function createApp(
 
   app.get("/v1/ready", async (context) => {
     try {
-      await database`select 1 as ready`;
-      return context.json({ status: "ready", database: "reachable" });
+      const rows = await database`
+        select
+          (select count(*)::integer
+           from information_schema.tables
+           where table_schema = 'public'
+             and table_name in (
+               'accounts', 'devices', 'entitlements', 'billing_customers',
+               'billing_events', 'billing_transactions', 'checkout_consents',
+               'account_trials', 'entitlement_grants', 'admin_memberships',
+               'admin_audit_log', 'access_campaigns',
+               'referral_attributions', 'referral_rewards'
+             )) as table_count,
+          (select count(*)::integer
+           from information_schema.columns
+           where table_schema = 'public'
+             and ((table_name = 'billing_events'
+                   and column_name in ('status', 'attempt_count', 'last_error_code'))
+               or (table_name = 'admin_audit_log'
+                   and column_name = 'actor_account_id'))) as column_count
+      `;
+      const schemaCurrent = Number(rows[0]?.table_count) === 14
+        && Number(rows[0]?.column_count) === 4;
+      if (!schemaCurrent) {
+        return context.json({
+          status: "unavailable",
+          database: "reachable",
+          schema: "outdated"
+        }, 503);
+      }
+      return context.json({
+        status: "ready",
+        database: "reachable",
+        schema: "current"
+      });
     } catch {
       return context.json(
         { status: "unavailable", database: "unreachable" },
@@ -125,7 +177,27 @@ export function createApp(
       return context.json({ error: "invalid_stripe_webhook" }, 400);
     }
     const applied = await persistStripeEvent(database, event, rawBody);
-    return context.json({ received: true, applied });
+    const referralApplied = await processReferralStripeEvent(database, stripe, config, event);
+    return context.json({ received: true, applied, referralApplied });
+  });
+
+  app.post("/v1/downloads", async (context) => {
+    if (!config.REMOTE_METRICS_ENABLED) {
+      return context.json({ error: "feature_disabled" }, 404);
+    }
+    const input = downloadSchema.parse(await context.req.json());
+    const rows = await database`
+      insert into download_events (
+        anonymous_id, asset_type, app_version, source, campaign,
+        referral_code, platform, architecture, occurred_at
+      ) values (
+        ${input.anonymousID}::uuid, ${input.assetType}, ${input.appVersion ?? null},
+        ${input.source ?? null}, ${input.campaign ?? null},
+        ${input.referralCode?.toUpperCase() ?? null}, 'macos',
+        ${input.architecture ?? null}, ${input.occurredAt ?? new Date().toISOString()}::timestamptz
+      ) returning id
+    `;
+    return context.json({ recorded: Boolean(rows[0]) }, 201);
   });
 
   app.get("/v1/internal/reconcile", async (context) => {
@@ -145,34 +217,12 @@ export function createApp(
         billingConfigured: false
       });
     }
-    const subscriptions = await database`
-      select stripe_subscription_id
-      from billing_customers
-      where stripe_subscription_id is not null
-    `;
-    let reconciled = 0;
-    for (const row of subscriptions) {
-      if (typeof row.stripe_subscription_id !== "string") continue;
-      const subscription = await stripe.subscriptions.retrieve(
-        row.stripe_subscription_id
-      );
-      const now = Math.floor(Date.now() / 1_000);
-      const event = {
-        id: `reconcile:${subscription.id}:${now}`,
-        created: now,
-        type: "customer.subscription.updated",
-        data: { object: subscription }
-      } as unknown as Stripe.Event;
-      if (await persistStripeEvent(database, event, JSON.stringify({
-        id: subscription.id,
-        status: subscription.status
-      }))) {
-        reconciled += 1;
-      }
-    }
+    const reconciliation = await reconcileStripeSubscriptions(database, stripe);
     return context.json({
       rateLimitWindowsDeleted: cleanup.length,
-      subscriptionsReconciled: reconciled,
+      subscriptionsScanned: reconciliation.scanned,
+      subscriptionsReconciled: reconciliation.reconciled,
+      failures: reconciliation.failures,
       billingConfigured: true
     });
   });
@@ -198,6 +248,9 @@ export function createApp(
     }
     await next();
   });
+
+  registerAdminRoutes(app, config, database, stripe);
+  registerCommercialRoutes(app, config, database);
 
   app.post("/v1/accounts/bootstrap", async (context) => {
     const subject = context.get("authSubject");
@@ -254,6 +307,11 @@ export function createApp(
         if (!isStripeResourceMissing(error)) throw error;
       }
     }
+    const rows = await database`
+      delete from accounts
+      where auth_subject = ${subject}
+      returning id
+    `;
     if (config.CLERK_SECRET_KEY) {
       const clerkResponse = await fetch(
         `https://api.clerk.com/v1/users/${encodeURIComponent(subject)}`,
@@ -268,12 +326,9 @@ export function createApp(
     } else if (config.NODE_ENV === "production") {
       return context.json({ error: "identity_deletion_not_configured" }, 503);
     }
-    const rows = await database`
-      delete from accounts
-      where auth_subject = ${subject}
-      returning id
-    `;
-    if (!rows[0]) return context.json({ error: "account_not_provisioned" }, 404);
+    // Deletion is intentionally idempotent. If Clerk failed after the local
+    // delete, the still-authenticated user can retry without recreating data.
+    void rows;
     return context.body(null, 204);
   });
 
@@ -285,9 +340,20 @@ export function createApp(
              coalesce(e.source, 'grant') as source,
              e.trial_end,
              e.current_period_end,
-             e.founding_claimed_at
+             e.founding_claimed_at,
+             g.plan_code as grant_plan_code,
+             g.ends_at as grant_end,
+             g.source as grant_source
       from accounts a
       left join entitlements e on e.account_id = a.id
+      left join lateral (
+        select plan_code, ends_at, source
+        from entitlement_grants
+        where account_id = a.id and revoked_at is null and starts_at <= now()
+          and (ends_at is null or ends_at > now())
+        order by (plan_code = 'lifetime_byok') desc, ends_at desc nulls first
+        limit 1
+      ) g on true
       where a.auth_subject = ${subject} and a.deleted_at is null
       limit 1
     `;
@@ -297,11 +363,30 @@ export function createApp(
       ? (row.plan_code as PlanCode)
       : "free";
     const active = ["active", "trialing"].includes(String(row.status));
+    const primaryPaidActive = active && plan !== "free";
     const isFoundingUser = row.founding_claimed_at != null || row.source === "legacy";
-    const effectivePlan: PlanCode = active || isFoundingUser ? plan : "free";
+    const grantPlan = plans.includes(row.grant_plan_code as PlanCode)
+      ? row.grant_plan_code as PlanCode
+      : null;
+    const effectivePlan: PlanCode = isFoundingUser || (primaryPaidActive && plan === "lifetime_byok")
+      ? "lifetime_byok"
+      : primaryPaidActive
+        ? plan
+        : grantPlan ?? "free";
+    const effectiveSource = isFoundingUser
+      ? "founding"
+      : primaryPaidActive
+        ? row.source
+        : grantPlan
+          ? row.grant_source
+          : "free";
     const issuedAt = new Date();
     const graceLimit = new Date(issuedAt.getTime() + 14 * 86_400_000);
-    const contractualEnd = earliestDate(row.trial_end, row.current_period_end);
+    const contractualEnd = earliestDate(
+      row.trial_end,
+      row.current_period_end,
+      !primaryPaidActive && grantPlan ? row.grant_end : null
+    );
     const offlineValidUntil = contractualEnd && contractualEnd < graceLimit
       ? contractualEnd
       : graceLimit;
@@ -309,6 +394,10 @@ export function createApp(
       plan,
       status: row.status,
       source: row.source,
+      effectivePlan,
+      effectiveSource,
+      grantEnd: row.grant_end,
+      subscriptionEnd: row.current_period_end,
       features: planFeatures[effectivePlan],
       trialEnd: row.trial_end,
       currentPeriodEnd: row.current_period_end,
@@ -316,6 +405,10 @@ export function createApp(
       isFoundingUser,
       deviceLimit: deviceLimits[effectivePlan],
       limits: planLimits[effectivePlan],
+      timeline: [
+        ...(row.current_period_end ? [{ source: row.source, plan, endsAt: row.current_period_end }] : []),
+        ...(grantPlan ? [{ source: row.grant_source, plan: grantPlan, endsAt: row.grant_end }] : [])
+      ],
       issuedAt: issuedAt.toISOString()
     };
     return context.json({
@@ -331,13 +424,23 @@ export function createApp(
       with account as (
         select a.id,
                case
-                 when e.status in ('active', 'trialing') then coalesce(e.plan_code, 'free')
-                 when e.source = 'legacy' then coalesce(e.plan_code, 'free')
+                 when e.source = 'legacy' then coalesce(e.plan_code, 'lifetime_byok')
+                 when e.status in ('active', 'trialing') and e.plan_code <> 'free'
+                   then coalesce(e.plan_code, 'free')
+                 when g.plan_code is not null then g.plan_code
                  else 'free'
                end as plan_code,
                pg_advisory_xact_lock(hashtextextended(a.id::text, 0))
         from accounts a
         left join entitlements e on e.account_id = a.id
+        left join lateral (
+          select plan_code
+          from entitlement_grants
+          where account_id = a.id and revoked_at is null and starts_at <= now()
+            and (ends_at is null or ends_at > now())
+          order by (plan_code = 'lifetime_byok') desc, ends_at desc nulls first
+          limit 1
+        ) g on true
         where a.auth_subject = ${subject} and a.deleted_at is null
       ), active_devices as (
         select count(*)::integer as count
@@ -346,15 +449,27 @@ export function createApp(
           and d.device_identifier <> ${input.deviceIdentifier}
       )
       insert into devices (
-        account_id, device_identifier, platform, app_version, revoked_at
+        account_id, device_identifier, platform, app_version, revoked_at,
+        distribution_channel, architecture, os_major, transcription_engine,
+        local_model_id, telemetry_consent
       )
-      select id, ${input.deviceIdentifier}, ${input.platform}, ${input.appVersion}, null
+      select id, ${input.deviceIdentifier}, ${input.platform}, ${input.appVersion}, null,
+             ${input.distributionChannel}, ${input.architecture}, ${input.osMajor ?? null},
+             ${input.transcriptionEngine},
+             ${input.telemetryConsent ? input.localModelID ?? null : null},
+             ${input.telemetryConsent}
       from account, active_devices
       where active_devices.count < case account.plan_code
         when 'free' then 1 else 3 end
       on conflict (account_id, device_identifier)
       do update set app_version = excluded.app_version,
-                    last_seen_at = now(), revoked_at = null
+                    last_seen_at = now(), revoked_at = null,
+                    distribution_channel = excluded.distribution_channel,
+                    architecture = excluded.architecture,
+                    os_major = excluded.os_major,
+                    transcription_engine = excluded.transcription_engine,
+                    local_model_id = excluded.local_model_id,
+                    telemetry_consent = excluded.telemetry_consent
       returning id, device_identifier, last_seen_at
     `;
     if (!rows[0]) return context.json({ error: "device_limit_reached" }, 409);
@@ -365,6 +480,8 @@ export function createApp(
     const subject = context.get("authSubject");
     const rows = await database`
       select d.id, d.device_identifier, d.platform, d.app_version,
+             d.distribution_channel, d.architecture, d.os_major,
+             d.transcription_engine, d.telemetry_consent,
              d.created_at, d.last_seen_at
       from devices d join accounts a on a.id = d.account_id
       where a.auth_subject = ${subject}
@@ -393,6 +510,9 @@ export function createApp(
   });
 
   app.post("/v1/founding/claim", async (context) => {
+    if (!config.FOUNDING_CLAIMS_ENABLED) {
+      return context.json({ error: "feature_disabled" }, 404);
+    }
     const input = foundingClaimSchema.parse(await context.req.json());
     const deadline = config.PRESSAY_FOUNDING_CLAIM_DEADLINE;
     if (deadline && Date.now() > deadline.getTime()) {
@@ -443,6 +563,9 @@ export function createApp(
   });
 
   app.post("/v1/usage", async (context) => {
+    if (!config.REMOTE_METRICS_ENABLED) {
+      return context.json({ error: "feature_disabled" }, 404);
+    }
     const input = usageSchema.parse(await context.req.json());
     const subject = context.get("authSubject");
     const rows = await database`
@@ -477,6 +600,9 @@ export function createApp(
   });
 
   app.post("/v1/billing/checkout", async (context) => {
+    if (!config.COMMERCIAL_CHECKOUT_ENABLED) {
+      return context.json({ error: "feature_disabled" }, 404);
+    }
     if (!stripe || !config.PRESSAY_CHECKOUT_SUCCESS_URL ||
         !config.PRESSAY_CHECKOUT_CANCEL_URL) {
       return context.json({ error: "billing_not_configured" }, 503);
@@ -507,12 +633,38 @@ export function createApp(
     const account = rows[0];
     if (!account) return context.json({ error: "account_not_provisioned" }, 404);
 
+    const consentRows = await database`
+      insert into checkout_consents (
+        account_id, idempotency_key, terms_version,
+        terms_accepted_at, immediate_performance_consented_at
+      ) values (
+        ${String(account.id)}::uuid, ${input.idempotencyKey}::uuid,
+        ${input.termsVersion}, now(), now()
+      )
+      on conflict (idempotency_key) do update
+      set idempotency_key = excluded.idempotency_key
+      returning id
+    `;
+    const consentID = String(consentRows[0]?.id);
+
     let customerID = account.stripe_customer_id as string | null;
+    if (customerID) {
+      try {
+        const existingCustomer = await stripe.customers.retrieve(customerID);
+        if (existingCustomer.deleted) customerID = null;
+      } catch (error) {
+        if (isMissingStripeCustomer(error)) {
+          customerID = null;
+        } else {
+          throw error;
+        }
+      }
+    }
     if (!customerID) {
       const customer = await stripe.customers.create({
         ...(typeof account.email === "string" ? { email: account.email } : {}),
         metadata: { account_id: String(account.id) }
-      });
+      }, { idempotencyKey: `pressay-customer:${String(account.id)}` });
       customerID = customer.id;
       await database`
         insert into billing_customers (account_id, stripe_customer_id)
@@ -527,6 +679,7 @@ export function createApp(
     const metadata = {
       account_id: String(account.id),
       plan_code: input.plan,
+      consent_id: consentID,
       ...(trialEligible && input.deviceID ? { device_id: input.deviceID } : {})
     };
     const session = await stripe.checkout.sessions.create(
@@ -538,7 +691,8 @@ export function createApp(
         trialEligible,
         successURL: config.PRESSAY_CHECKOUT_SUCCESS_URL,
         cancelURL: config.PRESSAY_CHECKOUT_CANCEL_URL
-      })
+      }),
+      { idempotencyKey: `pressay-checkout:${String(account.id)}:${input.idempotencyKey}` }
     );
     await database`
       update billing_customers set last_checkout_at = now(), updated_at = now()
@@ -576,7 +730,8 @@ export function createApp(
     console.error(JSON.stringify({
       event: "request_error",
       requestID: context.get("requestID"),
-      errorType: error instanceof Error ? error.name : "unknown"
+      errorType: error instanceof Error ? error.name : "unknown",
+      ...safeProviderErrorFields(error)
     }));
     return context.json({
       error: "internal_error",
@@ -585,6 +740,31 @@ export function createApp(
   });
 
   return app;
+}
+
+function isMissingStripeCustomer(error: unknown): boolean {
+  if (!error || typeof error !== "object") return false;
+  const candidate = error as Record<string, unknown>;
+  return candidate.code === "resource_missing" &&
+    (candidate.param === "customer" || candidate.param === "id");
+}
+
+function safeProviderErrorFields(error: unknown): {
+  providerErrorCode?: string;
+  providerErrorParam?: string;
+} {
+  if (!error || typeof error !== "object") return {};
+  const candidate = error as Record<string, unknown>;
+  const code = typeof candidate.code === "string" && /^[a-z0-9_.-]{1,80}$/i.test(candidate.code)
+    ? candidate.code
+    : undefined;
+  const param = typeof candidate.param === "string" && /^[a-z0-9_.\[\]-]{1,120}$/i.test(candidate.param)
+    ? candidate.param
+    : undefined;
+  return {
+    ...(code ? { providerErrorCode: code } : {}),
+    ...(param ? { providerErrorParam: param } : {})
+  };
 }
 
 function signEntitlement(

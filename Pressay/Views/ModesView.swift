@@ -42,6 +42,7 @@ private struct RunningApplicationDescriptor: Identifiable, Hashable {
 struct ModesView: View {
     @ObservedObject var shortcutRouter: ShortcutRouter
     @ObservedObject private var store = ModeStore.shared
+    @ObservedObject private var account = AccountService.shared
     @State private var selectedModeID = NativeModeCatalog.faithfulID
     @State private var draft: ModeDefinition?
     @State private var runningApplications: [RunningApplicationDescriptor] = []
@@ -82,13 +83,13 @@ struct ModesView: View {
         VStack(spacing: 0) {
             List(selection: $selectedModeID) {
                 Section("Modes natifs") {
-                    ForEach(NativeModeCatalog.visibleModes) { mode in
+                    ForEach(store.visibleModes.filter { store.isBuiltIn($0.id) }) { mode in
                         Label(mode.name, systemImage: mode.symbolName)
                             .tag(mode.id)
                     }
                 }
                 Section("Modes personnalisés") {
-                    ForEach(store.customModes) { mode in
+                    ForEach(store.visibleModes.filter { !store.isBuiltIn($0.id) }) { mode in
                         Label(mode.name, systemImage: mode.symbolName)
                             .tag(mode.id)
                     }
@@ -102,6 +103,7 @@ struct ModesView: View {
                     Image(systemName: "plus")
                 }
                 .help("Créer un mode")
+                .disabled(!account.allows("modes.custom"))
                 Button {
                     deleteSelectedMode()
                 } label: {
@@ -123,7 +125,8 @@ struct ModesView: View {
             ScrollView {
                 VStack(alignment: .leading, spacing: 22) {
                     modeEditor(draft)
-                    if DistributionChannel.current.supportsApplicationProfiles {
+                    if DistributionChannel.current.supportsApplicationProfiles,
+                       account.allows("profiles.app") {
                         Divider()
                         applicationRules
                     }

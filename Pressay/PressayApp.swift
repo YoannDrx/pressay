@@ -519,7 +519,6 @@ final class PressayApplicationDelegate: NSObject, NSApplicationDelegate {
 #if !APP_STORE
         if !Constants.isRunningTests {
             AppMigrationService().runIfNeeded()
-            FoundingEligibilityService().createIfNeeded()
         }
 #endif
         appState = AppState()

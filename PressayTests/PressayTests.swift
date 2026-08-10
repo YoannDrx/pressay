@@ -1,6 +1,7 @@
 import XCTest
 import AppKit
 import Carbon.HIToolbox
+import CryptoKit
 @testable import Pressay
 
 final class ClipboardRestorationPolicyTests: XCTestCase {
@@ -340,7 +341,6 @@ final class MultipartFormDataTests: XCTestCase {
     }
 }
 
-#if false // Pressay Cloud is outside the OpenAI + WhisperKit release scope.
 @MainActor
 final class AccountServiceSecurityTests: XCTestCase {
     func testPKCEChallengeMatchesRFC7636Vector() {
@@ -357,7 +357,9 @@ final class AccountServiceSecurityTests: XCTestCase {
             issuerURL: URL(string: "https://identity.pressay.app")!,
             clientID: "pressay-macos",
             audience: "pressay-api",
-            redirectURI: Constants.cloudRedirectURI
+            redirectURI: Constants.cloudRedirectURI,
+            entitlementPublicKey: nil,
+            commercialEnabled: false
         )
         let url = try AccountService.authorizationURL(
             configuration: configuration,
@@ -380,8 +382,104 @@ final class AccountServiceSecurityTests: XCTestCase {
         XCTAssertEqual(values["audience"], "pressay-api")
         XCTAssertTrue(values["scope", default: ""].contains("offline_access"))
     }
+
+    func testSignedEntitlementAcceptsRawEd25519Key() throws {
+        let key = Curve25519.Signing.PrivateKey()
+        let payload = try entitlementPayload(
+            offlineEnd: Date(timeIntervalSince1970: 2_000_000)
+        )
+        let signature = try key.signature(for: payload)
+        let snapshot = SignedEntitlementSnapshot(
+            algorithm: "Ed25519",
+            payload: payload.base64EncodedString(),
+            value: signature.base64EncodedString()
+        )
+
+        let entitlement = try EntitlementSnapshotVerifier.verify(
+            snapshot,
+            publicKeyData: key.publicKey.rawRepresentation,
+            now: Date(timeIntervalSince1970: 1_000_000)
+        )
+
+        XCTAssertEqual(entitlement.effectivePlan, "pro_byok")
+        XCTAssertTrue(entitlement.isPaid)
+    }
+
+    func testSignedEntitlementAcceptsNodeSPKIPublicKey() throws {
+        let key = Curve25519.Signing.PrivateKey()
+        let payload = try entitlementPayload(
+            offlineEnd: Date(timeIntervalSince1970: 2_000_000)
+        )
+        let signature = try key.signature(for: payload)
+        var spki = Data([
+            0x30, 0x2a, 0x30, 0x05, 0x06, 0x03,
+            0x2b, 0x65, 0x70, 0x03, 0x21, 0x00
+        ])
+        spki.append(key.publicKey.rawRepresentation)
+
+        XCTAssertNoThrow(
+            try EntitlementSnapshotVerifier.verify(
+                SignedEntitlementSnapshot(
+                    algorithm: "Ed25519",
+                    payload: payload.base64EncodedString(),
+                    value: signature.base64EncodedString()
+                ),
+                publicKeyData: spki,
+                now: Date(timeIntervalSince1970: 1_000_000)
+            )
+        )
+    }
+
+    func testSignedEntitlementRejectsTamperingAndExpiredOfflineGrace() throws {
+        let key = Curve25519.Signing.PrivateKey()
+        let payload = try entitlementPayload(
+            offlineEnd: Date(timeIntervalSince1970: 1_500_000)
+        )
+        let signature = try key.signature(for: payload)
+        let snapshot = SignedEntitlementSnapshot(
+            algorithm: "Ed25519",
+            payload: payload.base64EncodedString(),
+            value: signature.base64EncodedString()
+        )
+
+        XCTAssertThrowsError(
+            try EntitlementSnapshotVerifier.verify(
+                snapshot,
+                publicKeyData: key.publicKey.rawRepresentation,
+                now: Date(timeIntervalSince1970: 1_600_000)
+            )
+        ) { error in
+            XCTAssertEqual(error as? EntitlementSnapshotError, .expired)
+        }
+
+        var tampered = payload
+        tampered[tampered.startIndex] ^= 1
+        XCTAssertThrowsError(
+            try EntitlementSnapshotVerifier.verify(
+                SignedEntitlementSnapshot(
+                    algorithm: "Ed25519",
+                    payload: tampered.base64EncodedString(),
+                    value: signature.base64EncodedString()
+                ),
+                publicKeyData: key.publicKey.rawRepresentation,
+                now: Date(timeIntervalSince1970: 1_000_000)
+            )
+        ) { error in
+            XCTAssertEqual(error as? EntitlementSnapshotError, .invalidSignature)
+        }
+    }
+
+    private func entitlementPayload(offlineEnd: Date) throws -> Data {
+        let formatter = ISO8601DateFormatter()
+        let issued = formatter.string(from: Date(timeIntervalSince1970: 1_000_000))
+        let offline = formatter.string(from: offlineEnd)
+        return try XCTUnwrap(
+            """
+            {"plan":"pro_byok","status":"active","source":"stripe","effectivePlan":"pro_byok","effectiveSource":"stripe","grantEnd":null,"subscriptionEnd":null,"features":["custom_modes"],"trialEnd":null,"currentPeriodEnd":null,"offlineValidUntil":"\(offline)","isFoundingUser":false,"deviceLimit":3,"limits":{"monthlyCloudCharacters":null},"timeline":[],"issuedAt":"\(issued)"}
+            """.data(using: .utf8)
+        )
+    }
 }
-#endif
 
 final class HistoryRetentionPolicyTests: XCTestCase {
     func testEntriesOlderThanConfiguredRetentionAreRemoved() {
@@ -2182,6 +2280,18 @@ final class MissingAccessibilityTargetPolicyTests: XCTestCase {
         )
     }
 
+    func testChromeInstantDictationCanUseMenuWhenWebEditorIsNotExposed() {
+        XCTAssertTrue(
+            MissingAccessibilityTargetPolicy.canUseApplicationMenuPaste(
+                bundleIdentifier: "com.google.Chrome",
+                isInstantDictation: true,
+                prefersPaste: true,
+                isSecure: false,
+                hasFocusedElement: false
+            )
+        )
+    }
+
     func testFallbackNeverBypassesSecureOrExistingAccessibilityTargets() {
         XCTAssertFalse(
             MissingAccessibilityTargetPolicy.canUseApplicationMenuPaste(
@@ -2221,6 +2331,98 @@ final class MissingAccessibilityTargetPolicyTests: XCTestCase {
                 isSecure: false,
                 hasFocusedElement: false
             )
+        )
+    }
+}
+
+final class BrowserFocusLossPastePolicyTests: XCTestCase {
+    func testChromeInstantDictationCanUseMenuAfterTransientFocusLoss() {
+        XCTAssertTrue(
+            BrowserFocusLossPastePolicy.canUseApplicationMenuPaste(
+                bundleIdentifier: "com.google.Chrome",
+                isInstantDictation: true,
+                prefersPaste: true,
+                hadOriginalFocusedElement: true,
+                isSecure: false
+            )
+        )
+    }
+
+    func testFallbackUsesCapturedBrowserFocusWhenAXEditabilityIsIncomplete() {
+        XCTAssertTrue(
+            BrowserFocusLossPastePolicy.canUseApplicationMenuPaste(
+                bundleIdentifier: "com.google.Chrome",
+                isInstantDictation: true,
+                prefersPaste: true,
+                hadOriginalFocusedElement: true,
+                isSecure: false
+            )
+        )
+    }
+
+    func testFallbackRequiresCapturedFocusAndANonSecureTarget() {
+        XCTAssertFalse(
+            BrowserFocusLossPastePolicy.canUseApplicationMenuPaste(
+                bundleIdentifier: "com.google.Chrome",
+                isInstantDictation: true,
+                prefersPaste: true,
+                hadOriginalFocusedElement: false,
+                isSecure: false
+            )
+        )
+        XCTAssertFalse(
+            BrowserFocusLossPastePolicy.canUseApplicationMenuPaste(
+                bundleIdentifier: "com.google.Chrome",
+                isInstantDictation: true,
+                prefersPaste: true,
+                hadOriginalFocusedElement: true,
+                isSecure: true
+            )
+        )
+    }
+
+    func testFallbackDoesNotApplyToUnknownElectronAppsOrTransformations() {
+        XCTAssertFalse(
+            BrowserFocusLossPastePolicy.canUseApplicationMenuPaste(
+                bundleIdentifier: "com.example.electron",
+                isInstantDictation: true,
+                prefersPaste: true,
+                hadOriginalFocusedElement: true,
+                isSecure: false
+            )
+        )
+        XCTAssertFalse(
+            BrowserFocusLossPastePolicy.canUseApplicationMenuPaste(
+                bundleIdentifier: "com.google.Chrome",
+                isInstantDictation: false,
+                prefersPaste: true,
+                hadOriginalFocusedElement: true,
+                isSecure: false
+            )
+        )
+    }
+}
+
+final class ApplicationMenuPasteVerificationPolicyTests: XCTestCase {
+    func testCodexMayCompletePasteBeforeAccessibilityValueUpdates() {
+        XCTAssertTrue(
+            ApplicationMenuPasteVerificationPolicy
+                .allowsStaleAccessibilityValue(
+                    bundleIdentifier: "com.openai.codex"
+                )
+        )
+    }
+
+    func testOtherApplicationsStillRequireValueVerification() {
+        XCTAssertFalse(
+            ApplicationMenuPasteVerificationPolicy
+                .allowsStaleAccessibilityValue(
+                    bundleIdentifier: "com.example.editor"
+                )
+        )
+        XCTAssertFalse(
+            ApplicationMenuPasteVerificationPolicy
+                .allowsStaleAccessibilityValue(bundleIdentifier: nil)
         )
     }
 }

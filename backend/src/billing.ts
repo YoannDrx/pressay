@@ -19,6 +19,7 @@ type CheckoutSessionInput = {
     account_id: string;
     plan_code: PurchasablePlan;
     device_id?: string;
+    consent_id?: string;
   };
   interval: BillingInterval;
   trialEligible: boolean;
@@ -29,7 +30,11 @@ type CheckoutSessionInput = {
 export const checkoutInputSchema = z.object({
   plan: z.enum(purchasablePlans),
   interval: z.enum(["monthly", "annual", "lifetime"]),
-  deviceID: z.string().uuid().optional()
+  deviceID: z.string().uuid().optional(),
+  idempotencyKey: z.string().uuid(),
+  acceptedTerms: z.literal(true),
+  immediatePerformanceConsent: z.literal(true),
+  termsVersion: z.literal("2026-08-10")
 }).superRefine((value, context) => {
   const lifetimePlan = value.plan === "lifetime_byok";
   if (lifetimePlan !== (value.interval === "lifetime")) {
@@ -46,6 +51,9 @@ export type StripeEventProjection = {
   status: "active" | "trialing" | "past_due" | "canceled";
   stripeCustomerID: string | null;
   stripeSubscriptionID: string | null;
+  subscriptionInterval: "monthly" | "annual" | null;
+  subscriptionUnitAmount: number | null;
+  currency: string | null;
   currentPeriodEnd: Date | null;
   trialEnd: Date | null;
   trialDeviceID: string | null;
@@ -94,6 +102,7 @@ export function checkoutSessionParameters(
     },
     tax_id_collection: { enabled: true },
     allow_promotion_codes: true,
+    consent_collection: { terms_of_service: "required" as const },
     branding_settings: {
       display_name: "Pressay",
       background_color: "#111015",
@@ -152,6 +161,9 @@ export function eventProjection(event: Stripe.Event): StripeEventProjection | nu
       status: "active",
       stripeCustomerID: stripeID(session.customer),
       stripeSubscriptionID: null,
+      subscriptionInterval: null,
+      subscriptionUnitAmount: null,
+      currency: session.currency ?? null,
       currentPeriodEnd: null,
       trialEnd: null,
       trialDeviceID: session.metadata?.device_id ?? null,
@@ -162,7 +174,9 @@ export function eventProjection(event: Stripe.Event): StripeEventProjection | nu
   if (
     event.type === "customer.subscription.created" ||
     event.type === "customer.subscription.updated" ||
-    event.type === "customer.subscription.deleted"
+    event.type === "customer.subscription.deleted" ||
+    event.type === "customer.subscription.paused" ||
+    event.type === "customer.subscription.resumed"
   ) {
     const subscription = event.data.object;
     const accountID = subscription.metadata.account_id;
@@ -171,7 +185,9 @@ export function eventProjection(event: Stripe.Event): StripeEventProjection | nu
     const periodEnd = subscription.items.data
       .map((item) => item.current_period_end)
       .filter((value): value is number => typeof value === "number")
-      .sort((left, right) => right - left)[0];
+      .sort((left, right) => right - left)[0]
+      ?? (subscription as Stripe.Subscription & { current_period_end?: number }).current_period_end;
+    const price = subscription.items.data[0]?.price;
     return {
       accountID,
       plan,
@@ -180,6 +196,13 @@ export function eventProjection(event: Stripe.Event): StripeEventProjection | nu
         : subscriptionStatus(subscription.status),
       stripeCustomerID: stripeID(subscription.customer),
       stripeSubscriptionID: subscription.id,
+      subscriptionInterval: price?.recurring?.interval === "month"
+        ? "monthly"
+        : price?.recurring?.interval === "year"
+          ? "annual"
+          : null,
+      subscriptionUnitAmount: price?.unit_amount ?? null,
+      currency: price?.currency ?? subscription.currency ?? null,
       currentPeriodEnd: periodEnd ? new Date(periodEnd * 1_000) : null,
       trialEnd: subscription.trial_end
         ? new Date(subscription.trial_end * 1_000)
@@ -191,6 +214,7 @@ export function eventProjection(event: Stripe.Event): StripeEventProjection | nu
 
   if (event.type === "charge.refunded") {
     const charge = event.data.object;
+    if (charge.amount_refunded < charge.amount) return null;
     const accountID = charge.metadata.account_id;
     const plan = parsePlan(charge.metadata.plan_code);
     if (!accountID || !plan) return null;
@@ -200,6 +224,9 @@ export function eventProjection(event: Stripe.Event): StripeEventProjection | nu
       status: "canceled",
       stripeCustomerID: stripeID(charge.customer),
       stripeSubscriptionID: null,
+      subscriptionInterval: null,
+      subscriptionUnitAmount: null,
+      currency: charge.currency,
       currentPeriodEnd: null,
       trialEnd: null,
       trialDeviceID: null,
@@ -215,9 +242,34 @@ export async function persistStripeEvent(
   event: Stripe.Event,
   rawBody: string
 ): Promise<boolean> {
+  const payloadHash = createHash("sha256").update(rawBody).digest("hex");
+  const inserted = await database`
+    insert into billing_events (
+      provider, provider_event_id, event_type, payload_sha256,
+      status, attempt_count, provider_created_at
+    ) values (
+      'stripe', ${event.id}, ${event.type}, ${payloadHash}, 'processing', 1,
+      ${new Date(event.created * 1_000).toISOString()}::timestamptz
+    )
+    on conflict (provider, provider_event_id) do update
+    set status = 'processing',
+        attempt_count = billing_events.attempt_count + 1,
+        last_error_code = null,
+        processed_at = null
+    where billing_events.status = 'failed'
+    returning provider_event_id
+  `;
+  if (!inserted[0]) return false;
+  const transactionRecorded = await persistBillingTransaction(database, event);
+
   let projection = eventProjection(event);
   if (!projection && event.type === "charge.refunded") {
-    const customerID = stripeID(event.data.object.customer);
+    const charge = event.data.object;
+    const customerID = stripeID(charge.customer);
+    if (charge.amount_refunded < charge.amount) {
+      await markBillingEvent(database, event.id, "ignored", null);
+      return false;
+    }
     if (customerID) {
       const rows = await database`
         select b.account_id, e.plan_code
@@ -234,6 +286,9 @@ export async function persistStripeEvent(
           status: "canceled",
           stripeCustomerID: customerID,
           stripeSubscriptionID: null,
+          subscriptionInterval: null,
+          subscriptionUnitAmount: null,
+          currency: charge.currency,
           currentPeriodEnd: null,
           trialEnd: null,
           trialDeviceID: null,
@@ -242,25 +297,26 @@ export async function persistStripeEvent(
       }
     }
   }
-  if (!projection) return false;
-  const payloadHash = createHash("sha256").update(rawBody).digest("hex");
-  const rows = await database`
-    with inserted_event as (
-      insert into billing_events (
-        provider, provider_event_id, event_type, payload_sha256
-      ) values ('stripe', ${event.id}, ${event.type}, ${payloadHash})
-      on conflict (provider, provider_event_id) do nothing
-      returning 1
-    ), customer_projection as (
+  if (!projection) {
+    await markBillingEvent(database, event.id, transactionRecorded ? "processed" : "ignored", null);
+    return transactionRecorded;
+  }
+  try {
+    const rows = await database`
+    with customer_projection as (
       insert into billing_customers (
-        account_id, stripe_customer_id, stripe_subscription_id, updated_at
+        account_id, stripe_customer_id, stripe_subscription_id,
+        subscription_interval, subscription_unit_amount, currency, updated_at
       )
-      select ${projection.accountID}::uuid, ${projection.stripeCustomerID},
-             ${projection.stripeSubscriptionID}, now()
-      from inserted_event
+      values (${projection.accountID}::uuid, ${projection.stripeCustomerID},
+              ${projection.stripeSubscriptionID}, ${projection.subscriptionInterval},
+              ${projection.subscriptionUnitAmount}, ${projection.currency}, now())
       on conflict (account_id) do update
       set stripe_customer_id = coalesce(excluded.stripe_customer_id, billing_customers.stripe_customer_id),
           stripe_subscription_id = coalesce(excluded.stripe_subscription_id, billing_customers.stripe_subscription_id),
+          subscription_interval = coalesce(excluded.subscription_interval, billing_customers.subscription_interval),
+          subscription_unit_amount = coalesce(excluded.subscription_unit_amount, billing_customers.subscription_unit_amount),
+          currency = coalesce(excluded.currency, billing_customers.currency),
           updated_at = now()
       returning account_id
     ), trial_projection as (
@@ -269,10 +325,9 @@ export async function persistStripeEvent(
              ${projection.trialDeviceID}::uuid,
              ${projection.eventCreatedAt.toISOString()}::timestamptz,
              ${projection.trialEnd?.toISOString() ?? null}::timestamptz
-      from inserted_event
-      where ${projection.plan} = 'pro_byok'
+      where ${projection.plan}::text = 'pro_byok'
         and ${projection.trialEnd?.toISOString() ?? null}::timestamptz is not null
-        and ${projection.stripeSubscriptionID} is not null
+        and ${projection.stripeSubscriptionID}::text is not null
       on conflict (account_id) do nothing
       returning account_id
     )
@@ -297,7 +352,149 @@ export async function persistStripeEvent(
        or excluded.provider_event_created_at >= entitlements.provider_event_created_at
     returning account_id
   `;
+    await markBillingEvent(database, event.id, "processed", null);
+    return Boolean(rows[0]);
+  } catch (error) {
+    await markBillingEvent(
+      database,
+      event.id,
+      "failed",
+      error instanceof Error ? error.name.slice(0, 100) : "unknown"
+    );
+    throw error;
+  }
+}
+
+async function persistBillingTransaction(database: Database, event: Stripe.Event): Promise<boolean> {
+  let customerID: string | null = null;
+  let objectID: string | null = null;
+  let transactionType: "invoice" | "refund" | "dispute" | "lifetime_payment" | null = null;
+  let amount = 0;
+  let currency = "eur";
+  let status = "unknown";
+
+  if (event.type === "invoice.paid" || event.type === "invoice.payment_failed") {
+    const invoice = event.data.object;
+    customerID = stripeID(invoice.customer);
+    objectID = invoice.id;
+    transactionType = "invoice";
+    amount = event.type === "invoice.paid" ? invoice.amount_paid : invoice.amount_due;
+    currency = invoice.currency;
+    status = event.type === "invoice.paid" ? "paid" : "payment_failed";
+  } else if (event.type === "charge.refunded") {
+    const charge = event.data.object;
+    customerID = stripeID(charge.customer);
+    objectID = charge.id;
+    transactionType = "refund";
+    amount = charge.amount_refunded;
+    currency = charge.currency;
+    status = charge.amount_refunded >= charge.amount ? "total" : "partial";
+  } else if (event.type === "charge.succeeded") {
+    const charge = event.data.object;
+    if (charge.metadata.plan_code !== "lifetime_byok") return false;
+    customerID = stripeID(charge.customer);
+    objectID = charge.id;
+    transactionType = "lifetime_payment";
+    amount = charge.amount;
+    currency = charge.currency;
+    status = "paid";
+  } else if (event.type === "charge.dispute.created" || event.type === "charge.dispute.closed") {
+    const dispute = event.data.object;
+    const expandedCharge = typeof dispute.charge === "object" ? dispute.charge : null;
+    customerID = expandedCharge && !("deleted" in expandedCharge)
+      ? stripeID(expandedCharge.customer)
+      : null;
+    objectID = dispute.id;
+    transactionType = "dispute";
+    amount = dispute.amount;
+    currency = dispute.currency;
+    status = dispute.status;
+  } else {
+    return false;
+  }
+  const rows = await database`
+    insert into billing_transactions (
+      account_id, provider, provider_object_id, provider_event_id,
+      transaction_type, amount, currency, status, occurred_at
+    )
+    select b.account_id, 'stripe', ${objectID}, ${event.id}, ${transactionType},
+           ${amount}, ${currency}, ${status},
+           ${new Date(event.created * 1_000).toISOString()}::timestamptz
+    from (values (1)) seed(value)
+    left join billing_customers b on b.stripe_customer_id = ${customerID}
+    on conflict (provider, provider_object_id, transaction_type) do update
+    set provider_event_id = excluded.provider_event_id,
+        amount = excluded.amount,
+        status = excluded.status,
+        occurred_at = excluded.occurred_at,
+        recorded_at = now()
+    returning id
+  `;
   return Boolean(rows[0]);
+}
+
+export async function reconcileStripeSubscriptions(
+  database: Database,
+  stripe: Stripe,
+  accountID?: string
+): Promise<{ scanned: number; reconciled: number; failures: Array<{ subscriptionID: string; errorCode: string }> }> {
+  let cursor = "";
+  let scanned = 0;
+  let reconciled = 0;
+  const failures: Array<{ subscriptionID: string; errorCode: string }> = [];
+  while (true) {
+    const rows = await database`
+      select account_id, stripe_subscription_id
+      from billing_customers
+      where stripe_subscription_id is not null
+        and (${accountID ?? ""} = '' or account_id = nullif(${accountID ?? ""}, '')::uuid)
+        and (${cursor} = '' or account_id > nullif(${cursor}, '')::uuid)
+      order by account_id asc
+      limit 100
+    `;
+    if (rows.length === 0) break;
+    for (const row of rows) {
+      cursor = String(row.account_id);
+      const subscriptionID = String(row.stripe_subscription_id);
+      scanned += 1;
+      try {
+        const subscription = await stripe.subscriptions.retrieve(subscriptionID);
+        const periodEnd = subscription.items.data
+          .map((item) => item.current_period_end)
+          .sort((left, right) => right - left)[0] ?? 0;
+        const now = Math.floor(Date.now() / 1_000);
+        const event = {
+          id: `reconcile:${subscription.id}:${subscription.status}:${periodEnd}`,
+          created: now,
+          type: "customer.subscription.updated",
+          data: { object: subscription }
+        } as unknown as Stripe.Event;
+        if (await persistStripeEvent(database, event, JSON.stringify({
+          id: subscription.id, status: subscription.status, current_period_end: periodEnd
+        }))) reconciled += 1;
+      } catch (error) {
+        failures.push({
+          subscriptionID,
+          errorCode: error instanceof Error ? error.name.slice(0, 100) : "unknown"
+        });
+      }
+    }
+    if (rows.length < 100 || accountID) break;
+  }
+  return { scanned, reconciled, failures };
+}
+
+async function markBillingEvent(
+  database: Database,
+  eventID: string,
+  status: "processed" | "failed" | "ignored",
+  errorCode: string | null
+): Promise<void> {
+  await database`
+    update billing_events
+    set status = ${status}, last_error_code = ${errorCode}, processed_at = now()
+    where provider = 'stripe' and provider_event_id = ${eventID}
+  `;
 }
 
 function parsePlan(value: string | undefined): PurchasablePlan | null {
