@@ -31,14 +31,48 @@ describe("Pressay API shell", () => {
   });
 
   it("checks the database on readiness", async () => {
-    const app = createApp(config, databaseReturning([{ ready: 1 }]));
+    const app = createApp(config, databaseReturning([{
+      table_count: 14,
+      column_count: 4
+    }]));
     const response = await app.request("/v1/ready");
 
     expect(response.status).toBe(200);
     expect(await response.json()).toEqual({
       status: "ready",
-      database: "reachable"
+      database: "reachable",
+      schema: "current"
     });
+  });
+
+  it("fails readiness when commercial migrations are missing", async () => {
+    const app = createApp(config, databaseReturning([{
+      table_count: 13,
+      column_count: 4
+    }]));
+    const response = await app.request("/v1/ready");
+
+    expect(response.status).toBe(503);
+    expect(await response.json()).toEqual({
+      status: "unavailable",
+      database: "reachable",
+      schema: "outdated"
+    });
+  });
+
+  it("does not collect download metrics without opt-in metrics", async () => {
+    const app = createApp(config, databaseReturning([]));
+    const response = await app.request("/v1/downloads", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        anonymousID: "9e944211-0ccf-48c2-8bca-f10f66bd428b",
+        assetType: "dmg"
+      })
+    });
+
+    expect(response.status).toBe(404);
+    expect(await response.json()).toEqual({ error: "feature_disabled" });
   });
 
   it("does not accept Stripe webhooks until billing is configured", async () => {

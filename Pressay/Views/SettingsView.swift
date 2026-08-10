@@ -9,6 +9,7 @@ struct SettingsView: View {
     @ObservedObject private var modes = ModeStore.shared
     @ObservedObject private var launchAtLogin = LaunchAtLoginService.shared
     @ObservedObject private var localTranscription = WhisperKitTranscriptionService.shared
+    @ObservedObject private var account = AccountService.shared
 
     @State private var apiKeyInput = ""
     @State private var isValidatingAPIKey = false
@@ -41,6 +42,8 @@ struct SettingsView: View {
     private var inboxRetentionDays = 30
     @AppStorage(Constants.metricsEnabledKey)
     private var metricsEnabled = false
+    @AppStorage(Constants.remoteTelemetryEnabledKey)
+    private var remoteTelemetryEnabled = false
     @AppStorage(Constants.hudPositionKey)
     private var hudPosition = HUDPosition.bottomCenter.rawValue
     @AppStorage(Constants.hudSizeKey)
@@ -92,6 +95,8 @@ struct SettingsView: View {
     private var selectedPageContent: some View {
         VStack(spacing: 18) {
             switch selectedPage {
+            case .account:
+                accountSection
             case .general:
                 permissionsSection
                 launchAtLoginSection
@@ -116,6 +121,9 @@ struct SettingsView: View {
 
     private var availablePages: [SettingsPage] {
         SettingsPage.allCases.filter { page in
+            if page == .account {
+                return DistributionChannel.current == .direct
+            }
             if page == .shortcuts {
                 return DistributionChannel.current.supportsGlobalShortcuts
             }
@@ -609,6 +617,17 @@ struct SettingsView: View {
                     }
                 }
                 Divider().opacity(0.45)
+                Toggle(
+                    "Partager des métadonnées produit minimales",
+                    isOn: $remoteTelemetryEnabled
+                )
+                .font(.system(size: 12, weight: .medium))
+                Text(
+                    "Optionnel : version majeure de macOS, architecture, version Pressay, moteur et modèle local. Jamais l’audio, la dictée, le contexte, le presse-papiers ni ta clé API."
+                )
+                .font(.system(size: 10))
+                .foregroundStyle(.secondary)
+                Divider().opacity(0.45)
                 HStack {
                     VStack(alignment: .leading, spacing: 2) {
                         Text("Diagnostics exportables")
@@ -639,14 +658,151 @@ struct SettingsView: View {
                 VStack(alignment: .leading, spacing: 3) {
                     Text(DistributionChannel.current.displayName)
                         .font(.system(size: 12, weight: .semibold))
-                    Text("Audio temporaire · Historique AES-256 · Aucune télémétrie distante")
+                    Text("Audio temporaire · Historique AES-256 · Télémétrie distante facultative")
                         .font(.system(size: 10))
                         .foregroundStyle(.secondary)
                 }
                 Spacer()
-                Link("Confidentialité", destination: URL(string: "https://github.com/YoannDrx/pressay/blob/main/PRIVACY.md")!)
+                Link("Confidentialité", destination: URL(string: "https://press-say.app/fr/privacy")!)
                     .font(.system(size: 10))
             }
+        }
+    }
+
+    private var accountSection: some View {
+        VStack(spacing: 18) {
+            SettingsSection(title: "COMPTE PRESSAY", icon: "person.crop.circle") {
+                VStack(alignment: .leading, spacing: 13) {
+                    switch account.state {
+                    case .unavailable:
+                        Label(
+                            "Les paramètres de connexion ne sont pas inclus dans cette build.",
+                            systemImage: "wrench.and.screwdriver"
+                        )
+                        .foregroundStyle(.secondary)
+                    case .signedOut:
+                        Text("Connecte l’app Direct à ton compte Pressay pour synchroniser tes droits et gérer tes Mac.")
+                            .font(.system(size: 11))
+                            .foregroundStyle(.secondary)
+                        Button("Se connecter à Pressay") {
+                            Task { await account.signIn() }
+                        }
+                        .buttonStyle(.borderedProminent)
+                    case .signingIn:
+                        HStack(spacing: 9) {
+                            ProgressView().controlSize(.small)
+                            Text("Connexion sécurisée dans le navigateur…")
+                        }
+                    case .loading:
+                        HStack(spacing: 9) {
+                            ProgressView().controlSize(.small)
+                            Text("Vérification du compte et des droits…")
+                        }
+                    case .signedIn:
+                        signedInAccountContent
+                    case .failed(let message):
+                        Label(message, systemImage: "exclamationmark.triangle.fill")
+                            .foregroundStyle(.orange)
+                        HStack {
+                            Button("Réessayer") { Task { await account.refresh() } }
+                            Button("Se déconnecter") { account.signOut() }
+                                .buttonStyle(.plain)
+                                .foregroundStyle(.secondary)
+                        }
+                    }
+                }
+            }
+
+            SettingsSection(title: "CONFIDENTIALITÉ", icon: "hand.raised.fill") {
+                Text("Le compte reçoit uniquement les métadonnées commerciales et techniques affichées ici. L’audio, les transcriptions, l’historique, les sélections, les fichiers, le presse-papiers et la clé OpenAI restent exclus.")
+                    .font(.system(size: 10))
+                    .foregroundStyle(.secondary)
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var signedInAccountContent: some View {
+        if let user = account.account {
+            HStack {
+                VStack(alignment: .leading, spacing: 3) {
+                    Text(user.displayName ?? user.email ?? "Compte Pressay")
+                        .font(.system(size: 13, weight: .semibold))
+                    if let email = user.email, user.displayName != nil {
+                        Text(email).font(.system(size: 10)).foregroundStyle(.secondary)
+                    }
+                }
+                Spacer()
+                if let entitlement = account.entitlement {
+                    Text(planLabel(entitlement.effectivePlan))
+                        .font(.system(size: 10, weight: .bold, design: .rounded))
+                        .padding(.horizontal, 9)
+                        .padding(.vertical, 5)
+                        .background(Color.accentColor.opacity(0.12), in: Capsule())
+                }
+            }
+            if let entitlement = account.entitlement {
+                Divider().opacity(0.45)
+                LabeledContent("Source du droit", value: entitlement.effectiveSource)
+                    .font(.system(size: 11))
+                if let end = entitlement.grantEnd ?? entitlement.subscriptionEnd {
+                    LabeledContent("Valide jusqu’au", value: end.formatted(date: .abbreviated, time: .omitted))
+                        .font(.system(size: 11))
+                }
+                LabeledContent(
+                    "Accès hors ligne",
+                    value: entitlement.offlineValidUntil.formatted(date: .abbreviated, time: .omitted)
+                )
+                .font(.system(size: 11))
+            }
+            Divider().opacity(0.45)
+            HStack {
+                Link("Gérer l’abonnement ↗", destination: URL(string: "https://press-say.app/account")!)
+                Spacer()
+                Button("Actualiser") { Task { await account.refresh() } }
+                Button("Se déconnecter") { account.signOut() }
+                    .buttonStyle(.plain)
+                    .foregroundStyle(.secondary)
+            }
+        }
+
+        if !account.devices.isEmpty {
+            Divider().opacity(0.45)
+            Text("MAC ACTIFS")
+                .font(.system(size: 9, weight: .bold))
+                .foregroundStyle(.secondary)
+            ForEach(account.devices) { device in
+                HStack {
+                    Image(systemName: "desktopcomputer")
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("Pressay \(device.appVersion) · \(device.architecture ?? "Mac")")
+                            .font(.system(size: 11, weight: .medium))
+                        Text("Dernier contact \(device.lastSeenAt.formatted(.relative(presentation: .named)))")
+                            .font(.system(size: 9))
+                            .foregroundStyle(.secondary)
+                    }
+                    Spacer()
+                    Button("Révoquer") {
+                        Task { await account.revokeDevice(device.id) }
+                    }
+                    .font(.system(size: 10))
+                }
+            }
+        }
+        if let requestID = account.requestID {
+            Text("Request ID : \(requestID)")
+                .font(.system(size: 9, design: .monospaced))
+                .foregroundStyle(.secondary)
+                .textSelection(.enabled)
+        }
+    }
+
+    private func planLabel(_ plan: String) -> String {
+        switch plan {
+        case "lifetime_byok": "Lifetime"
+        case "pro_byok": "Pro BYOK"
+        case "pro_cloud": "Pro Cloud"
+        default: "Free"
         }
     }
 
@@ -809,6 +965,7 @@ struct SettingsView: View {
 }
 
 private enum SettingsPage: String, CaseIterable, Identifiable {
+    case account
     case general
     case providers
     case modes
@@ -821,6 +978,7 @@ private enum SettingsPage: String, CaseIterable, Identifiable {
 
     var label: String {
         switch self {
+        case .account: "Compte"
         case .general: "Général"
         case .providers: "Fournisseurs"
         case .modes: "Modes"
@@ -833,6 +991,7 @@ private enum SettingsPage: String, CaseIterable, Identifiable {
 
     var icon: String {
         switch self {
+        case .account: "person.crop.circle"
         case .general: "gearshape"
         case .providers: "key.fill"
         case .modes: "slider.horizontal.3"
@@ -845,6 +1004,7 @@ private enum SettingsPage: String, CaseIterable, Identifiable {
 
     var searchTerms: String {
         switch self {
+        case .account: "compte connexion abonnement plan appareils droits facturation"
         case .general: "général microphone accessibilité langue reconnaissance HUD démarrage ouverture"
         case .providers: "transcription OpenAI WhisperKit local clé API hors ligne"
         case .modes: "modes profils applications fidèle propre email message"

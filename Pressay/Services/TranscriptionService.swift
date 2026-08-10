@@ -125,7 +125,42 @@ final class TranscriptionService: SpeechTranscribing {
         let message: String
     }
 
+    private struct PreparedTranscriptionRequest {
+        let request: URLRequest
+        let vocabulary: String
+        let prompt: String?
+    }
+
     func transcribe(audioURL: URL) async throws -> TranscriptionResult {
+        // This method is normally entered from SessionCoordinator's MainActor.
+        // Keychain access and multipart assembly are synchronous, so doing them
+        // inline can freeze the HUD and prevent the timeout task from firing.
+        let prepared = try await Task.detached(priority: .userInitiated) {
+            try Self.prepareRequest(audioURL: audioURL)
+        }.value
+        try Task.checkCancellation()
+
+        let (data, response) = try await session.data(for: prepared.request)
+        try Task.checkCancellation()
+        let decoded = try decodeResponse(data: data, response: response)
+        let cleanText = try TranscriptionResponseValidator.validated(
+            decoded.text,
+            vocabulary: prepared.vocabulary,
+            prompt: prepared.prompt
+        )
+        let probabilities = decoded.logprobs?.map(\.logprob) ?? []
+        let averageLogProbability = probabilities.isEmpty
+            ? nil
+            : probabilities.reduce(0, +) / Double(probabilities.count)
+        return TranscriptionResult(
+            text: cleanText,
+            averageLogProbability: averageLogProbability
+        )
+    }
+
+    private static func prepareRequest(
+        audioURL: URL
+    ) throws -> PreparedTranscriptionRequest {
         guard let apiKey = KeychainHelper.shared.getAPIKey() else {
             throw TranscriptionError.noAPIKey
         }
@@ -153,21 +188,10 @@ final class TranscriptionService: SpeechTranscribing {
             boundary: body.boundary
         )
         request.httpBody = body.data
-        let (data, response) = try await session.data(for: request)
-        try Task.checkCancellation()
-        let decoded = try decodeResponse(data: data, response: response)
-        let cleanText = try TranscriptionResponseValidator.validated(
-            decoded.text,
+        return PreparedTranscriptionRequest(
+            request: request,
             vocabulary: vocabulary,
             prompt: prompt
-        )
-        let probabilities = decoded.logprobs?.map(\.logprob) ?? []
-        let averageLogProbability = probabilities.isEmpty
-            ? nil
-            : probabilities.reduce(0, +) / Double(probabilities.count)
-        return TranscriptionResult(
-            text: cleanText,
-            averageLogProbability: averageLogProbability
         )
     }
 
@@ -188,7 +212,7 @@ final class TranscriptionService: SpeechTranscribing {
         }
     }
 
-    private func makeBody(
+    private static func makeBody(
         audioURL: URL,
         model: String,
         language: String,
@@ -245,7 +269,7 @@ final class TranscriptionService: SpeechTranscribing {
         }
     }
 
-    private func makeRequest(apiKey: String, boundary: String) throws -> URLRequest {
+    private static func makeRequest(apiKey: String, boundary: String) throws -> URLRequest {
         guard let url = URL(string: Constants.openAITranscriptionURL) else {
             throw TranscriptionError.invalidURL
         }
@@ -270,7 +294,7 @@ final class TranscriptionService: SpeechTranscribing {
         return try JSONDecoder().decode(TranscriptionResponse.self, from: data)
     }
 
-    private func selectedVocabulary(preferences: UserDefaults) -> String {
+    private static func selectedVocabulary(preferences: UserDefaults) -> String {
         let explicitProfile = preferences.string(forKey: Constants.vocabularyProfileKey)
         let existingCustomVocabulary = preferences.string(forKey: Constants.technicalVocabularyKey)
         let profile = explicitProfile ?? (existingCustomVocabulary == nil ? "development" : "custom")
@@ -286,7 +310,7 @@ final class TranscriptionService: SpeechTranscribing {
         }
     }
 
-    private func transcriptionPrompt(
+    private static func transcriptionPrompt(
         vocabulary: String,
         language: String,
         model: String

@@ -16,6 +16,11 @@ enum Constants {
     static let keychainInboxKeyAccount = "inbox-encryption-key"
     static let keychainActionJournalKeyAccount = "action-journal-encryption-key"
     static let keychainFoundingEligibilityAccount = "founding-eligibility-v1"
+    static let keychainAccountTokensAccount = "pressay-account-oauth-tokens-v1"
+    static let keychainDeviceIdentifierAccount = "pressay-device-identifier-v1"
+    static let cachedEntitlementSnapshotKey = "pressay-entitlement-snapshot-v1"
+    static let remoteTelemetryEnabledKey = "remote-product-metrics-enabled-v1"
+    static let cloudRedirectURI = URL(string: "pressay://oauth/callback")!
     static let identityMigrationCompletedKey = "pressay-identity-migration-v1-completed"
     static let applicationSupportDirectoryName = "Pressay"
     static let legacyApplicationSupportDirectoryName = "Whisper"
@@ -63,6 +68,7 @@ enum Constants {
         inboxEnabledKey,
         inboxRetentionDaysKey,
         metricsEnabledKey,
+        remoteTelemetryEnabledKey,
         hudPositionKey,
         hudSizeKey,
         hudResultDurationKey,

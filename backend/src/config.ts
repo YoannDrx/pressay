@@ -1,5 +1,12 @@
 import { z } from "zod";
 
+const booleanFromEnvironment = z.preprocess((value) => {
+  if (typeof value !== "string") return value;
+  if (value === "true" || value === "1") return true;
+  if (value === "false" || value === "0" || value === "") return false;
+  return value;
+}, z.boolean());
+
 const schema = z.object({
   DATABASE_URL: z.string().url().startsWith("postgresql://"),
   PRESSAY_JWT_ISSUER: z.string().url(),
@@ -19,6 +26,16 @@ const schema = z.object({
   PRESSAY_BILLING_RETURN_URL: z.string().url().optional(),
   PRESSAY_ENTITLEMENT_SIGNING_PRIVATE_KEY: z.string().min(32).optional(),
   PRESSAY_FOUNDING_CLAIM_DEADLINE: z.coerce.date().optional(),
+  PRESSAY_OWNER_EMAIL: z.string().email().default("yoann.andrieux@gmail.com"),
+  PRESSAY_ADMIN_MFA_MAX_AGE_MINUTES: z.coerce.number().int().min(1).max(60).default(10),
+  PRESSAY_REFERRAL_COOKIE_SECRET: z.string().min(32).optional(),
+  ADMIN_ENABLED: booleanFromEnvironment.default(false),
+  ADMIN_MUTATIONS_ENABLED: booleanFromEnvironment.default(false),
+  COMMERCIAL_CHECKOUT_ENABLED: booleanFromEnvironment.default(false),
+  FOUNDING_CLAIMS_ENABLED: booleanFromEnvironment.default(false),
+  ACCESS_CAMPAIGNS_ENABLED: booleanFromEnvironment.default(false),
+  REFERRALS_ENABLED: booleanFromEnvironment.default(false),
+  REMOTE_METRICS_ENABLED: booleanFromEnvironment.default(false),
   PRESSAY_ALLOWED_ORIGINS: z.string().default(
     "https://press-say.app,https://staging.press-say.app"
   ),
@@ -44,6 +61,13 @@ const schema = z.object({
       code: "custom",
       path: ["CRON_SECRET"],
       message: "a cron secret is required for billing reconciliation in production"
+    });
+  }
+  if (config.NODE_ENV === "production" && config.REFERRALS_ENABLED && !config.PRESSAY_REFERRAL_COOKIE_SECRET) {
+    context.addIssue({
+      code: "custom",
+      path: ["PRESSAY_REFERRAL_COOKIE_SECRET"],
+      message: "a referral cookie signing secret is required when referrals are enabled"
     });
   }
 });

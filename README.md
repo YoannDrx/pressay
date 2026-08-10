@@ -68,13 +68,14 @@ DMG.
 
 La page de téléchargement publique est également disponible sur
 [yoann-andrieux.fr](https://www.yoann-andrieux.fr/fr/projects/pressay). La
-version stable publiée est `v1.2.4` ; les utilisateurs ayant activé le canal
+version stable publiée est `v1.2.5` ; les utilisateurs ayant activé le canal
 bêta recevront aussi cette version stable.
 
-La stable `v1.2.4` (build `12103`) restaure le presse-papiers présent avant une
-insertion Pressay réussie et ajoute un chemin de compatibilité dédié au
-compositeur Codex. La matrice interapplications, le test Intel réel et sept
-jours sans P0/P1 restent des preuves QA à compléter après publication.
+La stable `v1.2.5` (build `12104`) rétablit la dictée instantanée dans ChatGPT
+Web, réduit la latence perçue de transcription et inclut la configuration de
+production du compte sans activer le paywall. La matrice interapplications, le
+test Intel réel et sept jours sans P0/P1 restent des preuves QA à compléter
+après publication.
 
 ### Compiler depuis les sources
 

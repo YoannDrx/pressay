@@ -52,11 +52,13 @@ describe("Stripe billing", () => {
   it("rejects incoherent lifetime checkout combinations", () => {
     expect(() => checkoutInputSchema.parse({
       plan: "lifetime_byok",
-      interval: "monthly"
+      interval: "monthly",
+      idempotencyKey: "0de8fbbf-b04a-4779-89ea-3b9964839e99"
     })).toThrow();
     expect(() => checkoutInputSchema.parse({
       plan: "pro_byok",
-      interval: "lifetime"
+      interval: "lifetime",
+      idempotencyKey: "0de8fbbf-b04a-4779-89ea-3b9964839e99"
     })).toThrow();
   });
 
@@ -80,6 +82,7 @@ describe("Stripe billing", () => {
       billing_address_collection: "auto",
       tax_id_collection: { enabled: true },
       allow_promotion_codes: true,
+      consent_collection: { terms_of_service: "required" },
       branding_settings: {
         display_name: "Pressay",
         background_color: "#111015",
@@ -146,6 +149,9 @@ describe("Stripe billing", () => {
       status: "active",
       stripeCustomerID: "cus_pressay",
       stripeSubscriptionID: null,
+      subscriptionInterval: null,
+      subscriptionUnitAmount: null,
+      currency: null,
       currentPeriodEnd: null,
       trialEnd: null,
       trialDeviceID: null,
@@ -185,7 +191,9 @@ describe("Stripe billing", () => {
             account_id: "9e944211-0ccf-48c2-8bca-f10f66bd428b",
             plan_code: "lifetime_byok"
           },
-          customer: "cus_pressay"
+          customer: "cus_pressay",
+          amount: 14900,
+          amount_refunded: 14900
         }
       }
     } as unknown as Stripe.Event;
@@ -195,6 +203,27 @@ describe("Stripe billing", () => {
       status: "canceled",
       eventCreatedAt: new Date(1_780_000_100_000)
     });
+  });
+
+  it("keeps Lifetime active after a partial refund", () => {
+    const event = {
+      id: "evt_partial_refund",
+      created: 1_780_000_101,
+      type: "charge.refunded",
+      data: {
+        object: {
+          metadata: {
+            account_id: "9e944211-0ccf-48c2-8bca-f10f66bd428b",
+            plan_code: "lifetime_byok"
+          },
+          customer: "cus_pressay",
+          amount: 14900,
+          amount_refunded: 2000
+        }
+      }
+    } as unknown as Stripe.Event;
+
+    expect(eventProjection(event)).toBeNull();
   });
 
   it("projects Stripe trial and device metadata for account-level anti-abuse", () => {
@@ -213,6 +242,7 @@ describe("Stripe billing", () => {
             device_id: "0de8fbbf-b04a-4779-89ea-3b9964839e99"
           },
           customer: "cus_pressay",
+          current_period_end: 1_781_300_000,
           items: { data: [] }
         }
       }
@@ -221,7 +251,37 @@ describe("Stripe billing", () => {
     expect(eventProjection(event)).toMatchObject({
       status: "trialing",
       trialEnd: new Date(1_781_209_800_000),
+      currentPeriodEnd: new Date(1_781_300_000_000),
       trialDeviceID: "0de8fbbf-b04a-4779-89ea-3b9964839e99"
+    });
+  });
+
+  it.each([
+    ["customer.subscription.paused", "paused", "canceled"],
+    ["customer.subscription.resumed", "active", "active"]
+  ] as const)("projects %s into the effective entitlement", (eventType, stripeStatus, expectedStatus) => {
+    const event = {
+      id: `evt_${stripeStatus}`,
+      created: 1_780_000_300,
+      type: eventType,
+      data: {
+        object: {
+          id: "sub_pressay",
+          status: stripeStatus,
+          trial_end: null,
+          metadata: {
+            account_id: "9e944211-0ccf-48c2-8bca-f10f66bd428b",
+            plan_code: "pro_byok"
+          },
+          customer: "cus_pressay",
+          items: { data: [] }
+        }
+      }
+    } as unknown as Stripe.Event;
+
+    expect(eventProjection(event)).toMatchObject({
+      status: expectedStatus,
+      stripeSubscriptionID: "sub_pressay"
     });
   });
 });

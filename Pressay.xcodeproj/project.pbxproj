@@ -81,6 +81,8 @@
 		NNN000001 /* PrivacyInfo.xcprivacy in Resources */ = {isa = PBXBuildFile; fileRef = MAS000013 /* PrivacyInfo.xcprivacy */; };
 		OOO000001 /* WhisperKit in Frameworks */ = {isa = PBXBuildFile; productRef = OOO000012 /* WhisperKit */; };
 		OOO000002 /* WhisperKitTranscriptionService.swift in Sources */ = {isa = PBXBuildFile; fileRef = OOO000010 /* WhisperKitTranscriptionService.swift */; };
+		PPP000001 /* AccountService.swift in Sources */ = {isa = PBXBuildFile; fileRef = PPP000010 /* AccountService.swift */; };
+		MAS100027 /* AccountService.swift in Sources */ = {isa = PBXBuildFile; fileRef = PPP000010 /* AccountService.swift */; };
 		MAS100025 /* WhisperKit in Frameworks */ = {isa = PBXBuildFile; productRef = OOO000012 /* WhisperKit */; };
 		MAS100026 /* WhisperKitTranscriptionService.swift in Sources */ = {isa = PBXBuildFile; fileRef = OOO000010 /* WhisperKitTranscriptionService.swift */; };
 		ZZZ000001 /* PressayAXFixtureApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = ZZZ000010 /* PressayAXFixtureApp.swift */; };
@@ -127,6 +129,7 @@
 		JJJ000011 /* ModelCatalogService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ModelCatalogService.swift; sourceTree = "<group>"; };
 		KKK000010 /* ShortcutRecorderView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ShortcutRecorderView.swift; sourceTree = "<group>"; };
 		OOO000010 /* WhisperKitTranscriptionService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WhisperKitTranscriptionService.swift; sourceTree = "<group>"; };
+		PPP000010 /* AccountService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AccountService.swift; sourceTree = "<group>"; };
 		MAS000010 /* DistributionChannel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DistributionChannel.swift; sourceTree = "<group>"; };
 		MAS000011 /* Info-AppStore.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = "Info-AppStore.plist"; sourceTree = "<group>"; };
 		MAS000012 /* PressayAppStore.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = PressayAppStore.entitlements; sourceTree = "<group>"; };
@@ -227,6 +230,7 @@
 				JJJ000010 /* ProviderRoutingService.swift */,
 				JJJ000011 /* ModelCatalogService.swift */,
 				OOO000010 /* WhisperKitTranscriptionService.swift */,
+				PPP000010 /* AccountService.swift */,
 			);
 			path = Services;
 			sourceTree = "<group>";
@@ -502,6 +506,7 @@
 				KKK000001 /* ShortcutRecorderView.swift in Sources */,
 				MAS000001 /* DistributionChannel.swift in Sources */,
 				OOO000002 /* WhisperKitTranscriptionService.swift in Sources */,
+				PPP000001 /* AccountService.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -550,6 +555,7 @@
 				MAS10001F /* ShortcutRecorderView.swift in Sources */,
 				MAS100020 /* DistributionChannel.swift in Sources */,
 				MAS100026 /* WhisperKitTranscriptionService.swift in Sources */,
+				MAS100027 /* AccountService.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -726,7 +732,7 @@
 				CODE_SIGN_IDENTITY = "Apple Development";
 				CODE_SIGN_STYLE = Automatic;
 				COMBINE_HIDPI_IMAGES = YES;
-				CURRENT_PROJECT_VERSION = 12103;
+				CURRENT_PROJECT_VERSION = 12104;
 				DEVELOPMENT_TEAM = G9WFV7HNV6;
 				ENABLE_HARDENED_RUNTIME = NO;
 				GENERATE_INFOPLIST_FILE = NO;
@@ -738,10 +744,18 @@
 					"$(inherited)",
 					"@executable_path/../Frameworks",
 				);
-				MARKETING_VERSION = 1.2.4;
+				MARKETING_VERSION = 1.2.5;
 				PRODUCT_BUNDLE_IDENTIFIER = fr.yodev.pressay.debug;
 				PRODUCT_NAME = "$(TARGET_NAME)";
+				PRESSAY_API_BASE_URL = "https://api-staging.press-say.app/v1";
+				PRESSAY_COMMERCIAL_ENABLED = YES;
 				PRESSAY_DISPLAY_NAME = "Pressay Local";
+				PRESSAY_ENTITLEMENT_PUBLIC_KEY = "MCowBQYDK2VwAyEAuFqotYIP0Rlzc3Ak1QMiKWsJWstE8R8IHO2MoeSfDpo=";
+				PRESSAY_OAUTH_AUDIENCE = "$(PRESSAY_OAUTH_CLIENT_PREFIX)$(PRESSAY_OAUTH_CLIENT_SUFFIX)";
+				PRESSAY_OAUTH_CLIENT_ID = "$(PRESSAY_OAUTH_CLIENT_PREFIX)$(PRESSAY_OAUTH_CLIENT_SUFFIX)";
+				PRESSAY_OAUTH_CLIENT_PREFIX = w9ckUgrc;
+				PRESSAY_OAUTH_CLIENT_SUFFIX = Fp7H7wNV;
+				PRESSAY_OAUTH_ISSUER_URL = "https://clerk.press-say.app";
 				SPARKLE_PUBLIC_ED_KEY = "UZhQqKvJ2hCq/tcAznz/tbwCMF0N5Jx01IjEltwQ/Y4=";
 				SWIFT_EMIT_LOC_STRINGS = YES;
 				SWIFT_VERSION = 5.0;
@@ -758,7 +772,7 @@
 				CODE_SIGN_INJECT_BASE_ENTITLEMENTS = NO;
 				CODE_SIGN_STYLE = Automatic;
 				COMBINE_HIDPI_IMAGES = YES;
-				CURRENT_PROJECT_VERSION = 12103;
+				CURRENT_PROJECT_VERSION = 12104;
 				DEVELOPMENT_TEAM = "";
 				ENABLE_HARDENED_RUNTIME = YES;
 				GENERATE_INFOPLIST_FILE = NO;
@@ -770,10 +784,18 @@
 					"$(inherited)",
 					"@executable_path/../Frameworks",
 				);
-				MARKETING_VERSION = 1.2.4;
+				MARKETING_VERSION = 1.2.5;
 				PRODUCT_BUNDLE_IDENTIFIER = fr.yodev.pressay;
 				PRODUCT_NAME = "$(TARGET_NAME)";
+				PRESSAY_API_BASE_URL = "https://api.press-say.app/v1";
+				PRESSAY_COMMERCIAL_ENABLED = NO;
 				PRESSAY_DISPLAY_NAME = Pressay;
+				PRESSAY_ENTITLEMENT_PUBLIC_KEY = "MCowBQYDK2VwAyEAuFqotYIP0Rlzc3Ak1QMiKWsJWstE8R8IHO2MoeSfDpo=";
+				PRESSAY_OAUTH_AUDIENCE = "$(PRESSAY_OAUTH_CLIENT_PREFIX)$(PRESSAY_OAUTH_CLIENT_SUFFIX)";
+				PRESSAY_OAUTH_CLIENT_ID = "$(PRESSAY_OAUTH_CLIENT_PREFIX)$(PRESSAY_OAUTH_CLIENT_SUFFIX)";
+				PRESSAY_OAUTH_CLIENT_PREFIX = w9ckUgrc;
+				PRESSAY_OAUTH_CLIENT_SUFFIX = Fp7H7wNV;
+				PRESSAY_OAUTH_ISSUER_URL = "https://clerk.press-say.app";
 				SPARKLE_PUBLIC_ED_KEY = "UZhQqKvJ2hCq/tcAznz/tbwCMF0N5Jx01IjEltwQ/Y4=";
 				SWIFT_EMIT_LOC_STRINGS = YES;
 				SWIFT_VERSION = 5.0;

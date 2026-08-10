@@ -2,6 +2,17 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
+	<key>CFBundleURLTypes</key>
+	<array>
+		<dict>
+			<key>CFBundleURLName</key>
+			<string>fr.yodev.pressay.oauth</string>
+			<key>CFBundleURLSchemes</key>
+			<array>
+				<string>pressay</string>
+			</array>
+		</dict>
+	</array>
     <key>CFBundleName</key>
 	<string>$(PRESSAY_DISPLAY_NAME)</string>
     <key>CFBundleDisplayName</key>
@@ -22,8 +33,20 @@
 	<string>public.app-category.productivity</string>
 	<key>LSUIElement</key>
     <true/>
-    <key>NSMicrophoneUsageDescription</key>
-    <string>Pressay a besoin d'accéder au microphone pour enregistrer ta voix et la transcrire en texte.</string>
+	<key>NSMicrophoneUsageDescription</key>
+	<string>Pressay a besoin d'accéder au microphone pour enregistrer ta voix et la transcrire en texte.</string>
+	<key>PressayAPIBaseURL</key>
+	<string>$(PRESSAY_API_BASE_URL)</string>
+	<key>PressayCommercialEnabled</key>
+	<string>$(PRESSAY_COMMERCIAL_ENABLED)</string>
+	<key>PressayEntitlementPublicKey</key>
+	<string>$(PRESSAY_ENTITLEMENT_PUBLIC_KEY)</string>
+	<key>PressayOAuthAudience</key>
+	<string>$(PRESSAY_OAUTH_AUDIENCE)</string>
+	<key>PressayOAuthClientID</key>
+	<string>$(PRESSAY_OAUTH_CLIENT_ID)</string>
+	<key>PressayOAuthIssuerURL</key>
+	<string>$(PRESSAY_OAUTH_ISSUER_URL)</string>
     <key>SUEnableSystemProfiling</key>
     <false/>
     <key>SUFeedURL</key>
