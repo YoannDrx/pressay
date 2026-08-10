@@ -52,6 +52,13 @@ final class AppState: ObservableObject {
             metrics: PerformanceMetricsService.shared,
             hud: StatusHUDController.shared
         )
+        if !Constants.isRunningTests,
+           UserDefaults.standard.string(forKey: Constants.transcriptionEngineKey)
+                == TranscriptionEngine.whisperKit.rawValue {
+            Task {
+                try? await WhisperKitTranscriptionService.shared.prepare()
+            }
+        }
     }
 
     init(

@@ -7,11 +7,21 @@ final class AudioRecorder: NSObject, ObservableObject {
     @Published private(set) var isRecording = false
     @Published private(set) var hasPermission = false
     var onLevelUpdate: ((Float) -> Void)?
+    var onPCMChunk: ((Data) -> Void)?
 
-    private var recorder: AVAudioRecorder?
+    private var audioEngine: AVAudioEngine?
+    private var audioConverter: AVAudioConverter?
+    private var audioFile: AVAudioFile?
     private var recordingURL: URL?
-    private var meterTimer: DispatchSourceTimer?
     private var powerSamples: [Float] = []
+    private var recordedFrames: AVAudioFramePosition = 0
+    private var pendingPCMChunks: [Data] = []
+    private var streamingGateOpen = false
+    private var inputTapInstalled = false
+    private let processingQueue = DispatchQueue(
+        label: "fr.yodev.pressay.audio-processing",
+        qos: .userInteractive
+    )
 
     override init() {
         super.init()
@@ -44,44 +54,93 @@ final class AudioRecorder: NSObject, ObservableObject {
 
         let url = FileManager.default.temporaryDirectory
             .appendingPathComponent("pressay_recording_\(UUID().uuidString)")
-            .appendingPathExtension("m4a")
-        let settings: [String: Any] = [
-            AVFormatIDKey: Int(kAudioFormatMPEG4AAC),
-            AVSampleRateKey: 16_000,
-            AVNumberOfChannelsKey: 1,
-            AVEncoderBitRateKey: 32_000,
-            AVEncoderAudioQualityKey: AVAudioQuality.high.rawValue
-        ]
-        let recorder = try AVAudioRecorder(url: url, settings: settings)
-        recorder.isMeteringEnabled = true
-        recorder.prepareToRecord()
-        guard recorder.record() else { throw RecordingError.recordingFailed }
+            .appendingPathExtension("wav")
+        guard let targetFormat = AVAudioFormat(
+            commonFormat: .pcmFormatInt16,
+            sampleRate: 24_000,
+            channels: 1,
+            interleaved: true
+        ) else { throw RecordingError.recordingFailed }
+        let engine = AVAudioEngine()
+        let input = engine.inputNode
+        let inputFormat = input.outputFormat(forBus: 0)
+        guard inputFormat.sampleRate > 0,
+              inputFormat.channelCount > 0,
+              let converter = AVAudioConverter(
+                from: inputFormat,
+                to: targetFormat
+              ) else { throw RecordingError.recordingFailed }
+        let file = try AVAudioFile(
+            forWriting: url,
+            settings: targetFormat.settings,
+            commonFormat: .pcmFormatInt16,
+            interleaved: true
+        )
 
-        self.recorder = recorder
+        audioEngine = engine
+        audioConverter = converter
+        audioFile = file
         recordingURL = url
         powerSamples = []
+        pendingPCMChunks = []
+        streamingGateOpen = false
+        recordedFrames = 0
+        input.installTap(onBus: 0, bufferSize: 4_096, format: inputFormat) {
+            [weak self] buffer, _ in
+            self?.processingQueue.async {
+                self?.process(buffer, targetFormat: targetFormat)
+            }
+        }
+        inputTapInstalled = true
+        engine.prepare()
+        do {
+            try engine.start()
+        } catch {
+            input.removeTap(onBus: 0)
+            inputTapInstalled = false
+            audioEngine = nil
+            audioConverter = nil
+            audioFile = nil
+            try? FileManager.default.removeItem(at: url)
+            recordingURL = nil
+            throw error
+        }
         isRecording = true
         onLevelUpdate?(0)
-        startMetering()
     }
 
     func stopRecording() -> CapturedAudio? {
-        guard let recorder, let recordingURL else { return nil }
-        samplePower()
-        let duration = recorder.currentTime
-        recorder.stop()
-        stopMetering()
+        guard let engine = audioEngine, let recordingURL else { return nil }
+        if inputTapInstalled {
+            engine.inputNode.removeTap(onBus: 0)
+            inputTapInstalled = false
+        }
+        engine.stop()
+        processingQueue.sync {}
+        let duration = Double(recordedFrames) / 24_000
 
-        self.recorder = nil
+        audioEngine = nil
+        audioConverter = nil
+        audioFile = nil
         self.recordingURL = nil
         isRecording = false
         onLevelUpdate?(0)
 
+        let interval = powerSamples.isEmpty
+            ? Constants.audioMeteringInterval
+            : max(
+                0.001,
+                (duration - Constants.ignoredLeadingAudioDuration)
+                    / Double(powerSamples.count)
+            )
         let detection = SpeechDetectionPolicy.analyze(
             powers: powerSamples,
-            duration: duration
+            duration: duration,
+            interval: interval
         )
         powerSamples = []
+        pendingPCMChunks = []
+        streamingGateOpen = false
         return CapturedAudio(
             url: recordingURL,
             duration: duration,
@@ -90,9 +149,17 @@ final class AudioRecorder: NSObject, ObservableObject {
     }
 
     func cleanupCurrentRecording() {
-        recorder?.stop()
-        recorder = nil
-        stopMetering()
+        if let engine = audioEngine {
+            if inputTapInstalled {
+                engine.inputNode.removeTap(onBus: 0)
+                inputTapInstalled = false
+            }
+            engine.stop()
+        }
+        processingQueue.sync {}
+        audioEngine = nil
+        audioConverter = nil
+        audioFile = nil
         isRecording = false
 
         if let recordingURL {
@@ -100,6 +167,9 @@ final class AudioRecorder: NSObject, ObservableObject {
             self.recordingURL = nil
         }
         powerSamples = []
+        pendingPCMChunks = []
+        streamingGateOpen = false
+        recordedFrames = 0
         onLevelUpdate?(0)
     }
 
@@ -107,32 +177,95 @@ final class AudioRecorder: NSObject, ObservableObject {
         try? FileManager.default.removeItem(at: url)
     }
 
-    private func startMetering() {
-        let timer = DispatchSource.makeTimerSource(queue: .main)
-        timer.schedule(
-            deadline: .now(),
-            repeating: Constants.audioMeteringInterval
-        )
-        timer.setEventHandler { [weak self] in
-            self?.samplePower()
+    private func process(
+        _ inputBuffer: AVAudioPCMBuffer,
+        targetFormat: AVAudioFormat
+    ) {
+        guard let converter = audioConverter,
+              let audioFile,
+              let output = AVAudioPCMBuffer(
+                pcmFormat: targetFormat,
+                frameCapacity: AVAudioFrameCount(
+                    ceil(
+                        Double(inputBuffer.frameLength)
+                            * 24_000
+                            / inputBuffer.format.sampleRate
+                    )
+                ) + 32
+              ) else { return }
+        var supplied = false
+        var conversionError: NSError?
+        let status = converter.convert(to: output, error: &conversionError) {
+            _, statusPointer in
+            if supplied {
+                statusPointer.pointee = .noDataNow
+                return nil
+            }
+            supplied = true
+            statusPointer.pointee = .haveData
+            return inputBuffer
         }
-        meterTimer = timer
-        timer.resume()
-    }
+        guard conversionError == nil,
+              status != .error,
+              output.frameLength > 0 else { return }
+        do {
+            try audioFile.write(from: output)
+        } catch {
+            return
+        }
 
-    private func stopMetering() {
-        meterTimer?.cancel()
-        meterTimer = nil
-    }
-
-    private func samplePower() {
-        guard let recorder, recorder.isRecording else { return }
-        recorder.updateMeters()
-        let power = recorder.averagePower(forChannel: 0)
-        if recorder.currentTime >= Constants.ignoredLeadingAudioDuration {
+        recordedFrames += AVAudioFramePosition(output.frameLength)
+        let duration = Double(recordedFrames) / 24_000
+        let power = averagePower(from: output)
+        if duration >= Constants.ignoredLeadingAudioDuration {
             powerSamples.append(power)
         }
-        onLevelUpdate?(max(0, min(1, (power + 60) / 60)))
+        if let samples = output.int16ChannelData?.pointee {
+            let chunk = Data(
+                bytes: samples,
+                count: Int(output.frameLength) * MemoryLayout<Int16>.size
+            )
+            emitAfterSpeechGate(chunk, duration: duration)
+        }
+        let normalized = max(0, min(1, (power + 60) / 60))
+        onLevelUpdate?(normalized)
+    }
+
+    private func emitAfterSpeechGate(_ chunk: Data, duration: TimeInterval) {
+        if streamingGateOpen {
+            onPCMChunk?(chunk)
+            return
+        }
+        pendingPCMChunks.append(chunk)
+        guard !powerSamples.isEmpty else { return }
+        let interval = max(
+            0.001,
+            (duration - Constants.ignoredLeadingAudioDuration)
+                / Double(powerSamples.count)
+        )
+        let detection = SpeechDetectionPolicy.analyze(
+            powers: powerSamples,
+            duration: duration,
+            interval: interval
+        )
+        guard detection.containsSpeech else { return }
+        streamingGateOpen = true
+        let buffered = pendingPCMChunks
+        pendingPCMChunks.removeAll(keepingCapacity: true)
+        buffered.forEach { onPCMChunk?($0) }
+    }
+
+    private func averagePower(from buffer: AVAudioPCMBuffer) -> Float {
+        guard let samples = buffer.int16ChannelData?.pointee else { return -80 }
+        let count = Int(buffer.frameLength)
+        guard count > 0 else { return -80 }
+        var sum: Double = 0
+        for index in 0..<count {
+            let normalized = Double(samples[index]) / Double(Int16.max)
+            sum += normalized * normalized
+        }
+        let rms = sqrt(sum / Double(count))
+        return rms > 0 ? Float(20 * log10(rms)) : -80
     }
 
     enum RecordingError: LocalizedError {
@@ -151,3 +284,4 @@ final class AudioRecorder: NSObject, ObservableObject {
 }
 
 extension AudioRecorder: AudioCapturing {}
+extension AudioRecorder: PCMChunkProviding {}

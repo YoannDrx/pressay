@@ -1,6 +1,6 @@
 # Politique de confidentialité
 
-Dernière mise à jour : 2 août 2026
+Dernière mise à jour : 10 août 2026
 
 Pressay est une application macOS de dictée et de transformation vocale. Elle ne
 contient aucun outil publicitaire, traqueur ou service de télémétrie distant.
@@ -8,11 +8,14 @@ contient aucun outil publicitaire, traqueur ou service de télémétrie distant.
 ## Données traitées
 
 - **Audio** : l'enregistrement reste dans un fichier temporaire sur le Mac. Si
-  OpenAI est choisi, des blocs PCM sont envoyés à OpenAI pendant la dictée pour
-  permettre la transcription temps réel ; le contrôle local du silence empêche
-  toujours la livraison d'un résultat vide. Si WhisperKit est choisi, l'audio
-  ne quitte pas le Mac. Le fichier temporaire est supprimé après la réponse ou
-  l'annulation.
+  OpenAI est choisi, les blocs PCM sont d’abord retenus localement jusqu’à ce
+  que la détection confirme de la parole, puis envoyés à OpenAI pendant la
+  dictée pour permettre la transcription temps réel. Un silence pur n’est pas
+  diffusé. Si le canal temps réel échoue, le fichier peut être envoyé une fois
+  à l’API batch de transcription. Si WhisperKit est choisi, l'audio ne quitte
+  pas le Mac. Le fichier temporaire est supprimé après la réponse ou
+  l'annulation. Après un échec, une copie en mémoire vive peut être conservée au
+  plus cinq minutes pour permettre une relance explicite depuis le HUD.
 - **Texte transcrit** : il est produit par OpenAI ou WhisperKit, puis inséré dans
   l'application choisie et, si l'historique est activé, conservé uniquement sur
   le Mac.
@@ -43,12 +46,14 @@ contient aucun outil publicitaire, traqueur ou service de télémétrie distant.
 - **Modes et règles d'application** : ils sont conservés localement dans un
   fichier accessible uniquement au compte utilisateur. Ce fichier n'est pas
   annoncé comme chiffré.
-- **Mesures de performance** : si l'option est activée, des moyennes et les
-  trente dernières traces techniques sont conservées dans les préférences
+- **Mesures de performance** : si l'option est activée, les médianes, p95 et les
+  trente dernières traces techniques sont conservés dans les préférences
   locales. Une trace contient uniquement les durées audio/API/traitement/
-  insertion, le fournisseur, le statut de livraison et un identifiant de
-  session aléatoire. Aucun audio, texte, contexte, identifiant personnel ou
-  contenu de presse-papiers n'est enregistré ni envoyé.
+  insertion, les phases réseau (DNS, connexion, TLS, envoi, premier octet et
+  réponse), le nombre de tentatives, le fournisseur, le statut de livraison,
+  une catégorie d’échec et un identifiant de session aléatoire. Aucune URL, clé,
+  donnée audio, texte, contexte, identifiant personnel ou contenu de
+  presse-papiers n'est enregistré ni envoyé.
 - **Mises à jour** : Sparkle contacte le flux public de versions et GitHub pour
   vérifier ou télécharger une mise à jour. Pressay ne joint aucun profil système
   à cette requête.

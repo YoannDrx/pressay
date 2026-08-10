@@ -68,14 +68,14 @@ DMG.
 
 La page de téléchargement publique est également disponible sur
 [yoann-andrieux.fr](https://www.yoann-andrieux.fr/fr/projects/pressay). La
-version stable publiée est `v1.2.5` ; les utilisateurs ayant activé le canal
+version stable publiée est `v1.2.6` ; les utilisateurs ayant activé le canal
 bêta recevront aussi cette version stable.
 
-La stable `v1.2.5` (build `12104`) rétablit la dictée instantanée dans ChatGPT
-Web, réduit la latence perçue de transcription et inclut la configuration de
-production du compte sans activer le paywall. La matrice interapplications, le
-test Intel réel et sept jours sans P0/P1 restent des preuves QA à compléter
-après publication.
+La stable `v1.2.6` (build `12105`) réduit les délais réseau, ajoute la
+transcription OpenAI temps réel avec repli batch sûr, préchauffe WhisperKit et
+permet de relancer une dictée échouée sans réenregistrer. La matrice
+interapplications, le test Intel réel et sept jours sans P0/P1 restent des
+preuves QA à compléter après publication.
 
 ### Compiler depuis les sources
 
@@ -175,9 +175,13 @@ indique le niveau micro, la durée, la langue et le mode.
 
 ### Annulation et délai maximum
 Pressay traite une seule dictée à la fois. L’appel en cours peut être annulé avec
-Échap ou depuis le HUD, et une transcription cloud fidèle est interrompue après
-10 secondes au lieu de laisser le HUD bloqué. Après une insertion compatible, le
-HUD propose une annulation locale pendant quelques secondes.
+Échap ou depuis le HUD. Les échéances sont appliquées à la phase réellement en
+cours : 30 secondes pour une transcription cloud batch, 75 secondes pour le
+chargement ou la transcription locale et 45 secondes pour une transformation.
+Le temps passé à lire ou confirmer un aperçu cloud n’est pas compté comme un
+délai réseau. En cas d’échec, l’audio temporaire est gardé quelques minutes en
+mémoire et le HUD propose **Réessayer**. Après une insertion compatible, le HUD
+propose aussi une annulation locale pendant quelques secondes.
 
 ### Modes contextuels
 
@@ -237,11 +241,13 @@ L'app a besoin de ces permissions pour fonctionner :
 Dans les réglages, choisis un seul moteur de transcription :
 
 1. **OpenAI** : colle une clé de projet `sk-…`. Pressay la valide avant de
-   l’enregistrer dans le Trousseau macOS. Au relâchement de Fn, le court fichier
-   audio est envoyé une seule fois à `gpt-4o-mini-transcribe` avec une échéance
-   réseau stricte.
+   l’enregistrer dans le Trousseau macOS. Après détection locale de la voix, des
+   blocs PCM 24 kHz alimentent `gpt-live-transcribe` pendant la dictée. Si le
+   canal temps réel ne finalise pas, le fichier local est envoyé à
+   `gpt-4o-mini-transcribe` comme repli batch.
 2. **WhisperKit local** : télécharge le modèle Small une seule fois. L’audio et
-   la transcription restent ensuite sur le Mac, même hors ligne.
+   la transcription restent ensuite sur le Mac, même hors ligne. Le modèle est
+   préchargé à la sélection du moteur et pendant la capture si nécessaire.
 
 Les modes de transformation utilisent OpenAI. Pour une dictée intégralement
 locale, utilise WhisperKit avec le mode Fidèle.
@@ -255,11 +261,12 @@ gratuit mais occupe de l’espace disque.
 1. `ShortcutRouter` demande au `SessionCoordinator` de créer une `VoiceSession`.
 2. La cible AX, la sélection et les seules sources de contexte autorisées sont
    capturées avant l’enregistrement.
-3. L’audio M4A 16 kHz mono est analysé localement ; le silence n’est jamais
-   livré.
-4. Avec OpenAI, le M4A court part une seule fois vers
-   `gpt-4o-mini-transcribe` au relâchement. WhisperKit reste un chemin local
-   séparé, sans fallback cloud.
+3. L’audio PCM 16 bits, mono, 24 kHz est analysé localement. Les blocs restent
+   en mémoire jusqu’à ce que la détection locale confirme de la parole ; un
+   silence pur n’est pas diffusé.
+4. Avec OpenAI, la transcription temps réel commence pendant la parole. Le WAV
+   temporaire sert de repli batch si la WebSocket échoue. WhisperKit reste un
+   chemin local séparé, sans fallback cloud.
 5. Le mode résolu choisit entre restitution fidèle et transformation via la
    Responses API avec `store: false`.
 6. Une transformation de sélection attend un aperçu éditable.
@@ -275,7 +282,8 @@ Les types de domaine et les frontières de services sont détaillés dans
 
 - **Audio** : envoyé à OpenAI uniquement si ce moteur est choisi et qu’une voix
   est détectée ; avec WhisperKit, il reste sur le Mac ; le fichier temporaire
-  est ensuite supprimé
+  est ensuite supprimé. Après un échec, une copie en mémoire expire après
+  quelques minutes pour permettre **Réessayer**
 - **Transformation** : le texte et les sources autorisées sont envoyés à OpenAI
   uniquement pour un mode non fidèle ; la requête désactive le stockage de
   réponse avec `store: false`
@@ -288,7 +296,8 @@ Les types de domaine et les frontières de services sont détaillés dans
   le Mac
 - **Modes** : enregistrés localement avec des permissions de fichier limitées à
   l’utilisateur
-- **Métriques** : Optionnelles et locales, durées agrégées uniquement
+- **Métriques** : Optionnelles et locales ; médiane/p95, phases réseau et
+  catégories d’échec, sans URL, audio, texte ni clé
 - **Aucune télémétrie distante** : aucune donnée n'est envoyée à l'auteur du projet
 - **Mises à jour** : aucun profil système n'est joint aux requêtes Sparkle
 

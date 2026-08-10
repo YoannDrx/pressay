@@ -1,5 +1,13 @@
 import Foundation
 
+struct SessionTimeoutPolicy {
+    var cloudTranscription: TimeInterval = 30
+    var localPreparation: TimeInterval = 75
+    var localTranscription: TimeInterval = 75
+    var realtimeFinalization: TimeInterval = 8
+    var textProcessing: TimeInterval = 45
+}
+
 @MainActor
 final class SessionCoordinator: ObservableObject {
     @Published private(set) var captureSession: VoiceSession?
@@ -29,6 +37,8 @@ final class SessionCoordinator: ObservableObject {
         let deliveryPolicy: ApplicationDeliveryPolicy
         let replayOriginalText: String?
         let transcriber: any SpeechTranscribing
+        let preparationTask: Task<Void, Error>?
+        let realtimeTask: Task<TranscriptionResult, Error>?
     }
 
     private struct ReplayDescriptor {
@@ -37,6 +47,8 @@ final class SessionCoordinator: ObservableObject {
         let context: ContextSnapshot
         let duration: TimeInterval
         let fileExtension: String
+        let deliveryPolicy: ApplicationDeliveryPolicy
+        let transcriber: any SpeechTranscribing
     }
 
     private struct PreviewDelivery {
@@ -66,18 +78,21 @@ final class SessionCoordinator: ObservableObject {
     private let metrics: MetricsRecording
     private let hud: HUDPresenting
     private let replayBuffer: ReplayBuffer
+    private let timeoutPolicy: SessionTimeoutPolicy
 
     private var processingTask: Task<Void, Never>?
-    private var processingDeadlineTask: Task<Void, Never>?
-    private var timedOutSessionID: UUID?
     private var captureTarget: TextInjectionTarget?
     private var captureMode: ModeDefinition?
     private var captureDeliveryPolicy: ApplicationDeliveryPolicy?
     private var captureTranscriber: (any SpeechTranscribing)?
+    private var captureTranscriberPreparationTask: Task<Void, Error>?
+    private var captureRealtimeTranscriber: (any RealtimeSpeechTranscribing)?
+    private var captureRealtimeStartTask: Task<Void, Error>?
     private var previewDelivery: PreviewDelivery?
     private var capturePreparationTask: Task<Void, Never>?
     private var targetRecoveryTask: Task<Void, Never>?
     private var replayDescriptors: [UUID: ReplayDescriptor] = [:]
+    private var networkMetricsBySession: [UUID: [NetworkRequestMetrics]] = [:]
 
     init(
         audioCapturer: AudioCapturing,
@@ -96,7 +111,8 @@ final class SessionCoordinator: ObservableObject {
         sounds: SoundFeedback,
         metrics: MetricsRecording,
         hud: HUDPresenting,
-        replayBuffer: ReplayBuffer? = nil
+        replayBuffer: ReplayBuffer? = nil,
+        timeoutPolicy: SessionTimeoutPolicy = SessionTimeoutPolicy()
     ) {
         self.audioCapturer = audioCapturer
         self.transcriber = transcriber
@@ -115,6 +131,7 @@ final class SessionCoordinator: ObservableObject {
         self.metrics = metrics
         self.hud = hud
         self.replayBuffer = replayBuffer ?? InMemoryReplayBuffer.shared
+        self.timeoutPolicy = timeoutPolicy
 
         audioCapturer.onLevelUpdate = { [weak hud] level in
             Task { @MainActor in
@@ -258,6 +275,20 @@ final class SessionCoordinator: ObservableObject {
         deliveryPolicy: ApplicationDeliveryPolicy,
         activeTranscriber: any SpeechTranscribing
     ) {
+        captureTranscriberPreparationTask = Task {
+            try await activeTranscriber.prepare()
+        }
+        let realtime = activeTranscriber as? any RealtimeSpeechTranscribing
+        if let realtime, audioCapturer is PCMChunkProviding {
+            realtime.cancelRealtimeTranscription()
+            captureRealtimeTranscriber = realtime
+            captureRealtimeStartTask = Task {
+                try await realtime.startRealtimeTranscription()
+            }
+            (audioCapturer as? PCMChunkProviding)?.onPCMChunk = { data in
+                realtime.appendRealtimeAudio(data)
+            }
+        }
         do {
             try audioCapturer.startRecording()
 
@@ -301,6 +332,7 @@ final class SessionCoordinator: ObservableObject {
                 )
             }
         } catch {
+            cancelCaptureAcceleration()
             fail(error.localizedDescription)
         }
     }
@@ -318,15 +350,26 @@ final class SessionCoordinator: ObservableObject {
         captureDeliveryPolicy = nil
         let activeTranscriber = captureTranscriber ?? transcriber
         captureTranscriber = nil
+        let preparationTask = captureTranscriberPreparationTask
+        captureTranscriberPreparationTask = nil
+        let realtimeTranscriber = captureRealtimeTranscriber
+        captureRealtimeTranscriber = nil
+        let realtimeStartTask = captureRealtimeStartTask
+        captureRealtimeStartTask = nil
         let target = captureTarget
         captureTarget = nil
 
         guard let audio = audioCapturer.stopRecording() else {
+            (audioCapturer as? PCMChunkProviding)?.onPCMChunk = nil
+            preparationTask?.cancel()
+            realtimeStartTask?.cancel()
+            realtimeTranscriber?.cancelRealtimeTranscription()
             session.transition(to: .failed("Aucun enregistrement trouvé"))
             lastSession = session
             fail("Aucun enregistrement trouvé")
             return
         }
+        (audioCapturer as? PCMChunkProviding)?.onPCMChunk = nil
 
         sounds.playStopSound()
         session.timings.captureEndedAt = Date()
@@ -336,6 +379,9 @@ final class SessionCoordinator: ObservableObject {
         metrics.record(.capture, duration: audio.duration)
 
         guard audio.containsSpeech else {
+            preparationTask?.cancel()
+            realtimeStartTask?.cancel()
+            realtimeTranscriber?.cancelRealtimeTranscription()
             audioCapturer.cleanup(url: audio.url)
             _ = session.transition(to: .cancelled)
             lastSession = session
@@ -345,6 +391,15 @@ final class SessionCoordinator: ObservableObject {
             return
         }
 
+        let realtimeTask: Task<TranscriptionResult, Error>? = if let realtimeTranscriber {
+            Task {
+                try await realtimeStartTask?.value
+                return try await realtimeTranscriber.finishRealtimeTranscription()
+            }
+        } else {
+            nil
+        }
+
         let item = PendingSession(
             session: session,
             audio: audio,
@@ -352,7 +407,9 @@ final class SessionCoordinator: ObservableObject {
             mode: mode,
             deliveryPolicy: deliveryPolicy,
             replayOriginalText: nil,
-            transcriber: activeTranscriber
+            transcriber: activeTranscriber,
+            preparationTask: preparationTask,
+            realtimeTask: realtimeTask
         )
         // Replay and comparison are useful for advanced modes, but loading and
         // retaining the audio is not part of instant faithful dictation.
@@ -364,7 +421,9 @@ final class SessionCoordinator: ObservableObject {
                 mode: mode,
                 context: session.context,
                 duration: audio.duration,
-                fileExtension: audio.url.pathExtension
+                fileExtension: audio.url.pathExtension,
+                deliveryPolicy: deliveryPolicy,
+                transcriber: activeTranscriber
             )
             trimReplayDescriptors()
         }
@@ -402,6 +461,7 @@ final class SessionCoordinator: ObservableObject {
             targetRecoveryTask?.cancel()
             targetRecoveryTask = nil
             captureTranscriber = nil
+            cancelCaptureAcceleration()
             audioCapturer.cleanupCurrentRecording()
             captureSession = nil
             captureTarget = nil
@@ -423,9 +483,6 @@ final class SessionCoordinator: ObservableObject {
 
     func cancelProcessing() {
         guard processingTask != nil else { return }
-        processingDeadlineTask?.cancel()
-        processingDeadlineTask = nil
-        timedOutSessionID = nil
         processingTask?.cancel()
         lastNotice = "Traitement annulé"
         lastError = nil
@@ -471,6 +528,14 @@ final class SessionCoordinator: ObservableObject {
     }
 
     func retranscribeLastResult() {
+        replayLastResult(retryOriginalDelivery: false)
+    }
+
+    func retryLastFailedResult() {
+        replayLastResult(retryOriginalDelivery: true)
+    }
+
+    private func replayLastResult(retryOriginalDelivery: Bool) {
         guard processingTask == nil, pendingPreview == nil else { return }
         guard let previous = lastSession,
               let data = replayBuffer.audio(for: previous.id),
@@ -516,9 +581,17 @@ final class SessionCoordinator: ObservableObject {
             audio: audio,
             target: descriptor.target,
             mode: descriptor.mode,
-            deliveryPolicy: .preview,
-            replayOriginalText: previous.finalText ?? previous.rawText,
-            transcriber: transcriber
+            deliveryPolicy: retryOriginalDelivery
+                ? descriptor.deliveryPolicy
+                : .preview,
+            replayOriginalText: retryOriginalDelivery
+                ? nil
+                : previous.finalText ?? previous.rawText,
+            transcriber: descriptor.transcriber,
+            preparationTask: Task {
+                try await descriptor.transcriber.prepare()
+            },
+            realtimeTask: nil
         )
         pendingCount = 0
         process(item)
@@ -555,8 +628,6 @@ final class SessionCoordinator: ObservableObject {
             return
         }
         var item = pendingItem
-        let sessionID = item.session.id
-        let deadlineSeconds = processingDeadlineSeconds(for: item)
         pendingCount = 0
         item.session.timings.transcriptionStartedAt = Date()
         _ = item.session.transition(to: .transcribing)
@@ -566,8 +637,6 @@ final class SessionCoordinator: ObservableObject {
         processingTask = Task { [weak self] in
             guard let self else { return }
             defer {
-                self.processingDeadlineTask?.cancel()
-                self.processingDeadlineTask = nil
                 self.audioCapturer.cleanup(url: item.audio.url)
                 self.processingTask = nil
                 if self.pendingPreview?.sessionID != item.session.id {
@@ -583,8 +652,10 @@ final class SessionCoordinator: ObservableObject {
                     autoHide: false
                 )
                 let transcriptionStartedAt = Date()
-                let transcription = try await activeTranscriber.transcribe(
-                    audioURL: item.audio.url
+                let transcription = try await self.transcription(for: item)
+                self.appendNetworkMetrics(
+                    transcription.networkMetrics,
+                    sessionID: item.session.id
                 )
                 self.metrics.record(
                     .transcription,
@@ -636,25 +707,6 @@ final class SessionCoordinator: ObservableObject {
                 self.finish(item: &item, with: error)
             }
         }
-        processingDeadlineTask = Task { [weak self] in
-            do {
-                try await Task.sleep(for: .seconds(deadlineSeconds))
-            } catch {
-                return
-            }
-            guard let self,
-                  self.processingSession?.id == sessionID,
-                  self.processingTask != nil else { return }
-            self.timedOutSessionID = sessionID
-            self.lastError = "Transcription interrompue : délai dépassé"
-            self.lastNotice = nil
-            self.hud.show(
-                .cancelled,
-                detail: self.lastError,
-                autoHide: true
-            )
-            self.processingTask?.cancel()
-        }
     }
 
     /// The default Fn path intentionally mirrors the original small app:
@@ -662,7 +714,6 @@ final class SessionCoordinator: ObservableObject {
     /// through the richer coordinator below.
     private func processInstantDictation(_ pendingItem: PendingSession) {
         var item = pendingItem
-        let sessionID = item.session.id
         pendingCount = 0
         item.session.timings.transcriptionStartedAt = Date()
         _ = item.session.transition(to: .transcribing)
@@ -676,8 +727,6 @@ final class SessionCoordinator: ObservableObject {
         processingTask = Task { [weak self] in
             guard let self else { return }
             defer {
-                self.processingDeadlineTask?.cancel()
-                self.processingDeadlineTask = nil
                 self.audioCapturer.cleanup(url: item.audio.url)
                 self.processingTask = nil
                 self.processingSession = nil
@@ -685,8 +734,10 @@ final class SessionCoordinator: ObservableObject {
 
             do {
                 let transcriptionStartedAt = Date()
-                let transcription = try await item.transcriber.transcribe(
-                    audioURL: item.audio.url
+                let transcription = try await self.transcription(for: item)
+                self.appendNetworkMetrics(
+                    transcription.networkMetrics,
+                    sessionID: item.session.id
                 )
                 self.metrics.record(
                     .transcription,
@@ -735,25 +786,6 @@ final class SessionCoordinator: ObservableObject {
                 self.finish(item: &item, with: error)
             }
         }
-        processingDeadlineTask = Task { [weak self] in
-            do {
-                try await Task.sleep(for: .seconds(8))
-            } catch {
-                return
-            }
-            guard let self,
-                  self.processingSession?.id == sessionID,
-                  self.processingTask != nil else { return }
-            self.timedOutSessionID = sessionID
-            self.lastError = "Transcription interrompue : délai dépassé"
-            self.lastNotice = nil
-            self.hud.show(
-                .cancelled,
-                detail: self.lastError,
-                autoHide: true
-            )
-            self.processingTask?.cancel()
-        }
     }
 
     private func isInstantDictation(_ item: PendingSession) -> Bool {
@@ -761,6 +793,80 @@ final class SessionCoordinator: ObservableObject {
             && item.mode.cleaningLevel == .faithful
             && item.deliveryPolicy == .automatic
             && item.replayOriginalText == nil
+    }
+
+    private func transcription(
+        for item: PendingSession
+    ) async throws -> TranscriptionResult {
+        if let preparationTask = item.preparationTask {
+            if item.transcriber.locality == .local {
+                try await withPhaseTimeout(
+                    seconds: timeoutPolicy.localPreparation,
+                    error: .localPreparation(timeoutPolicy.localPreparation)
+                ) {
+                    try await preparationTask.value
+                }
+            } else {
+                try await preparationTask.value
+            }
+        }
+
+        if let realtimeTask = item.realtimeTask {
+            do {
+                return try await withPhaseTimeout(
+                    seconds: timeoutPolicy.realtimeFinalization,
+                    error: .realtime(timeoutPolicy.realtimeFinalization)
+                ) {
+                    try await realtimeTask.value
+                }
+            } catch {
+                guard !Task.isCancelled, !(error is CancellationError) else {
+                    throw error
+                }
+                realtimeTask.cancel()
+                (item.transcriber as? any RealtimeSpeechTranscribing)?
+                    .cancelRealtimeTranscription()
+                hud.show(
+                    .transcribing,
+                    detail: "Temps réel indisponible · repli OpenAI",
+                    autoHide: false
+                )
+            }
+        }
+
+        let timeout = item.transcriber.locality == .local
+            ? timeoutPolicy.localTranscription
+            : timeoutPolicy.cloudTranscription
+        let timeoutError: PhaseTimeoutError = item.transcriber.locality == .local
+            ? .localTranscription(timeout)
+            : .cloudTranscription(timeout)
+        return try await withPhaseTimeout(
+            seconds: timeout,
+            error: timeoutError
+        ) {
+            try await item.transcriber.transcribe(audioURL: item.audio.url)
+        }
+    }
+
+    private func withPhaseTimeout<T>(
+        seconds: TimeInterval,
+        error: PhaseTimeoutError,
+        operation: @escaping () async throws -> T
+    ) async throws -> T {
+        try await withThrowingTaskGroup(of: T.self) { group in
+            group.addTask {
+                try await operation()
+            }
+            group.addTask {
+                try await Task.sleep(for: .seconds(seconds))
+                throw error
+            }
+            guard let first = try await group.next() else {
+                throw CancellationError()
+            }
+            group.cancelAll()
+            return first
+        }
     }
 
     private func processText(
@@ -835,12 +941,20 @@ final class SessionCoordinator: ObservableObject {
             autoHide: false
         )
         let startedAt = Date()
-        let result = try await activeProcessor.process(
-            TextProcessingRequest(
-                text: transcription,
-                mode: item.mode,
-                context: restrictedContext
-            )
+        let processingRequest = TextProcessingRequest(
+            text: transcription,
+            mode: item.mode,
+            context: restrictedContext
+        )
+        let result = try await withPhaseTimeout(
+            seconds: timeoutPolicy.textProcessing,
+            error: .textProcessing(timeoutPolicy.textProcessing)
+        ) {
+            try await activeProcessor.process(processingRequest)
+        }
+        appendNetworkMetrics(
+            result.networkMetrics,
+            sessionID: item.session.id
         )
         metrics.record(.processing, duration: Date().timeIntervalSince(startedAt))
         return (result.text, result.providerIdentifier, manifest)
@@ -1092,6 +1206,7 @@ final class SessionCoordinator: ObservableObject {
                 inserted: inserted
             )
         )
+        networkMetricsBySession.removeValue(forKey: session.id)
         lastSession = session
         let undoDeadline = inserted && textDeliverer.canUndoLastInsertion
             ? Date().addingTimeInterval(8)
@@ -1148,6 +1263,7 @@ final class SessionCoordinator: ObservableObject {
         hud.isUndoAvailable = inserted && textDeliverer.canUndoLastInsertion
         hud.configureResultActions(
             canRetranscribe: replayBuffer.audio(for: session.id) != nil,
+            retranscribeLabel: "Retranscrire",
             canCompareRawAndFinal: rawText != finalText,
             canCorrect: inserted && textDeliverer.canUndoLastInsertion,
             onCopy: { [weak self] in self?.copyLastResult() },
@@ -1193,7 +1309,8 @@ final class SessionCoordinator: ObservableObject {
             deliveryStatus: inserted ? .inserted : .copied,
             deliveryFailure: inserted
                 ? nil
-                : textDeliverer.lastDeliveryFailure?.rawValue
+                : textDeliverer.lastDeliveryFailure?.rawValue,
+            networkRequests: networkMetricsBySession[session.id] ?? []
         )
     }
 
@@ -1216,16 +1333,26 @@ final class SessionCoordinator: ObservableObject {
     }
 
     private func finish(item: inout PendingSession, with error: Error) {
-        if timedOutSessionID == item.session.id {
-            timedOutSessionID = nil
-            let message = "Transcription interrompue : délai dépassé"
-            _ = item.session.transition(to: .failed(message))
-            lastError = message
-            lastNotice = nil
-            sounds.playErrorSound()
-        } else if Task.isCancelled
-            || error is CancellationError
-            || (error as? URLError)?.code == .cancelled {
+        if let failure = error as? ProviderRequestFailure {
+            appendNetworkMetrics(
+                failure.networkMetrics,
+                sessionID: item.session.id
+            )
+        }
+        let underlyingError = (error as? ProviderRequestFailure)?.underlying
+            ?? error
+        let failedStep: MetricStep = switch item.session.state {
+        case .processing, .awaitingConfirmation:
+            .processing
+        default:
+            .transcription
+        }
+        let phaseStartedAt = failedStep == .processing
+            ? item.session.timings.transcriptionEndedAt
+            : item.session.timings.transcriptionStartedAt
+        if Task.isCancelled
+            || underlyingError is CancellationError
+            || (underlyingError as? URLError)?.code == .cancelled {
             _ = item.session.transition(to: .cancelled)
             lastError = nil
             lastNotice = "Traitement annulé"
@@ -1235,13 +1362,99 @@ final class SessionCoordinator: ObservableObject {
             lastError = message
             lastNotice = nil
             sounds.playErrorSound()
+            retainReplayIfNeeded(for: item)
+            let now = Date()
+            let phaseDuration = phaseStartedAt.map {
+                max(0, now.timeIntervalSince($0))
+            } ?? 0
+            metrics.recordFailure(
+                failedStep,
+                error: underlyingError,
+                duration: phaseDuration
+            )
+            metrics.recordSession(
+                SessionPerformanceTrace(
+                    id: item.session.id,
+                    createdAt: item.session.timings.createdAt,
+                    audioDurationSeconds: item.audio.duration,
+                    transcriptionProvider: item.transcriber.identifier,
+                    processingProvider: failedStep == .processing
+                        ? textProcessor.identifier
+                        : nil,
+                    transcriptionSeconds: duration(
+                        from: item.session.timings.transcriptionStartedAt,
+                        to: item.session.timings.transcriptionEndedAt ?? now
+                    ),
+                    processingSeconds: failedStep == .processing
+                        ? phaseDuration
+                        : 0,
+                    insertionSeconds: 0,
+                    totalSeconds: max(
+                        0,
+                        now.timeIntervalSince(item.session.timings.createdAt)
+                    ),
+                    deliveryStatus: .failed,
+                    deliveryFailure: nil,
+                    networkRequests: networkMetricsBySession[item.session.id] ?? [],
+                    failurePhase: failedStep.rawValue,
+                    failureCategory: MetricFailureClassifier.category(
+                        for: underlyingError
+                    )
+                )
+            )
         }
         lastSession = item.session
+        networkMetricsBySession.removeValue(forKey: item.session.id)
+        let canRetry = replayBuffer.audio(for: item.session.id) != nil
+        hud.configureResultActions(
+            canRetranscribe: canRetry,
+            retranscribeLabel: "Réessayer",
+            canCompareRawAndFinal: false,
+            canCorrect: false,
+            onCopy: {},
+            onRetranscribe: { [weak self] in self?.retryLastFailedResult() },
+            onCompareRawAndFinal: {},
+            onCorrect: {}
+        )
         hud.show(
             .cancelled,
             detail: lastError ?? lastNotice,
             autoHide: true
         )
+    }
+
+    private func retainReplayIfNeeded(for item: PendingSession) {
+        guard replayBuffer.audio(for: item.session.id) == nil,
+              let data = try? Data(contentsOf: item.audio.url) else { return }
+        replayBuffer.retain(data, for: item.session.id)
+        replayDescriptors[item.session.id] = ReplayDescriptor(
+            target: item.target,
+            mode: item.mode,
+            context: item.session.context,
+            duration: item.audio.duration,
+            fileExtension: item.audio.url.pathExtension,
+            deliveryPolicy: item.deliveryPolicy,
+            transcriber: item.transcriber
+        )
+        trimReplayDescriptors()
+    }
+
+    private func appendNetworkMetrics(
+        _ metrics: NetworkRequestMetrics?,
+        sessionID: UUID
+    ) {
+        guard let metrics else { return }
+        networkMetricsBySession[sessionID, default: []].append(metrics)
+    }
+
+    private func cancelCaptureAcceleration() {
+        captureTranscriberPreparationTask?.cancel()
+        captureTranscriberPreparationTask = nil
+        captureRealtimeStartTask?.cancel()
+        captureRealtimeStartTask = nil
+        captureRealtimeTranscriber?.cancelRealtimeTranscription()
+        captureRealtimeTranscriber = nil
+        (audioCapturer as? PCMChunkProviding)?.onPCMChunk = nil
     }
 
     private func textTarget(for session: VoiceSession) -> TextInjectionTarget? {
@@ -1269,11 +1482,6 @@ final class SessionCoordinator: ObservableObject {
         return "\(languageLabel) · \(modeName)"
     }
 
-    private func processingDeadlineSeconds(for item: PendingSession) -> Int {
-        if item.transcriber.locality == .local { return 30 }
-        return item.mode.cleaningLevel == .faithful ? 10 : 20
-    }
-
     private enum CoordinatorError: LocalizedError {
         case localProcessorUnavailable
         case rawUnavailableForSelection
@@ -1284,6 +1492,29 @@ final class SessionCoordinator: ObservableObject {
                 return "Ce mode exige un moteur local qui n’est pas encore installé"
             case .rawUnavailableForSelection:
                 return "Le texte brut ne peut pas remplacer une sélection"
+            }
+        }
+    }
+
+    private enum PhaseTimeoutError: LocalizedError {
+        case cloudTranscription(TimeInterval)
+        case localPreparation(TimeInterval)
+        case localTranscription(TimeInterval)
+        case realtime(TimeInterval)
+        case textProcessing(TimeInterval)
+
+        var errorDescription: String? {
+            switch self {
+            case .cloudTranscription(let seconds):
+                "Transcription OpenAI interrompue après \(Int(seconds)) s — tu peux réessayer"
+            case .localPreparation(let seconds):
+                "Chargement de WhisperKit interrompu après \(Int(seconds)) s"
+            case .localTranscription(let seconds):
+                "Transcription locale interrompue après \(Int(seconds)) s"
+            case .realtime(let seconds):
+                "Finalisation temps réel interrompue après \(Int(seconds)) s"
+            case .textProcessing(let seconds):
+                "Transformation OpenAI interrompue après \(Int(seconds)) s — tu peux réessayer"
             }
         }
     }

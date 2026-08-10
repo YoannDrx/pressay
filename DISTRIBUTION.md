@@ -19,7 +19,8 @@ proviennent uniquement de `MARKETING_VERSION` et `CURRENT_PROJECT_VERSION` dans
 le projet Xcode. La série 1.2 utilise les builds `12001–12089` pour les bêtas
 1.2.0, `12090–12098` pour ses RC, `12099` pour la stable 1.2.0, puis un build
 incrémental par correctif (`12100` pour 1.2.1, `12101` pour 1.2.2, `12102`
-pour 1.2.3, `12103` pour 1.2.4 et `12104` pour 1.2.5).
+pour 1.2.3, `12103` pour 1.2.4, `12104` pour 1.2.5 et `12105` pour
+1.2.6).
 
 ## Préparer la signature Apple
 
@@ -36,7 +37,7 @@ export APPLE_ID="adresse@example.com"
 export APPLE_APP_SPECIFIC_PASSWORD="mot-de-passe-spécifique-à-l-app"
 export SPARKLE_PRIVATE_KEY="clé-privée-exportée-par-generate_keys"
 export SPARKLE_GENERATE_APPCAST="/chemin/vers/Sparkle/bin/generate_appcast"
-export RELEASE_TAG="v1.2.5"
+export RELEASE_TAG="v1.2.6"
 ```
 
 La clé privée Sparkle ne doit jamais être ajoutée au dépôt. La clé publique
@@ -124,17 +125,17 @@ La première bêta publique a été produite par le run
 [`30348895645`](https://github.com/YoannDrx/pressay/actions/runs/30348895645).
 La release, son checksum et son appcast sont disponibles sous
 [`v1.2.0-beta.1`](https://github.com/YoannDrx/pressay/releases/tag/v1.2.0-beta.1).
-La stable publique actuelle est 1.2.5 (12104). Elle ajoute le correctif de
-compatibilité ChatGPT Web et les optimisations de latence au socle 1.2.4 déjà
-signé, notarialisé et revérifié sur Apple Silicon. La matrice complète, Intel
-réel et le dogfood restent des preuves QA ouvertes.
+La stable publique actuelle est 1.2.6 (12105). Elle ajoute la transcription
+OpenAI temps réel, un repli batch sûr, des délais par phase, la relance audio et
+le préchauffage WhisperKit au socle 1.2.5 déjà signé et notarialisé. La matrice
+complète, Intel réel et le dogfood restent des preuves QA ouvertes.
 
 ## URLs et appcast
 
 Chaque appcast référence l'asset immuable du tag, par exemple :
 
 ```text
-https://github.com/YoannDrx/pressay/releases/download/v1.2.5/Pressay.dmg
+https://github.com/YoannDrx/pressay/releases/download/v1.2.6/Pressay.dmg
 ```
 
 L’app utilise le feed canonique GitHub Pages :

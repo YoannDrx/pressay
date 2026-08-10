@@ -1,5 +1,104 @@
 import Foundation
 
+struct NetworkRequestMetrics: Codable, Equatable, Sendable {
+    let dnsSeconds: TimeInterval?
+    let connectionSeconds: TimeInterval?
+    let tlsSeconds: TimeInterval?
+    let requestSeconds: TimeInterval?
+    let timeToFirstByteSeconds: TimeInterval?
+    let responseSeconds: TimeInterval?
+    let totalSeconds: TimeInterval
+    let attempts: Int
+    let reusedConnection: Bool
+
+    static func combined(_ values: [NetworkRequestMetrics]) -> NetworkRequestMetrics? {
+        guard !values.isEmpty else { return nil }
+        func sum(_ keyPath: KeyPath<NetworkRequestMetrics, TimeInterval?>) -> TimeInterval? {
+            let durations = values.compactMap { $0[keyPath: keyPath] }
+            return durations.isEmpty ? nil : durations.reduce(0, +)
+        }
+        return NetworkRequestMetrics(
+            dnsSeconds: sum(\.dnsSeconds),
+            connectionSeconds: sum(\.connectionSeconds),
+            tlsSeconds: sum(\.tlsSeconds),
+            requestSeconds: sum(\.requestSeconds),
+            timeToFirstByteSeconds: sum(\.timeToFirstByteSeconds),
+            responseSeconds: sum(\.responseSeconds),
+            totalSeconds: values.map(\.totalSeconds).reduce(0, +),
+            attempts: values.map(\.attempts).reduce(0, +),
+            reusedConnection: values.allSatisfy(\.reusedConnection)
+        )
+    }
+}
+
+final class NetworkTaskMetricsCollector: NSObject, URLSessionTaskDelegate {
+    private let lock = NSLock()
+    private var collectedMetrics: URLSessionTaskMetrics?
+
+    func urlSession(
+        _ session: URLSession,
+        task: URLSessionTask,
+        didFinishCollecting metrics: URLSessionTaskMetrics
+    ) {
+        lock.lock()
+        collectedMetrics = metrics
+        lock.unlock()
+    }
+
+    func snapshot(fallbackTotal: TimeInterval) -> NetworkRequestMetrics {
+        lock.lock()
+        let metrics = collectedMetrics
+        lock.unlock()
+        guard let transaction = metrics?.transactionMetrics.last else {
+            return NetworkRequestMetrics(
+                dnsSeconds: nil,
+                connectionSeconds: nil,
+                tlsSeconds: nil,
+                requestSeconds: nil,
+                timeToFirstByteSeconds: nil,
+                responseSeconds: nil,
+                totalSeconds: max(0, fallbackTotal),
+                attempts: 1,
+                reusedConnection: false
+            )
+        }
+        return NetworkRequestMetrics(
+            dnsSeconds: Self.duration(
+                transaction.domainLookupStartDate,
+                transaction.domainLookupEndDate
+            ),
+            connectionSeconds: Self.duration(
+                transaction.connectStartDate,
+                transaction.connectEndDate
+            ),
+            tlsSeconds: Self.duration(
+                transaction.secureConnectionStartDate,
+                transaction.secureConnectionEndDate
+            ),
+            requestSeconds: Self.duration(
+                transaction.requestStartDate,
+                transaction.requestEndDate
+            ),
+            timeToFirstByteSeconds: Self.duration(
+                transaction.requestEndDate,
+                transaction.responseStartDate
+            ),
+            responseSeconds: Self.duration(
+                transaction.responseStartDate,
+                transaction.responseEndDate
+            ),
+            totalSeconds: metrics?.taskInterval.duration ?? max(0, fallbackTotal),
+            attempts: 1,
+            reusedConnection: transaction.isReusedConnection
+        )
+    }
+
+    private static func duration(_ start: Date?, _ end: Date?) -> TimeInterval? {
+        guard let start, let end else { return nil }
+        return max(0, end.timeIntervalSince(start))
+    }
+}
+
 struct CapturedAudio {
     let url: URL
     let duration: TimeInterval
@@ -17,15 +116,28 @@ protocol AudioCapturing: AnyObject {
     func cleanup(url: URL)
 }
 
+protocol PCMChunkProviding: AnyObject {
+    var onPCMChunk: ((Data) -> Void)? { get set }
+}
+
 protocol SpeechTranscribing: AnyObject {
     var identifier: String { get }
     var isReady: Bool { get }
     var locality: ProviderLocality { get }
+    func prepare() async throws
     func transcribe(audioURL: URL) async throws -> TranscriptionResult
+}
+
+protocol RealtimeSpeechTranscribing: SpeechTranscribing {
+    func startRealtimeTranscription() async throws
+    func appendRealtimeAudio(_ data: Data)
+    func finishRealtimeTranscription() async throws -> TranscriptionResult
+    func cancelRealtimeTranscription()
 }
 
 extension SpeechTranscribing {
     var locality: ProviderLocality { .cloud }
+    func prepare() async throws {}
 }
 
 struct TextProcessingRequest {
@@ -37,6 +149,17 @@ struct TextProcessingRequest {
 struct TextProcessingResult: Equatable {
     let text: String
     let providerIdentifier: String
+    let networkMetrics: NetworkRequestMetrics?
+
+    init(
+        text: String,
+        providerIdentifier: String,
+        networkMetrics: NetworkRequestMetrics? = nil
+    ) {
+        self.text = text
+        self.providerIdentifier = providerIdentifier
+        self.networkMetrics = networkMetrics
+    }
 }
 
 protocol TextProcessing: AnyObject {
@@ -276,6 +399,9 @@ extension TranscriptionRouting {
 
 enum ProviderFailurePolicy {
     static func isTransient(_ error: Error) -> Bool {
+        if let failure = error as? ProviderRequestFailure {
+            return isTransient(failure.underlying)
+        }
         if let urlError = error as? URLError {
             return [
                 .timedOut,
@@ -290,11 +416,131 @@ enum ProviderFailurePolicy {
         if case TranscriptionService.TranscriptionError.httpError(let status) = error {
             return status == 408 || status == 429 || (500...599).contains(status)
         }
+        if case TranscriptionService.TranscriptionError.httpFailure(
+            let status,
+            _,
+            _
+        ) = error {
+            return status == 408 || status == 429 || (500...599).contains(status)
+        }
         if case OpenAITextProcessingService.ProcessingError.httpError(let status) = error {
+            return status == 408 || status == 429 || (500...599).contains(status)
+        }
+        if case OpenAITextProcessingService.ProcessingError.httpFailure(
+            let status,
+            _,
+            _
+        ) = error {
             return status == 408 || status == 429 || (500...599).contains(status)
         }
         return false
     }
+
+    /// A retry is automatic only when repeating the request cannot plausibly
+    /// duplicate a successful provider-side operation.
+    static func isSafeToRetry(_ error: Error) -> Bool {
+        if let failure = error as? ProviderRequestFailure {
+            return isSafeToRetry(failure.underlying)
+        }
+        if let urlError = error as? URLError {
+            return [
+                .cannotFindHost,
+                .cannotConnectToHost,
+                .dnsLookupFailed,
+                .notConnectedToInternet,
+                .resourceUnavailable
+            ].contains(urlError.code)
+        }
+        return isTransientHTTP(error)
+    }
+
+    static func retryDelay(for error: Error) -> Duration {
+        if let failure = error as? ProviderRequestFailure {
+            return retryDelay(for: failure.underlying)
+        }
+        let retryAfter: TimeInterval?
+        switch error {
+        case TranscriptionService.TranscriptionError.httpFailure(_, _, let delay):
+            retryAfter = delay
+        case OpenAITextProcessingService.ProcessingError.httpFailure(_, _, let delay):
+            retryAfter = delay
+        default:
+            retryAfter = nil
+        }
+        return .milliseconds(Int(min(max(retryAfter ?? 0.35, 0.1), 3) * 1_000))
+    }
+
+    static func performWithOneSafeRetry<T>(
+        _ operation: () async throws -> T
+    ) async throws -> T {
+        do {
+            return try await operation()
+        } catch {
+            guard isSafeToRetry(error), !Task.isCancelled else { throw error }
+            try await Task.sleep(for: retryDelay(for: error))
+            return try await operation()
+        }
+    }
+
+    private static func isTransientHTTP(_ error: Error) -> Bool {
+        switch error {
+        case TranscriptionService.TranscriptionError.httpFailure(let status, _, _),
+             TranscriptionService.TranscriptionError.httpError(let status),
+             OpenAITextProcessingService.ProcessingError.httpFailure(let status, _, _),
+             OpenAITextProcessingService.ProcessingError.httpError(let status):
+            return status == 408 || status == 429 || (500...599).contains(status)
+        default:
+            return false
+        }
+    }
+}
+
+enum ProviderNetworkError: LocalizedError, Equatable {
+    case cannotResolveHost
+    case offline
+    case cannotConnect
+    case connectionLost
+    case timedOut
+
+    init?(_ error: Error) {
+        guard let urlError = error as? URLError else { return nil }
+        switch urlError.code {
+        case .cannotFindHost, .dnsLookupFailed:
+            self = .cannotResolveHost
+        case .notConnectedToInternet:
+            self = .offline
+        case .cannotConnectToHost, .resourceUnavailable:
+            self = .cannotConnect
+        case .networkConnectionLost:
+            self = .connectionLost
+        case .timedOut:
+            self = .timedOut
+        default:
+            return nil
+        }
+    }
+
+    var errorDescription: String? {
+        switch self {
+        case .cannotResolveHost:
+            "Impossible de joindre OpenAI — vérifie ta connexion, ton DNS ou ton VPN"
+        case .offline:
+            "Aucune connexion Internet — vérifie le réseau puis réessaie"
+        case .cannotConnect:
+            "Connexion à OpenAI impossible — vérifie le réseau, le pare-feu ou le VPN"
+        case .connectionLost:
+            "La connexion à OpenAI a été interrompue — tu peux réessayer"
+        case .timedOut:
+            "OpenAI n’a pas répondu à temps — tu peux réessayer"
+        }
+    }
+}
+
+struct ProviderRequestFailure: LocalizedError {
+    let underlying: Error
+    let networkMetrics: NetworkRequestMetrics?
+
+    var errorDescription: String? { underlying.localizedDescription }
 }
 
 protocol ProcessingRouting: AnyObject {
@@ -318,10 +564,16 @@ protocol SoundFeedback: AnyObject {
 
 protocol MetricsRecording: AnyObject {
     func record(_ step: MetricStep, duration: TimeInterval)
+    func recordFailure(_ step: MetricStep, error: Error, duration: TimeInterval)
     func recordSession(_ trace: SessionPerformanceTrace)
 }
 
 extension MetricsRecording {
+    func recordFailure(
+        _ step: MetricStep,
+        error: Error,
+        duration: TimeInterval
+    ) {}
     func recordSession(_ trace: SessionPerformanceTrace) {}
 }
 
@@ -335,6 +587,7 @@ protocol HUDPresenting: AnyObject {
     func hide()
     func configureResultActions(
         canRetranscribe: Bool,
+        retranscribeLabel: String,
         canCompareRawAndFinal: Bool,
         canCorrect: Bool,
         onCopy: @escaping () -> Void,
@@ -352,6 +605,7 @@ protocol HUDPresenting: AnyObject {
 extension HUDPresenting {
     func configureResultActions(
         canRetranscribe: Bool,
+        retranscribeLabel: String,
         canCompareRawAndFinal: Bool,
         canCorrect: Bool,
         onCopy: @escaping () -> Void,

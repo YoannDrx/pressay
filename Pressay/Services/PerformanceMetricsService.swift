@@ -22,6 +22,9 @@ struct DiagnosticMetric: Codable, Equatable {
     let count: Int
     let totalSeconds: TimeInterval
     let averageSeconds: TimeInterval?
+    let p50Seconds: TimeInterval?
+    let p95Seconds: TimeInterval?
+    let failureCount: Int
 }
 
 struct SessionPerformanceTrace: Codable, Equatable, Identifiable {
@@ -36,6 +39,41 @@ struct SessionPerformanceTrace: Codable, Equatable, Identifiable {
     let totalSeconds: TimeInterval
     let deliveryStatus: DeliveryStatus
     let deliveryFailure: String?
+    let networkRequests: [NetworkRequestMetrics]?
+    let failurePhase: String?
+    let failureCategory: String?
+
+    init(
+        id: UUID,
+        createdAt: Date,
+        audioDurationSeconds: TimeInterval,
+        transcriptionProvider: String,
+        processingProvider: String?,
+        transcriptionSeconds: TimeInterval,
+        processingSeconds: TimeInterval,
+        insertionSeconds: TimeInterval,
+        totalSeconds: TimeInterval,
+        deliveryStatus: DeliveryStatus,
+        deliveryFailure: String?,
+        networkRequests: [NetworkRequestMetrics] = [],
+        failurePhase: String? = nil,
+        failureCategory: String? = nil
+    ) {
+        self.id = id
+        self.createdAt = createdAt
+        self.audioDurationSeconds = audioDurationSeconds
+        self.transcriptionProvider = transcriptionProvider
+        self.processingProvider = processingProvider
+        self.transcriptionSeconds = transcriptionSeconds
+        self.processingSeconds = processingSeconds
+        self.insertionSeconds = insertionSeconds
+        self.totalSeconds = totalSeconds
+        self.deliveryStatus = deliveryStatus
+        self.deliveryFailure = deliveryFailure
+        self.networkRequests = networkRequests.isEmpty ? nil : networkRequests
+        self.failurePhase = failurePhase
+        self.failureCategory = failureCategory
+    }
 }
 
 struct DiagnosticPermissions: Codable, Equatable {
@@ -66,6 +104,7 @@ struct DiagnosticReport: Codable, Equatable {
     let permissions: DiagnosticPermissions
     let configuration: DiagnosticConfiguration
     let metrics: [String: DiagnosticMetric]
+    let failureCategories: [String: Int]
     let recentSessions: [SessionPerformanceTrace]
 
     static func make(
@@ -79,7 +118,7 @@ struct DiagnosticReport: Codable, Equatable {
         now: Date = Date()
     ) -> DiagnosticReport {
         DiagnosticReport(
-            schemaVersion: 2,
+            schemaVersion: 3,
             generatedAt: now,
             appVersion: bundle.object(
                 forInfoDictionaryKey: "CFBundleShortVersionString"
@@ -123,6 +162,7 @@ struct DiagnosticReport: Codable, Equatable {
                 applicationProfileCount: applicationProfileCount
             ),
             metrics: metricsService.diagnosticSnapshot(),
+            failureCategories: metricsService.diagnosticFailureSnapshot(),
             recentSessions: metricsService.recentSessionTraces()
         )
     }
@@ -171,6 +211,7 @@ final class PerformanceMetricsService: ObservableObject, MetricsRecording {
     @Published private(set) var revision = 0
     private let defaults: UserDefaults
     private let recentSessionsKey = "metric-session-traces-v1"
+    private let failureCategoriesKey = "metric-failure-categories-v1"
     private let maximumRecentSessions = 30
 
     init(defaults: UserDefaults = .standard) {
@@ -181,6 +222,28 @@ final class PerformanceMetricsService: ObservableObject, MetricsRecording {
         guard defaults.bool(forKey: Constants.metricsEnabledKey), duration >= 0 else { return }
         defaults.set(total(for: step) + duration, forKey: totalKey(step))
         defaults.set(count(for: step) + 1, forKey: countKey(step))
+        revision += 1
+    }
+
+    func recordFailure(
+        _ step: MetricStep,
+        error: Error,
+        duration: TimeInterval
+    ) {
+        guard defaults.bool(forKey: Constants.metricsEnabledKey) else { return }
+        defaults.set(failureCount(for: step) + 1, forKey: failureCountKey(step))
+        var categories = diagnosticFailureSnapshot()
+        let category = MetricFailureClassifier.category(for: error)
+        categories[category, default: 0] += 1
+        if let data = try? JSONEncoder().encode(categories) {
+            defaults.set(data, forKey: failureCategoriesKey)
+        }
+        if duration >= 0 {
+            defaults.set(
+                defaults.double(forKey: failureDurationKey(step)) + duration,
+                forKey: failureDurationKey(step)
+            )
+        }
         revision += 1
     }
 
@@ -212,12 +275,38 @@ final class PerformanceMetricsService: ObservableObject, MetricsRecording {
         return total(for: step) / Double(count)
     }
 
+    func percentile(for step: MetricStep, percentile: Double) -> TimeInterval? {
+        let values = recentSessionTraces()
+            .compactMap { trace -> TimeInterval? in
+                switch step {
+                case .capture: trace.audioDurationSeconds
+                case .transcription: trace.transcriptionSeconds
+                case .processing: trace.processingSeconds > 0
+                    ? trace.processingSeconds
+                    : nil
+                case .insertion: trace.insertionSeconds > 0
+                    ? trace.insertionSeconds
+                    : nil
+                case .total: trace.totalSeconds
+                }
+            }
+            .sorted()
+        guard !values.isEmpty else { return nil }
+        let position = Int(
+            (Double(values.count - 1) * min(max(percentile, 0), 1)).rounded(.up)
+        )
+        return values[min(values.count - 1, position)]
+    }
+
     func reset() {
         for step in MetricStep.allCases {
             defaults.removeObject(forKey: totalKey(step))
             defaults.removeObject(forKey: countKey(step))
+            defaults.removeObject(forKey: failureCountKey(step))
+            defaults.removeObject(forKey: failureDurationKey(step))
         }
         defaults.removeObject(forKey: recentSessionsKey)
+        defaults.removeObject(forKey: failureCategoriesKey)
         revision += 1
     }
 
@@ -233,11 +322,21 @@ final class PerformanceMetricsService: ObservableObject, MetricsRecording {
                         totalSeconds: metricTotal,
                         averageSeconds: metricCount > 0
                             ? metricTotal / Double(metricCount)
-                            : nil
+                            : nil,
+                        p50Seconds: percentile(for: step, percentile: 0.5),
+                        p95Seconds: percentile(for: step, percentile: 0.95),
+                        failureCount: failureCount(for: step)
                     )
                 )
             }
         )
+    }
+
+    func diagnosticFailureSnapshot() -> [String: Int] {
+        guard let data = defaults.data(forKey: failureCategoriesKey) else {
+            return [:]
+        }
+        return (try? JSONDecoder().decode([String: Int].self, from: data)) ?? [:]
     }
 
     private func total(for step: MetricStep) -> TimeInterval {
@@ -254,5 +353,49 @@ final class PerformanceMetricsService: ObservableObject, MetricsRecording {
 
     private func countKey(_ step: MetricStep) -> String {
         "metric-\(step.rawValue)-count"
+    }
+
+    private func failureCount(for step: MetricStep) -> Int {
+        defaults.integer(forKey: failureCountKey(step))
+    }
+
+    private func failureCountKey(_ step: MetricStep) -> String {
+        "metric-\(step.rawValue)-failure-count"
+    }
+
+    private func failureDurationKey(_ step: MetricStep) -> String {
+        "metric-\(step.rawValue)-failure-duration"
+    }
+}
+
+enum MetricFailureClassifier {
+    static func category(for error: Error) -> String {
+        if let failure = error as? ProviderRequestFailure {
+            return category(for: failure.underlying)
+        }
+        if let network = error as? ProviderNetworkError {
+            switch network {
+            case .cannotResolveHost: return "dns"
+            case .offline: return "offline"
+            case .cannotConnect: return "connection"
+            case .connectionLost: return "connection-lost"
+            case .timedOut: return "network-timeout"
+            }
+        }
+        if let urlError = error as? URLError {
+            return "url-\(urlError.code.rawValue)"
+        }
+        switch error {
+        case TranscriptionService.TranscriptionError.httpFailure(let status, _, _),
+             TranscriptionService.TranscriptionError.httpError(let status),
+             OpenAITextProcessingService.ProcessingError.httpFailure(let status, _, _),
+             OpenAITextProcessingService.ProcessingError.httpError(let status):
+            if status == 429 { return "http-429" }
+            if (500...599).contains(status) { return "http-5xx" }
+            return "http-\(status)"
+        default:
+            let name = String(describing: type(of: error))
+            return name.contains("Timeout") ? "phase-timeout" : "other"
+        }
     }
 }

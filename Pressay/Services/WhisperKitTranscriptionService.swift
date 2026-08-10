@@ -169,6 +169,20 @@ final class WhisperKitTranscriptionService: ObservableObject, @preconcurrency Sp
         )
     }
 
+    func prepare() async throws {
+        guard Self.isSupportedPlatform else {
+            throw LocalError.unsupportedPlatform
+        }
+        guard let folder = Self.validModelFolder(
+            defaults: defaults,
+            fileManager: fileManager
+        ) else {
+            modelState = .notDownloaded
+            throw LocalError.modelNotDownloaded
+        }
+        _ = try await loadModel(from: folder)
+    }
+
     private func loadModel(from folder: URL) async throws -> WhisperKit {
         if let whisperKit { return whisperKit }
         modelState = .loading
@@ -179,7 +193,7 @@ final class WhisperKitTranscriptionService: ObservableObject, @preconcurrency Sp
                     modelFolder: folder.path,
                     verbose: false,
                     logLevel: .none,
-                    prewarm: false,
+                    prewarm: true,
                     load: true,
                     download: false
                 )

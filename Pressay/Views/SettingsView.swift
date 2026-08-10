@@ -89,6 +89,11 @@ struct SettingsView: View {
         .onChange(of: historyRetentionDays) { _, _ in HistoryService.shared.applyPreferences() }
         .onChange(of: inboxEnabled) { _, _ in VoiceInboxService.shared.applyPreferences() }
         .onChange(of: inboxRetentionDays) { _, _ in VoiceInboxService.shared.applyPreferences() }
+        .onChange(of: transcriptionEngine) { _, engine in
+            guard engine == TranscriptionEngine.whisperKit.rawValue,
+                  localTranscription.isReady else { return }
+            Task { try? await localTranscription.prepare() }
+        }
     }
 
     @ViewBuilder
@@ -911,8 +916,11 @@ struct SettingsView: View {
     }
 
     private func metricText(_ step: MetricStep) -> String {
-        guard let value = metrics.average(for: step) else { return "—" }
-        return value < 1 ? "\(Int(value * 1_000)) ms" : String(format: "%.1f s", value)
+        guard let p50 = metrics.percentile(for: step, percentile: 0.5),
+              let p95 = metrics.percentile(for: step, percentile: 0.95) else {
+            return "—"
+        }
+        return "\(compactDuration(p50)) / p95 \(compactDuration(p95))"
     }
 
     private func traceSummary(_ trace: SessionPerformanceTrace) -> String {
