@@ -12,10 +12,14 @@ import xml.etree.ElementTree as ET
 SPARKLE_NAMESPACE = "http://www.andymatuschak.org/xml-namespaces/sparkle"
 
 
-def fetch(url: str) -> bytes:
+def fetch(url: str, attempt: int) -> bytes:
+    separator = "&" if "?" in url else "?"
     request = urllib.request.Request(
-        url,
-        headers={"User-Agent": "PressayReleaseVerifier/1.0"},
+        f"{url}{separator}verification_attempt={attempt}",
+        headers={
+            "Cache-Control": "no-cache",
+            "User-Agent": "PressayReleaseVerifier/1.0",
+        },
     )
     with urllib.request.urlopen(request, timeout=15) as response:
         if response.status != 200:
@@ -67,7 +71,7 @@ def main() -> None:
     last_error: Exception | None = None
     for attempt in range(1, args.attempts + 1):
         try:
-            verify(fetch(args.url), args.version, args.build)
+            verify(fetch(args.url, attempt), args.version, args.build)
             print(
                 f"Appcast public validé: {args.version} ({args.build}), "
                 "DMG immuable et signature EdDSA présents"
