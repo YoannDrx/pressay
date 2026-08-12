@@ -32,7 +32,7 @@ describe("Pressay API shell", () => {
 
   it("checks the database on readiness", async () => {
     const app = createApp(config, databaseReturning([{
-      table_count: 14,
+      table_count: 29,
       column_count: 11
     }]));
     const response = await app.request("/v1/ready");
@@ -47,7 +47,7 @@ describe("Pressay API shell", () => {
 
   it("fails readiness when commercial migrations are missing", async () => {
     const app = createApp(config, databaseReturning([{
-      table_count: 13,
+      table_count: 28,
       column_count: 11
     }]));
     const response = await app.request("/v1/ready");

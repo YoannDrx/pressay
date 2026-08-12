@@ -125,7 +125,14 @@ export function createApp(
                'billing_events', 'billing_transactions', 'checkout_consents',
                'account_trials', 'entitlement_grants', 'admin_memberships',
                'admin_audit_log', 'access_campaigns',
-               'referral_attributions', 'referral_rewards'
+               'referral_attributions', 'referral_rewards',
+               'auth_users', 'auth_sessions', 'auth_accounts',
+               'auth_verifications', 'auth_two_factors', 'auth_passkeys',
+               'auth_jwks', 'auth_oauth_clients',
+               'auth_oauth_resources', 'auth_oauth_client_resources',
+               'auth_oauth_refresh_tokens', 'auth_oauth_access_tokens',
+               'auth_oauth_consents', 'auth_oauth_client_assertions',
+               'auth_rate_limits'
              )) as table_count,
           (select count(*)::integer
            from information_schema.columns
@@ -143,7 +150,7 @@ export function createApp(
                or (table_name = 'entitlement_grants'
                    and column_name = 'referral_reward_id'))) as column_count
       `;
-      const schemaCurrent = Number(rows[0]?.table_count) === 14
+      const schemaCurrent = Number(rows[0]?.table_count) === 29
         && Number(rows[0]?.column_count) === 11;
       if (!schemaCurrent) {
         return context.json({
@@ -320,6 +327,7 @@ export function createApp(
       where auth_subject = ${subject}
       returning id
     `;
+    await database`delete from auth_users where id = ${subject}`;
     if (config.CLERK_SECRET_KEY) {
       const clerkResponse = await fetch(
         `https://api.clerk.com/v1/users/${encodeURIComponent(subject)}`,
@@ -331,11 +339,10 @@ export function createApp(
       if (!clerkResponse.ok && clerkResponse.status !== 404) {
         return context.json({ error: "identity_deletion_failed" }, 502);
       }
-    } else if (config.NODE_ENV === "production") {
-      return context.json({ error: "identity_deletion_not_configured" }, 503);
     }
-    // Deletion is intentionally idempotent. If Clerk failed after the local
-    // delete, the still-authenticated user can retry without recreating data.
+    // Deletion is intentionally idempotent. During coexistence the Better Auth
+    // identity is always removed locally and Clerk is also removed when its
+    // management credential is still configured.
     void rows;
     return context.body(null, 204);
   });

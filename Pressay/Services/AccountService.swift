@@ -183,7 +183,7 @@ enum PressayAccountError: LocalizedError, Equatable {
         case .authenticationCancelled: "Connexion annulée."
         case .invalidCallback: "La réponse de connexion est invalide."
         case .invalidOAuthState: "La réponse de connexion ne correspond pas à cette demande."
-        case .tokenExchangeFailed: "Clerk n’a pas pu créer la session Pressay."
+        case .tokenExchangeFailed: "Le service d’identité n’a pas pu créer la session Pressay."
         case .sessionExpired: "Ta session a expiré. Reconnecte-toi pour continuer."
         case .deviceLimitReached: "La limite de Mac actifs pour ce plan est atteinte."
         case .server(let code): "Le service Pressay a refusé la demande (\(code))."
@@ -382,7 +382,7 @@ final class AccountService: NSObject, ObservableObject {
             URLQueryItem(name: "state", value: state),
             URLQueryItem(name: "code_challenge", value: codeChallenge(for: verifier)),
             URLQueryItem(name: "code_challenge_method", value: "S256"),
-            URLQueryItem(name: "audience", value: configuration.audience)
+            URLQueryItem(name: "resource", value: configuration.audience)
         ]
         guard let url = components.url else { throw PressayAccountError.notConfigured }
         return url
@@ -504,7 +504,8 @@ final class AccountService: NSObject, ObservableObject {
             "client_id": configuration.clientID,
             "code": code,
             "code_verifier": verifier,
-            "redirect_uri": configuration.redirectURI.absoluteString
+            "redirect_uri": configuration.redirectURI.absoluteString,
+            "resource": configuration.audience
         ])
         return try await requestTokens(url: metadata.tokenEndpoint, body: body)
     }
@@ -520,7 +521,8 @@ final class AccountService: NSObject, ObservableObject {
         let body = Self.formEncoded([
             "grant_type": "refresh_token",
             "client_id": configuration.clientID,
-            "refresh_token": refreshToken
+            "refresh_token": refreshToken,
+            "resource": configuration.audience
         ])
         let refreshed = try await requestTokens(url: metadata.tokenEndpoint, body: body)
         return TokenSet(

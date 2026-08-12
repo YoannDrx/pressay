@@ -2,7 +2,7 @@ import { createHash, randomBytes, randomUUID } from "node:crypto";
 import type { Hono, MiddlewareHandler } from "hono";
 import type Stripe from "stripe";
 import { z } from "zod";
-import { hasRecentMultiFactorAuthentication, type AuthVariables } from "./auth.js";
+import { hasRecentStrongAuthentication, type AuthVariables } from "./auth.js";
 import type { AppConfig } from "./config.js";
 import type { Database } from "./db.js";
 import { reconcileStripeSubscriptions } from "./billing.js";
@@ -304,23 +304,47 @@ export function registerAdminRoutes(
   app.post("/v1/admin/users/:id/sign-out", requireRoles("owner", "support"), async (context) => {
     const accountID = uuidSchema.parse(context.req.param("id"));
     const body = z.object({ reason: reasonSchema }).parse(await context.req.json());
-    if (!config.CLERK_SECRET_KEY) return context.json({ error: "identity_management_not_configured" }, 503);
     const accounts = await database`select auth_subject from accounts where id = ${accountID}::uuid and deleted_at is null`;
     if (!accounts[0]?.auth_subject) return context.json({ error: "user_not_found" }, 404);
-    const sessionsResponse = await fetch(`https://api.clerk.com/v1/sessions?user_id=${encodeURIComponent(String(accounts[0].auth_subject))}&status=active&limit=100`, {
-      headers: { Authorization: `Bearer ${config.CLERK_SECRET_KEY}` }
-    });
-    if (!sessionsResponse.ok) return context.json({ error: "identity_management_failed" }, 502);
-    const sessionsPayload = await sessionsResponse.json() as { data?: Array<{ id: string }> } | Array<{ id: string }>;
-    const sessions = Array.isArray(sessionsPayload) ? sessionsPayload : sessionsPayload.data ?? [];
-    for (const session of sessions) {
-      const response = await fetch(`https://api.clerk.com/v1/sessions/${encodeURIComponent(session.id)}/revoke`, {
-        method: "POST", headers: { Authorization: `Bearer ${config.CLERK_SECRET_KEY}` }
+    const subject = String(accounts[0].auth_subject);
+    const betterAuthRows = await database`
+      with deleted_access as (
+        delete from auth_oauth_access_tokens where "userId" = ${subject} returning id
+      ), deleted_refresh as (
+        delete from auth_oauth_refresh_tokens where "userId" = ${subject} returning id
+      ), deleted_sessions as (
+        delete from auth_sessions where "userId" = ${subject} returning id
+      )
+      select
+        (select count(*)::integer from deleted_sessions) as sessions,
+        (select count(*)::integer from deleted_refresh) as refresh_tokens,
+        (select count(*)::integer from deleted_access) as access_tokens
+    `;
+    let clerkSessions = 0;
+    if (config.CLERK_SECRET_KEY) {
+      const sessionsResponse = await fetch(`https://api.clerk.com/v1/sessions?user_id=${encodeURIComponent(subject)}&status=active&limit=100`, {
+        headers: { Authorization: `Bearer ${config.CLERK_SECRET_KEY}` }
       });
-      if (!response.ok && response.status !== 404) return context.json({ error: "identity_management_failed" }, 502);
+      if (!sessionsResponse.ok) return context.json({ error: "identity_management_failed" }, 502);
+      const sessionsPayload = await sessionsResponse.json() as { data?: Array<{ id: string }> } | Array<{ id: string }>;
+      const sessions = Array.isArray(sessionsPayload) ? sessionsPayload : sessionsPayload.data ?? [];
+      for (const session of sessions) {
+        const response = await fetch(`https://api.clerk.com/v1/sessions/${encodeURIComponent(session.id)}/revoke`, {
+          method: "POST", headers: { Authorization: `Bearer ${config.CLERK_SECRET_KEY}` }
+        });
+        if (!response.ok && response.status !== 404) return context.json({ error: "identity_management_failed" }, 502);
+      }
+      clerkSessions = sessions.length;
     }
-    await audit(database, context, "sessions.revoke", "sign_out_user", "account", accountID, body.reason, null, { revokedSessions: sessions.length });
-    return context.json({ revokedSessions: sessions.length });
+    const revokedSessions = Number(betterAuthRows[0]?.sessions ?? 0) + clerkSessions;
+    const result = {
+      revokedSessions,
+      betterAuthRefreshTokens: Number(betterAuthRows[0]?.refresh_tokens ?? 0),
+      betterAuthAccessTokens: Number(betterAuthRows[0]?.access_tokens ?? 0),
+      clerkSessions
+    };
+    await audit(database, context, "sessions.revoke", "sign_out_user", "account", accountID, body.reason, null, result);
+    return context.json(result);
   });
 
   app.post("/v1/admin/users/:id/deletion-jobs", requireRoles("owner", "support"), async (context) => {
@@ -715,9 +739,13 @@ function requireRoles(...roles: AdminRole[]): MiddlewareHandler<{ Variables: Adm
   };
 }
 
-function hasRecentMFA(context: { get(key: "authFactorVerificationAge"): readonly [number, number] | undefined }, config: AppConfig): boolean {
-  return hasRecentMultiFactorAuthentication(
+function hasRecentMFA(context: {
+  get(key: "authFactorVerificationAge"): readonly [number, number] | undefined;
+  get(key: "authStepUpAt"): number | undefined;
+}, config: AppConfig): boolean {
+  return hasRecentStrongAuthentication(
     context.get("authFactorVerificationAge"),
+    context.get("authStepUpAt"),
     config.PRESSAY_ADMIN_MFA_MAX_AGE_MINUTES
   );
 }

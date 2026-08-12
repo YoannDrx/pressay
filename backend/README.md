@@ -18,19 +18,22 @@ transformations et clés API BYOK.
 ## Démarrage local
 
 1. Copier `.env.example` vers `.env` et renseigner une chaîne Neon poolée.
-2. Exécuter la migration `db/migrations/0001_initial.sql` sur une branche Neon de développement.
+2. Exécuter les migrations `db/migrations/0001` à `0010` dans l’ordre sur une branche Neon de développement.
 3. Lancer `pnpm install`, puis `pnpm dev`.
 
 Les routes métier sous `/v1/*` exigent un JWT OIDC signé. Les endpoints
 `/v1/health`, `/v1/ready` et le webhook Stripe vérifié sont publics. Le choix
-du fournisseur d’identité est découplé de Neon ; la configuration produit
-attend Clerk, avec validation standard issuer/audience/JWKS dans cette API.
+du fournisseur d’identité est découplé du schéma commercial. Better Auth est
+auto-hébergé sur `press-say.app`; l’API sélectionne explicitement la source de
+confiance selon l’issuer, puis valide audience et signature. Clerk peut rester
+accepté temporairement pendant le rollback sans être requis après la bascule.
 
-Le client macOS utilise Authorization Code + PKCE et les callbacks
-`pressay://oauth/callback` (distribution directe) et
-`pressay-companion://oauth/callback` (App Store). L’API accepte n’importe quel fournisseur OIDC dont
-les tokens contiennent un `sub`, à condition que l’issuer, l’audience et le
-JWKS soient configurés côté serveur.
+Le client macOS utilise Authorization Code + PKCE et le callback public
+`pressay://oauth/callback`. Le client OAuth historique
+`w9ckUgrcFp7H7wNV` est conservé pour éviter de casser les builds installés ;
+ses tokens Better Auth ciblent la ressource/audience
+`https://api.press-say.app`. Les jetons internes émis par le proxy web gardent
+l’audience privée `pressay-api` et ne sont pas exposés au client macOS.
 
 ## Facturation
 
@@ -54,13 +57,15 @@ Endpoints :
 
 Les événements sont dédupliqués avec l’ID Stripe et projetés selon leur date
 fournisseur afin qu’un événement ancien ne puisse pas écraser un état récent.
-Appliquer les migrations `0001` à `0004` dans l’ordre. La migration `0004`
+Appliquer toutes les migrations dans l’ordre. La migration `0004`
 autorise un essai lié au compte depuis le site lorsque aucun identifiant de Mac
 n'est encore disponible ; les checkouts natifs continuent d'associer l'essai à
 un appareil enregistré.
 
-En production, `CLERK_SECRET_KEY` est requis pour que `DELETE /v1/me` supprime
-aussi l’identité externe. `PRESSAY_ENTITLEMENT_SIGNING_PRIVATE_KEY` signe les
+La migration `0009` ajoute les tables Better Auth et le client OAuth macOS sans
+modifier `accounts.auth_subject`. `DELETE /v1/me` supprime l’identité Better
+Auth locale et supprime aussi Clerk pendant la coexistence lorsque
+`CLERK_SECRET_KEY` est encore configuré. `PRESSAY_ENTITLEMENT_SIGNING_PRIVATE_KEY` signe les
 octets exacts exposés dans `snapshot.payload`, et `CRON_SECRET` protège la
 réconciliation quotidienne déclarée dans `vercel.json`.
 

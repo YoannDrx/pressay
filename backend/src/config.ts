@@ -9,9 +9,14 @@ const booleanFromEnvironment = z.preprocess((value) => {
 
 const schema = z.object({
   DATABASE_URL: z.string().url().startsWith("postgresql://"),
-  PRESSAY_JWT_ISSUER: z.string().url(),
-  PRESSAY_JWT_AUDIENCE: z.string().min(1),
-  PRESSAY_JWT_JWKS_URL: z.string().url(),
+  PRESSAY_JWT_ISSUER: z.string().url().optional(),
+  PRESSAY_JWT_AUDIENCE: z.string().min(1).optional(),
+  PRESSAY_JWT_JWKS_URL: z.string().url().optional(),
+  PRESSAY_BETTER_AUTH_JWT_ISSUER: z.string().url().optional(),
+  PRESSAY_BETTER_AUTH_JWT_AUDIENCE: z.string().min(1).default("https://api.press-say.app"),
+  PRESSAY_BETTER_AUTH_JWKS_URL: z.string().url().optional(),
+  PRESSAY_INTERNAL_JWT_ISSUER: z.string().url().default("https://press-say.app/internal"),
+  PRESSAY_INTERNAL_JWT_SECRET: z.string().min(32).optional(),
   CLERK_SECRET_KEY: z.string().startsWith("sk_").optional(),
   CRON_SECRET: z.string().min(32).optional(),
   STRIPE_SECRET_KEY: z.string().regex(/^(?:sk|rk)_(?:test|live)_/).optional(),
@@ -42,18 +47,33 @@ const schema = z.object({
   PORT: z.coerce.number().int().positive().default(8787),
   NODE_ENV: z.enum(["development", "test", "production"]).default("development")
 }).superRefine((config, context) => {
+  const clerkJWTValues = [config.PRESSAY_JWT_ISSUER, config.PRESSAY_JWT_AUDIENCE, config.PRESSAY_JWT_JWKS_URL];
+  if (clerkJWTValues.some(Boolean) && !clerkJWTValues.every(Boolean)) {
+    context.addIssue({
+      code: "custom",
+      path: ["PRESSAY_JWT_JWKS_URL"],
+      message: "legacy Clerk issuer, audience and JWKS URL must be configured together"
+    });
+  }
+  if (Boolean(config.PRESSAY_BETTER_AUTH_JWT_ISSUER) !== Boolean(config.PRESSAY_BETTER_AUTH_JWKS_URL)) {
+    context.addIssue({
+      code: "custom",
+      path: ["PRESSAY_BETTER_AUTH_JWKS_URL"],
+      message: "Better Auth issuer and JWKS URL must be configured together"
+    });
+  }
+  if (!config.PRESSAY_JWT_ISSUER && !config.PRESSAY_BETTER_AUTH_JWT_ISSUER && !config.PRESSAY_INTERNAL_JWT_SECRET) {
+    context.addIssue({
+      code: "custom",
+      path: ["PRESSAY_BETTER_AUTH_JWT_ISSUER"],
+      message: "at least one JWT trust source must be configured"
+    });
+  }
   if (config.NODE_ENV === "production" && !config.PRESSAY_ENTITLEMENT_SIGNING_PRIVATE_KEY) {
     context.addIssue({
       code: "custom",
       path: ["PRESSAY_ENTITLEMENT_SIGNING_PRIVATE_KEY"],
       message: "an Ed25519 entitlement signing key is required in production"
-    });
-  }
-  if (config.NODE_ENV === "production" && !config.CLERK_SECRET_KEY) {
-    context.addIssue({
-      code: "custom",
-      path: ["CLERK_SECRET_KEY"],
-      message: "Clerk server credentials are required for account deletion in production"
     });
   }
   if (config.NODE_ENV === "production" && !config.CRON_SECRET) {

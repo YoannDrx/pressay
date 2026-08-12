@@ -506,7 +506,7 @@ final class AccountServiceSecurityTests: XCTestCase {
             apiBaseURL: URL(string: "https://api.pressay.app")!,
             issuerURL: URL(string: "https://identity.pressay.app")!,
             clientID: "pressay-macos",
-            audience: "pressay-api",
+            audience: "https://api.press-say.app",
             redirectURI: Constants.cloudRedirectURI,
             entitlementPublicKey: nil,
             commercialEnabled: false
@@ -529,7 +529,7 @@ final class AccountServiceSecurityTests: XCTestCase {
         XCTAssertEqual(values["redirect_uri"], "pressay://oauth/callback")
         XCTAssertEqual(values["state"], "expected-state")
         XCTAssertEqual(values["code_challenge_method"], "S256")
-        XCTAssertEqual(values["audience"], "pressay-api")
+        XCTAssertEqual(values["resource"], "https://api.press-say.app")
         XCTAssertTrue(values["scope", default: ""].contains("offline_access"))
     }
 
