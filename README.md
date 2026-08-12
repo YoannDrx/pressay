@@ -68,12 +68,13 @@ DMG.
 
 La page de téléchargement publique est également disponible sur
 [yoann-andrieux.fr](https://www.yoann-andrieux.fr/fr/projects/pressay). La
-version stable publiée est `v1.2.6` ; les utilisateurs ayant activé le canal
+version stable publiée est `v1.2.7` ; les utilisateurs ayant activé le canal
 bêta recevront aussi cette version stable.
 
-La stable `v1.2.6` (build `12105`) réduit les délais réseau, ajoute la
-transcription OpenAI temps réel avec repli batch sûr, préchauffe WhisperKit et
-permet de relancer une dictée échouée sans réenregistrer. La matrice
+La stable `v1.2.7` (build `12106`) remplace Clerk par l’identité Pressay
+auto-hébergée, conserve Google, ajoute passkeys et TOTP, et sécurise la connexion
+macOS avec OAuth 2.1 + PKCE. Elle inclut aussi les améliorations réseau de 1.2.6 :
+transcription temps réel, repli batch sûr et relance sans réenregistrer. La matrice
 interapplications, le test Intel réel et sept jours sans P0/P1 restent des
 preuves QA à compléter après publication.
 
