@@ -133,10 +133,18 @@ export function createApp(
              and ((table_name = 'billing_events'
                    and column_name in ('status', 'attempt_count', 'last_error_code'))
                or (table_name = 'admin_audit_log'
-                   and column_name = 'actor_account_id'))) as column_count
+                   and column_name = 'actor_account_id')
+               or (table_name = 'referral_rewards'
+                   and column_name in (
+                     'qualifying_invoice_id', 'qualifying_payment_intent_id',
+                     'qualifying_charge_id', 'extension_base_at',
+                     'attempt_count', 'last_attempt_at'
+                   ))
+               or (table_name = 'entitlement_grants'
+                   and column_name = 'referral_reward_id'))) as column_count
       `;
       const schemaCurrent = Number(rows[0]?.table_count) === 14
-        && Number(rows[0]?.column_count) === 4;
+        && Number(rows[0]?.column_count) === 11;
       if (!schemaCurrent) {
         return context.json({
           status: "unavailable",
@@ -368,24 +376,28 @@ export function createApp(
     const grantPlan = plans.includes(row.grant_plan_code as PlanCode)
       ? row.grant_plan_code as PlanCode
       : null;
-    const effectivePlan: PlanCode = isFoundingUser || (primaryPaidActive && plan === "lifetime_byok")
+    const effectivePlan: PlanCode = isFoundingUser
+      || (primaryPaidActive && plan === "lifetime_byok")
+      || grantPlan === "lifetime_byok"
       ? "lifetime_byok"
       : primaryPaidActive
         ? plan
         : grantPlan ?? "free";
     const effectiveSource = isFoundingUser
       ? "founding"
-      : primaryPaidActive
-        ? row.source
-        : grantPlan
-          ? row.grant_source
-          : "free";
+      : grantPlan === "lifetime_byok"
+        ? row.grant_source
+        : primaryPaidActive
+          ? row.source
+          : grantPlan
+            ? row.grant_source
+            : "free";
     const issuedAt = new Date();
     const graceLimit = new Date(issuedAt.getTime() + 14 * 86_400_000);
     const contractualEnd = earliestDate(
       row.trial_end,
       row.current_period_end,
-      !primaryPaidActive && grantPlan ? row.grant_end : null
+      grantPlan === "lifetime_byok" || !primaryPaidActive ? row.grant_end : null
     );
     const offlineValidUntil = contractualEnd && contractualEnd < graceLimit
       ? contractualEnd
@@ -425,6 +437,7 @@ export function createApp(
         select a.id,
                case
                  when e.source = 'legacy' then coalesce(e.plan_code, 'lifetime_byok')
+                 when g.plan_code = 'lifetime_byok' then 'lifetime_byok'
                  when e.status in ('active', 'trialing') and e.plan_code <> 'free'
                    then coalesce(e.plan_code, 'free')
                  when g.plan_code is not null then g.plan_code
