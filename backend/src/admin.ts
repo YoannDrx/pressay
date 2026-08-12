@@ -6,6 +6,7 @@ import { hasRecentMultiFactorAuthentication, type AuthVariables } from "./auth.j
 import type { AppConfig } from "./config.js";
 import type { Database } from "./db.js";
 import { reconcileStripeSubscriptions } from "./billing.js";
+import { processReferralStripeEvent } from "./commercial.js";
 
 export const adminRoles = ["owner", "support", "billing", "viewer"] as const;
 export type AdminRole = (typeof adminRoles)[number];
@@ -406,8 +407,15 @@ export function registerAdminRoutes(
       status: z.enum(["draft", "active"]).optional(),
       reason: reasonSchema
     }).parse(await context.req.json());
-    const before = await database`select id, max_redemptions, expires_at, internal_note, status from access_campaigns where id = ${campaignID}::uuid`;
+    const before = await database`
+      select id, kind, max_redemptions, expires_at, internal_note, status
+      from access_campaigns where id = ${campaignID}::uuid
+    `;
     if (!before[0]) return context.json({ error: "campaign_not_found" }, 404);
+    if (before[0].kind === "stripe_discount"
+      && (body.maxRedemptions !== undefined || body.expiresAt !== undefined || body.status !== undefined)) {
+      return context.json({ error: "stripe_campaign_limits_immutable" }, 409);
+    }
     const rows = await database`
       update access_campaigns set
         max_redemptions = coalesce(${body.maxRedemptions ?? null}, max_redemptions),
@@ -450,65 +458,89 @@ export function registerAdminRoutes(
         name: `Pressay ${rawSecret}`,
         metadata: { pressay_campaign_id: publicID }
       }, { idempotencyKey: `campaign-coupon:${publicID}` });
-      const promotion = await stripe.promotionCodes.create({
-        promotion: { type: "coupon", coupon: coupon.id },
-        code: rawSecret,
-        max_redemptions: input.maxRedemptions,
-        ...(input.expiresAt ? { expires_at: Math.floor(new Date(input.expiresAt).getTime() / 1_000) } : {}),
-        restrictions: { first_time_transaction: false },
-        metadata: { pressay_campaign_id: publicID }
-      }, { idempotencyKey: `campaign-promotion:${publicID}` });
-      stripePromotionCodeID = promotion.id;
+      try {
+        const promotion = await stripe.promotionCodes.create({
+          promotion: { type: "coupon", coupon: coupon.id },
+          code: rawSecret,
+          max_redemptions: input.maxRedemptions,
+          ...(input.expiresAt ? { expires_at: Math.floor(new Date(input.expiresAt).getTime() / 1_000) } : {}),
+          restrictions: { first_time_transaction: false },
+          metadata: { pressay_campaign_id: publicID }
+        }, { idempotencyKey: `campaign-promotion:${publicID}` });
+        stripePromotionCodeID = promotion.id;
+      } catch (error) {
+        await stripe.coupons.del(coupon.id).catch(() => undefined);
+        throw error;
+      }
     }
-    const rows = await database`
-      insert into access_campaigns (
-        public_id, kind, code_hash, link_token_hash, code_hint, plan_code,
-        duration_days, is_lifetime, discount_percent, discount_amount,
-        max_redemptions, starts_at, expires_at, restricted_email,
-        restricted_domain, internal_note, created_by, stripe_promotion_code_id
-      ) values (
-        ${publicID}, ${input.kind},
-        ${input.delivery === "code" ? secretHash : null},
-        ${input.delivery === "link" ? secretHash : null},
-        ${input.delivery === "code" ? rawSecret.slice(-4) : null},
-        ${input.kind === "access_grant" ? input.plan ?? null : null},
-        ${input.plan === "lifetime_byok" ? null : input.durationDays ?? null},
-        ${input.plan === "lifetime_byok"}, ${input.discountPercent ?? null},
-        ${input.discountAmount ?? null}, ${input.maxRedemptions},
-        ${input.startsAt ?? new Date().toISOString()}::timestamptz,
-        ${input.expiresAt ?? null}::timestamptz,
-        ${input.restrictedEmail?.toLowerCase() ?? null},
-        ${input.restrictedDomain?.toLowerCase() ?? null},
-        ${input.internalNote ?? null}, ${context.get("adminAccountID")}::uuid,
-        ${stripePromotionCodeID}
-      ) returning id, public_id, kind, plan_code, duration_days, is_lifetime, max_redemptions, starts_at, expires_at, status
-    `;
+    let rows;
+    try {
+      rows = await database`
+        insert into access_campaigns (
+          public_id, kind, code_hash, link_token_hash, code_hint, plan_code,
+          duration_days, is_lifetime, discount_percent, discount_amount,
+          max_redemptions, starts_at, expires_at, restricted_email,
+          restricted_domain, internal_note, created_by, stripe_promotion_code_id
+        ) values (
+          ${publicID}, ${input.kind},
+          ${input.delivery === "code" ? secretHash : null},
+          ${input.delivery === "link" ? secretHash : null},
+          ${input.delivery === "code" ? rawSecret.slice(-4) : null},
+          ${input.kind === "access_grant" ? input.plan ?? null : null},
+          ${input.plan === "lifetime_byok" ? null : input.durationDays ?? null},
+          ${input.plan === "lifetime_byok"}, ${input.discountPercent ?? null},
+          ${input.discountAmount ?? null}, ${input.maxRedemptions},
+          ${input.startsAt ?? new Date().toISOString()}::timestamptz,
+          ${input.expiresAt ?? null}::timestamptz,
+          ${input.restrictedEmail?.toLowerCase() ?? null},
+          ${input.restrictedDomain?.toLowerCase() ?? null},
+          ${input.internalNote ?? null}, ${context.get("adminAccountID")}::uuid,
+          ${stripePromotionCodeID}
+        ) returning id, public_id, kind, plan_code, duration_days, is_lifetime, max_redemptions, starts_at, expires_at, status
+      `;
+    } catch (error) {
+      if (stripe && stripePromotionCodeID) {
+        await stripe.promotionCodes.update(stripePromotionCodeID, { active: false }).catch(() => undefined);
+      }
+      throw error;
+    }
     await audit(database, context, "campaigns.create", "create_campaign", "campaign", String(rows[0]?.id), input.reason, null, rows[0] ?? {});
-    return context.json({ campaign: rows[0], secret: rawSecret, secretShownOnce: true }, 201);
+    return context.json({ campaign: rows[0], secret: rawSecret, delivery: input.delivery, secretShownOnce: true }, 201);
   });
 
   app.delete("/v1/admin/campaigns/:id", requireRoles("owner", "support", "billing"), async (context) => {
     const campaignID = uuidSchema.parse(context.req.param("id"));
     const body = z.object({ reason: reasonSchema }).parse(await context.req.json());
+    const before = await database`
+      select id, public_id, kind, status, stripe_promotion_code_id
+      from access_campaigns where id = ${campaignID}::uuid and status <> 'revoked'
+    `;
+    if (!before[0]) return context.json({ error: "campaign_not_found" }, 404);
+    if (typeof before[0].stripe_promotion_code_id === "string") {
+      if (!stripe) return context.json({ error: "billing_not_configured" }, 503);
+      await stripe.promotionCodes.update(before[0].stripe_promotion_code_id, { active: false });
+    }
     const rows = await database`
       update access_campaigns set status = 'revoked', updated_at = now()
       where id = ${campaignID}::uuid and status <> 'revoked'
       returning id, public_id, kind, status, stripe_promotion_code_id
     `;
     if (!rows[0]) return context.json({ error: "campaign_not_found" }, 404);
-    if (stripe && typeof rows[0].stripe_promotion_code_id === "string") {
-      await stripe.promotionCodes.update(rows[0].stripe_promotion_code_id, { active: false });
-    }
-    await audit(database, context, "campaigns.revoke", "revoke_campaign", "campaign", campaignID, body.reason, null, rows[0]);
+    await audit(database, context, "campaigns.revoke", "revoke_campaign", "campaign", campaignID, body.reason, before[0], rows[0]);
     return context.body(null, 204);
   });
 
   app.get("/v1/admin/referrals", requireRoles("owner", "support", "billing", "viewer"), async (context) => {
     const rows = await database`
       select ra.id, ra.referrer_account_id, ra.referee_account_id, ra.status,
-             ra.source, ra.attributed_at, ra.expires_at, rc.code,
+             ra.source, ra.risk_status, ra.rejection_reason,
+             ra.attributed_at, ra.expires_at, rc.code,
              count(rr.id)::integer as reward_count,
-             count(rr.id) filter (where rr.status = 'failed')::integer as failed_rewards
+             count(rr.id) filter (where rr.status = 'pending')::integer as pending_rewards,
+             count(rr.id) filter (where rr.status = 'applied')::integer as applied_rewards,
+             count(rr.id) filter (where rr.status = 'failed')::integer as failed_rewards,
+             max(rr.last_error_code) filter (where rr.status = 'failed') as last_error_code,
+             max(rr.last_attempt_at) as last_attempt_at
       from referral_attributions ra
       join referral_codes rc on rc.account_id = ra.referrer_account_id
       left join referral_rewards rr on rr.attribution_id = ra.id
@@ -534,6 +566,30 @@ export function registerAdminRoutes(
     `;
     await audit(database, context, "referrals.risk", "review_referral", "referral", attributionID, body.reason, before[0], rows[0]);
     return context.json({ referral: rows[0] });
+  });
+
+  app.post("/v1/admin/referrals/:id/retry", requireRoles("owner", "billing"), async (context) => {
+    if (!config.REFERRALS_ENABLED) return context.json({ error: "feature_disabled" }, 404);
+    if (!hasRecentMFA(context, config)) return context.json({ error: "recent_mfa_required" }, 403);
+    if (!stripe) return context.json({ error: "billing_not_configured" }, 503);
+    const attributionID = uuidSchema.parse(context.req.param("id"));
+    const body = z.object({ reason: reasonSchema }).parse(await context.req.json());
+    const failedRewards = await database`
+      select distinct provider_event_id
+      from referral_rewards
+      where attribution_id = ${attributionID}::uuid and status = 'failed'
+    `;
+    if (failedRewards.length === 0) return context.json({ error: "failed_reward_not_found" }, 404);
+    let replayed = 0;
+    for (const reward of failedRewards) {
+      const event = await stripe.events.retrieve(String(reward.provider_event_id));
+      if (await processReferralStripeEvent(database, stripe, config, event)) replayed += 1;
+    }
+    await audit(
+      database, context, "referrals.retry", "retry_referral_reward", "referral",
+      attributionID, body.reason, { failedEvents: failedRewards.length }, { replayed }
+    );
+    return context.json({ replayed });
   });
 
   app.post("/v1/admin/users/:id/notes", requireRoles("owner", "support"), async (context) => {

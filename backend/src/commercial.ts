@@ -62,6 +62,24 @@ export function registerCommercialRoutes(
             where g.account_id = a.id and g.plan_code = 'lifetime_byok'
               and g.revoked_at is null and (g.ends_at is null or g.ends_at > now())
           )
+          and (
+            c.is_lifetime
+            or not exists (
+              select 1 from entitlements e
+              where e.account_id = a.id
+                and e.plan_code <> 'free'
+                and e.status in ('active', 'trialing')
+            )
+          )
+          and (
+            c.is_lifetime
+            or not exists (
+              select 1 from entitlement_grants g
+              where g.account_id = a.id
+                and g.revoked_at is null
+                and (g.ends_at is null or g.ends_at > now())
+            )
+          )
           and (select count(*) from access_redemptions r where r.campaign_id = c.id) < c.max_redemptions
       ), redeemed as (
         insert into access_redemptions (campaign_id, account_id)
@@ -97,7 +115,7 @@ export function registerCommercialRoutes(
       `;
       return context.json({ error: already[0] ? "campaign_already_redeemed" : "campaign_invalid_or_ineligible" }, 409);
     }
-    return context.json({ grant: rows[0], stacking: "most_favorable_end_date" }, 201);
+    return context.json({ grant: rows[0], stacking: "only_when_access_improves" }, 201);
   });
 
   app.get("/v1/referrals/me", async (context) => {
@@ -214,6 +232,11 @@ async function applyPaidInvoiceRewards(
     .sort((left, right) => left.created - right.created)[0];
   if (!firstPaid || firstPaid.id !== invoice.id) return false;
 
+  const qualifyingPayment = await resolveInvoicePayment(stripe, invoice);
+  if (!qualifyingPayment.paymentIntentID && !qualifyingPayment.chargeID) {
+    throw new Error("referral_qualifying_payment_not_found");
+  }
+
   const attributions = await database`
     select ra.id, ra.referrer_account_id, ra.referee_account_id
     from referral_attributions ra
@@ -256,10 +279,13 @@ async function applyPaidInvoiceRewards(
   let rewards = await database`
     insert into referral_rewards (
       attribution_id, beneficiary_account_id, side, reward_kind,
-      status, provider_event_id
+      status, provider_event_id, qualifying_invoice_id,
+      qualifying_payment_intent_id, qualifying_charge_id
     ) values
-      (${attributionID}::uuid, ${referrerID}::uuid, 'referrer', ${referrerRewardKind}, 'pending', ${event.id}),
-      (${attributionID}::uuid, ${refereeID}::uuid, 'referee', 'billing_extension', 'pending', ${event.id})
+      (${attributionID}::uuid, ${referrerID}::uuid, 'referrer', ${referrerRewardKind}, 'pending', ${event.id},
+       ${qualifyingPayment.invoiceID}, ${qualifyingPayment.paymentIntentID}, ${qualifyingPayment.chargeID}),
+      (${attributionID}::uuid, ${refereeID}::uuid, 'referee', 'billing_extension', 'pending', ${event.id},
+       ${qualifyingPayment.invoiceID}, ${qualifyingPayment.paymentIntentID}, ${qualifyingPayment.chargeID})
     on conflict (attribution_id, side, provider_event_id) do nothing
     returning id, beneficiary_account_id, side, reward_kind
   `;
@@ -277,6 +303,11 @@ async function applyPaidInvoiceRewards(
   for (const reward of rewards) {
     const rewardID = String(reward.id);
     try {
+      await database`
+        update referral_rewards
+        set attempt_count = attempt_count + 1, last_attempt_at = now()
+        where id = ${rewardID}::uuid
+      `;
       if (reward.reward_kind === "billing_extension") {
         const targetSubscriptionID = reward.side === "referee"
           ? subscriptionID
@@ -294,6 +325,7 @@ async function applyPaidInvoiceRewards(
         await database`
           update referral_rewards set status = 'applied', applied_at = now(),
                  applied_subscription_id = ${targetSubscriptionID},
+                 extension_base_at = ${new Date(base * 1_000).toISOString()}::timestamptz,
                  applied_until = ${new Date(appliedUntil * 1_000).toISOString()}::timestamptz,
                  last_error_code = null
           where id = ${rewardID}::uuid
@@ -301,12 +333,15 @@ async function applyPaidInvoiceRewards(
       } else if (reward.reward_kind === "access_grant") {
         const grants = await database`
           insert into entitlement_grants (
-            account_id, plan_code, source, starts_at, ends_at, reason, metadata
+            account_id, plan_code, source, starts_at, ends_at, reason, metadata,
+            referral_reward_id
           ) values (
             ${String(reward.beneficiary_account_id)}::uuid, 'pro_byok', 'referral',
             now(), now() + interval '30 days', 'Referral reward',
-            jsonb_build_object('reward_id', ${rewardID})
-          ) returning id, ends_at
+            jsonb_build_object('reward_id', ${rewardID}), ${rewardID}::uuid
+          )
+          on conflict (referral_reward_id) do update set updated_at = now()
+          returning id, ends_at
         `;
         await database`
           update referral_rewards set status = 'applied', applied_at = now(),
@@ -327,7 +362,9 @@ async function applyPaidInvoiceRewards(
             'pro_byok', 30, 1, now(), now() + interval '365 days', 'active',
             'Transferable guest pass generated by a Lifetime referral reward',
             ${String(reward.beneficiary_account_id)}::uuid
-          ) returning id
+          )
+          on conflict (public_id) do update set updated_at = now()
+          returning id
         `;
         await database`
           update referral_rewards set status = 'applied', applied_at = now(),
@@ -363,17 +400,22 @@ async function reverseReferralRewards(
     const refundedCharge = charge as Stripe.Charge;
     if (refundedCharge.amount_refunded < refundedCharge.amount) return false;
   }
-  const customerID = event.type === "charge.refunded"
-    ? stripeID((charge as Stripe.Charge).customer)
-    : await disputeCustomerID(stripe, charge as Stripe.Dispute);
+  const reversedPayment = await reversalPaymentReference(stripe, event);
+  const customerID = reversedPayment.customerID;
   if (!customerID) return false;
   const rewards = await database`
     select rr.id, rr.reward_kind, rr.grant_id, rr.campaign_id,
-           rr.applied_subscription_id, rr.applied_until, ra.id as attribution_id
+           rr.applied_subscription_id, rr.applied_until, rr.extension_base_at,
+           ra.id as attribution_id
     from referral_attributions ra
     join billing_customers bc on bc.account_id = ra.referee_account_id
     join referral_rewards rr on rr.attribution_id = ra.id
-    where bc.stripe_customer_id = ${customerID} and rr.status = 'applied'
+    where bc.stripe_customer_id = ${customerID}
+      and rr.status = 'applied'
+      and (
+        (${reversedPayment.chargeID}::text is not null and rr.qualifying_charge_id = ${reversedPayment.chargeID})
+        or (${reversedPayment.paymentIntentID}::text is not null and rr.qualifying_payment_intent_id = ${reversedPayment.paymentIntentID})
+      )
   `;
   for (const reward of rewards) {
     if (reward.grant_id) {
@@ -390,7 +432,7 @@ async function reverseReferralRewards(
     }
     if (typeof reward.applied_subscription_id === "string" && new Date(String(reward.applied_until)).getTime() > Date.now()) {
       await stripe.subscriptions.update(reward.applied_subscription_id, {
-        trial_end: "now",
+        trial_end: referralRestoredTrialEnd(reward.extension_base_at),
         proration_behavior: "none"
       }, { idempotencyKey: `referral-reversal:${String(reward.id)}:${event.id}` });
     }
@@ -410,7 +452,7 @@ function normalizeSecret(value: string): string {
 }
 
 function stableReferralCode(accountID: string): string {
-  return `P${createHash("sha256").update(`pressay:${accountID}`).digest("hex").slice(0, 10).toUpperCase()}`;
+  return `P${createHash("sha256").update(`pressay:${accountID}`).digest("hex").slice(0, 14).toUpperCase()}`;
 }
 
 function guestPassSecret(config: AppConfig, rewardID: string): string {
@@ -428,16 +470,95 @@ function stripeID(value: string | { id: string } | null): string | null {
   return typeof value === "string" ? value : value.id;
 }
 
-function invoiceSubscriptionID(invoice: Stripe.Invoice): string | null {
+export function invoiceSubscriptionID(invoice: Stripe.Invoice): string | null {
   const parent = invoice.parent as unknown as {
     subscription_details?: { subscription?: string | { id: string } | null }
   } | null;
-  return stripeID(parent?.subscription_details?.subscription ?? null);
+  const legacy = invoice as unknown as { subscription?: string | { id: string } | null };
+  return stripeID(parent?.subscription_details?.subscription ?? legacy.subscription ?? null);
 }
 
-async function disputeCustomerID(stripe: Stripe, dispute: Stripe.Dispute): Promise<string | null> {
+type InvoicePaymentReference = {
+  invoiceID: string;
+  paymentIntentID: string | null;
+  chargeID: string | null;
+};
+
+export function invoicePaymentReference(invoice: Stripe.Invoice): InvoicePaymentReference {
+  const compatibleInvoice = invoice as unknown as {
+    payment_intent?: string | { id: string } | null;
+    charge?: string | { id: string } | null;
+    payments?: {
+      data?: Array<{
+        status?: string;
+        payment?: {
+          payment_intent?: string | { id: string } | null;
+          charge?: string | { id: string } | null;
+        };
+      }>;
+    };
+  };
+  const paidPayment = compatibleInvoice.payments?.data?.find((payment) => payment.status === "paid")?.payment;
+  return {
+    invoiceID: invoice.id,
+    paymentIntentID: stripeID(paidPayment?.payment_intent ?? compatibleInvoice.payment_intent ?? null),
+    chargeID: stripeID(paidPayment?.charge ?? compatibleInvoice.charge ?? null)
+  };
+}
+
+export function referralRestoredTrialEnd(extensionBaseAt: unknown, nowMs = Date.now()): number | "now" {
+  const extensionBase = new Date(String(extensionBaseAt)).getTime();
+  return Number.isFinite(extensionBase) && extensionBase > nowMs
+    ? Math.floor(extensionBase / 1_000)
+    : "now";
+}
+
+async function resolveInvoicePayment(stripe: Stripe, invoice: Stripe.Invoice): Promise<InvoicePaymentReference> {
+  const reference = invoicePaymentReference(invoice);
+  if (!reference.paymentIntentID && !reference.chargeID) {
+    const payments = await stripe.invoicePayments.list({ invoice: invoice.id, status: "paid", limit: 100 });
+    const payment = payments.data[0]?.payment;
+    reference.paymentIntentID = stripeID(payment?.payment_intent ?? null);
+    reference.chargeID = stripeID(payment?.charge ?? null);
+  }
+  if (reference.paymentIntentID && !reference.chargeID) {
+    const paymentIntent = await stripe.paymentIntents.retrieve(reference.paymentIntentID);
+    reference.chargeID = stripeID(paymentIntent.latest_charge);
+  }
+  if (reference.chargeID && !reference.paymentIntentID) {
+    const charge = await stripe.charges.retrieve(reference.chargeID);
+    if (!("deleted" in charge && charge.deleted)) {
+      reference.paymentIntentID = stripeID(charge.payment_intent);
+    }
+  }
+  return reference;
+}
+
+type ReversalPaymentReference = {
+  customerID: string | null;
+  paymentIntentID: string | null;
+  chargeID: string | null;
+};
+
+async function reversalPaymentReference(stripe: Stripe, event: Stripe.Event): Promise<ReversalPaymentReference> {
+  if (event.type === "charge.refunded") {
+    const charge = event.data.object as Stripe.Charge;
+    return {
+      customerID: stripeID(charge.customer),
+      paymentIntentID: stripeID(charge.payment_intent),
+      chargeID: charge.id
+    };
+  }
+  const dispute = event.data.object as Stripe.Dispute;
   const chargeID = stripeID(dispute.charge);
-  if (!chargeID) return null;
+  if (!chargeID) return { customerID: null, paymentIntentID: null, chargeID: null };
   const charge = await stripe.charges.retrieve(chargeID);
-  return "deleted" in charge && charge.deleted ? null : stripeID(charge.customer);
+  if ("deleted" in charge && charge.deleted) {
+    return { customerID: null, paymentIntentID: null, chargeID };
+  }
+  return {
+    customerID: stripeID(charge.customer),
+    paymentIntentID: stripeID(charge.payment_intent),
+    chargeID
+  };
 }
