@@ -98,6 +98,50 @@ final class DistributionChannelTests: XCTestCase {
     }
 }
 
+final class MenuBarOperationalStatusTests: XCTestCase {
+    func testRecordingAndTranscribingTakePriority() {
+        XCTAssertEqual(
+            status(recording: true, transcribing: false).tone,
+            .recording
+        )
+        XCTAssertEqual(
+            status(recording: false, transcribing: true).tone,
+            .working
+        )
+    }
+
+    func testOpenAIConfigurationErrorAndWhisperKitReadyStates() {
+        XCTAssertEqual(
+            status(hasAPIKey: false).text,
+            "Clé API à configurer"
+        )
+        XCTAssertEqual(
+            status(error: "Réseau indisponible").text,
+            "Réseau indisponible"
+        )
+        XCTAssertEqual(
+            status(engine: TranscriptionEngine.whisperKit.rawValue).text,
+            "Prêt · WhisperKit local"
+        )
+    }
+
+    private func status(
+        recording: Bool = false,
+        transcribing: Bool = false,
+        engine: String = TranscriptionEngine.openAI.rawValue,
+        hasAPIKey: Bool = true,
+        error: String? = nil
+    ) -> MenuBarOperationalStatus {
+        MenuBarOperationalStatus.resolve(
+            isRecording: recording,
+            isTranscribing: transcribing,
+            transcriptionEngine: engine,
+            hasAPIKey: hasAPIKey,
+            error: error
+        )
+    }
+}
+
 final class ProviderFailurePolicyTests: XCTestCase {
     func testDNSFailureIsRetriedOnceThenSucceeds() async throws {
         var attempts = 0
@@ -125,6 +169,23 @@ final class ProviderFailurePolicyTests: XCTestCase {
         XCTAssertEqual(attempts, 1)
     }
 
+    func testTranscriptionPolicyCanRetryTimeoutTwice() async {
+        var attempts = 0
+        do {
+            let _: String = try await ProviderFailurePolicy.performWithSafeRetries(
+                maxRetries: 2,
+                allowAmbiguousNetworkErrors: true
+            ) {
+                attempts += 1
+                throw URLError(.timedOut)
+            }
+            XCTFail("Le délai devait finir en échec")
+        } catch {
+            XCTAssertEqual((error as? URLError)?.code, .timedOut)
+        }
+        XCTAssertEqual(attempts, 3)
+    }
+
     func testRateLimitKeepsStatusAndRetryAfter() {
         let error = TranscriptionService.TranscriptionError.httpFailure(
             status: 429,
@@ -134,6 +195,57 @@ final class ProviderFailurePolicyTests: XCTestCase {
 
         XCTAssertTrue(ProviderFailurePolicy.isSafeToRetry(error))
         XCTAssertEqual(ProviderFailurePolicy.retryDelay(for: error), .seconds(1.5))
+    }
+
+    func testAuthenticationFailureIsNeverRetried() async {
+        var attempts = 0
+        do {
+            let _: String = try await ProviderFailurePolicy.performWithSafeRetries(
+                maxRetries: 2,
+                allowAmbiguousNetworkErrors: true
+            ) {
+                attempts += 1
+                throw TranscriptionService.TranscriptionError.httpFailure(
+                    status: 401,
+                    message: "invalid key",
+                    retryAfter: nil
+                )
+            }
+            XCTFail("L’authentification invalide devait arrêter immédiatement")
+        } catch {}
+        XCTAssertEqual(attempts, 1)
+    }
+
+    func testCancellationIsNeverRetried() async {
+        var attempts = 0
+        do {
+            let _: String = try await ProviderFailurePolicy.performWithSafeRetries(
+                maxRetries: 2,
+                allowAmbiguousNetworkErrors: true
+            ) {
+                attempts += 1
+                throw CancellationError()
+            }
+            XCTFail("L’annulation devait arrêter immédiatement")
+        } catch {}
+        XCTAssertEqual(attempts, 1)
+    }
+
+    func testActionableNetworkMessagesRemainDistinct() {
+        XCTAssertTrue(
+            ProviderNetworkError.offline.localizedDescription.contains(
+                "Réseau indisponible"
+            )
+        )
+        XCTAssertTrue(
+            ProviderNetworkError.timedOut.localizedDescription.contains(
+                "délai prévu"
+            )
+        )
+        XCTAssertNotEqual(
+            ProviderNetworkError.cannotResolveHost.localizedDescription,
+            ProviderNetworkError.connectionLost.localizedDescription
+        )
     }
 }
 
@@ -225,6 +337,23 @@ final class TranscriptionResponseValidatorTests: XCTestCase {
         XCTAssertEqual(
             try TranscriptionResponseValidator.validated(" Bonjour le monde. ", vocabulary: "API"),
             "Bonjour le monde."
+        )
+    }
+
+    func testProtectedPressayNameIsRestoredOnlyInApplicationContext() throws {
+        XCTAssertEqual(
+            try TranscriptionResponseValidator.validated(
+                "L’application de dictée Pressé est prête.",
+                vocabulary: "Pressay, OpenAI"
+            ),
+            "L’application de dictée Pressay est prête."
+        )
+        XCTAssertEqual(
+            try TranscriptionResponseValidator.validated(
+                "Je suis pressé de partir.",
+                vocabulary: "Pressay, OpenAI"
+            ),
+            "Je suis pressé de partir."
         )
     }
 
@@ -330,6 +459,160 @@ final class TranscriptionRequestPolicyTests: XCTestCase {
             )
         )
     }
+
+    func testGPTTranscribeUsesModernContextFieldsWithoutLogProbabilities() {
+        XCTAssertTrue(
+            TranscriptionRequestPolicy.usesPluralLanguages(
+                model: "gpt-transcribe"
+            )
+        )
+        XCTAssertTrue(
+            TranscriptionRequestPolicy.supportsKeywords(
+                model: "gpt-transcribe"
+            )
+        )
+        XCTAssertFalse(
+            TranscriptionRequestPolicy.supportsLogProbabilities(
+                model: "gpt-transcribe"
+            )
+        )
+    }
+
+    func testMiniUsesSingularLanguageAndLogProbabilitiesOnly() throws {
+        let audioURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("pressay-request-\(UUID().uuidString).wav")
+        try Data("RIFF-test-WAVE".utf8).write(to: audioURL)
+        defer { try? FileManager.default.removeItem(at: audioURL) }
+
+        let body = try TranscriptionService.makeBody(
+            audioURL: audioURL,
+            model: "gpt-4o-mini-transcribe",
+            language: "fr",
+            keywords: ["Pressay"],
+            prompt: "Dictée personnelle naturelle en français."
+        )
+        let text = String(decoding: body.data, as: UTF8.self)
+
+        XCTAssertTrue(text.contains("name=\"language\""))
+        XCTAssertFalse(text.contains("name=\"languages[]\""))
+        XCTAssertFalse(text.contains("name=\"keywords[]\""))
+        XCTAssertTrue(text.contains("name=\"include[]\""))
+        XCTAssertTrue(text.contains("gpt-4o-mini-transcribe"))
+    }
+
+    func testGPTTranscribeUsesPluralLanguageAndKeywords() throws {
+        let audioURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("pressay-request-\(UUID().uuidString).wav")
+        try Data("RIFF-test-WAVE".utf8).write(to: audioURL)
+        defer { try? FileManager.default.removeItem(at: audioURL) }
+
+        let body = try TranscriptionService.makeBody(
+            audioURL: audioURL,
+            model: "gpt-transcribe",
+            language: "fr",
+            keywords: ["Pressay", "SwiftUI"],
+            prompt: "Dictée personnelle naturelle en français."
+        )
+        let text = String(decoding: body.data, as: UTF8.self)
+
+        XCTAssertTrue(text.contains("name=\"languages[]\""))
+        XCTAssertTrue(text.contains("name=\"keywords[]\""))
+        XCTAssertFalse(text.contains("name=\"language\""))
+        XCTAssertFalse(text.contains("name=\"include[]\""))
+        XCTAssertTrue(text.contains("gpt-transcribe"))
+    }
+
+    func testRealtimeRequestUsesLowDelayAndSanitizedContext() throws {
+        let suite = "RealtimeRequest.\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        defaults.set("fr", forKey: Constants.transcriptionLanguageKey)
+        defaults.set("custom", forKey: Constants.vocabularyProfileKey)
+        defaults.set(
+            "Pressay, Pressay, <SwiftUI>, terme\ninterdit",
+            forKey: Constants.technicalVocabularyKey
+        )
+        let service = TranscriptionService(defaults: defaults)
+
+        let data = try XCTUnwrap(service.realtimeSessionUpdate().data(using: .utf8))
+        let root = try XCTUnwrap(
+            JSONSerialization.jsonObject(with: data) as? [String: Any]
+        )
+        let session = try XCTUnwrap(root["session"] as? [String: Any])
+        let audio = try XCTUnwrap(session["audio"] as? [String: Any])
+        let input = try XCTUnwrap(audio["input"] as? [String: Any])
+        let transcription = try XCTUnwrap(input["transcription"] as? [String: Any])
+
+        XCTAssertEqual(transcription["model"] as? String, "gpt-live-transcribe")
+        XCTAssertEqual(transcription["delay"] as? String, "low")
+        XCTAssertEqual(transcription["languages"] as? [String], ["fr"])
+        XCTAssertEqual(
+            transcription["keywords"] as? [String],
+            ["Pressay", "SwiftUI", "terme", "interdit"]
+        )
+    }
+}
+
+final class OpenAITranscriptionProfileTests: XCTestCase {
+    func testNewInstallationDefaultsToDirect() throws {
+        let defaults = try makeDefaults()
+        defer { clear(defaults) }
+
+        XCTAssertEqual(
+            OpenAITranscriptionProfile.migrateIfNeeded(in: defaults),
+            .liveQuality
+        )
+        XCTAssertEqual(
+            defaults.string(forKey: Constants.openAITranscriptionProfileKey),
+            OpenAITranscriptionProfile.liveQuality.rawValue
+        )
+    }
+
+    func testLegacyFastMigratesToEconomy() throws {
+        let defaults = try makeDefaults()
+        defer { clear(defaults) }
+        defaults.set(
+            TranscriptionModel.fast.rawValue,
+            forKey: Constants.transcriptionModelKey
+        )
+
+        XCTAssertEqual(
+            OpenAITranscriptionProfile.migrateIfNeeded(in: defaults),
+            .economy
+        )
+        XCTAssertFalse(TranscriptionService(defaults: defaults).realtimeEnabled)
+    }
+
+    func testLegacyAccurateMigratesToDirect() throws {
+        let defaults = try makeDefaults()
+        defer { clear(defaults) }
+        defaults.set(
+            TranscriptionModel.accurate.rawValue,
+            forKey: Constants.transcriptionModelKey
+        )
+
+        XCTAssertEqual(
+            OpenAITranscriptionProfile.migrateIfNeeded(in: defaults),
+            .liveQuality
+        )
+        XCTAssertTrue(TranscriptionService(defaults: defaults).realtimeEnabled)
+    }
+
+    private func makeDefaults() throws -> UserDefaults {
+        try XCTUnwrap(
+            UserDefaults(suiteName: "OpenAIProfile.\(UUID().uuidString)")
+        )
+    }
+
+    private func clear(_ defaults: UserDefaults) {
+        if let name = defaults.volatileDomainNames.first(where: {
+            $0.hasPrefix("OpenAIProfile.")
+        }) {
+            defaults.removePersistentDomain(forName: name)
+        }
+        defaults.removeObject(forKey: Constants.openAITranscriptionProfileKey)
+        defaults.removeObject(forKey: Constants.transcriptionModelKey)
+    }
 }
 
 final class OpenAILiveSmokeTests: XCTestCase {
@@ -351,8 +634,8 @@ final class OpenAILiveSmokeTests: XCTestCase {
         defaults.set("fr", forKey: Constants.transcriptionLanguageKey)
         defaults.set("general", forKey: Constants.vocabularyProfileKey)
         defaults.set(
-            Constants.defaultTranscriptionModel,
-            forKey: Constants.transcriptionModelKey
+            OpenAITranscriptionProfile.liveQuality.rawValue,
+            forKey: Constants.openAITranscriptionProfileKey
         )
         defaults.set(
             Constants.defaultProcessingModel,
@@ -360,9 +643,29 @@ final class OpenAILiveSmokeTests: XCTestCase {
         )
 
         let transcriber = TranscriptionService(defaults: defaults)
-        let batch = try await transcriber.transcribe(audioURL: audioURL)
-        XCTAssertTrue(Self.looksLikeSmokeTranscript(batch.text), batch.text)
-        XCTAssertNotNil(batch.networkMetrics)
+        let directFallback = try await transcriber.transcribe(audioURL: audioURL)
+        XCTAssertTrue(
+            Self.looksLikeSmokeTranscript(directFallback.text),
+            directFallback.text
+        )
+        XCTAssertEqual(directFallback.modelIdentifier, "gpt-transcribe")
+        XCTAssertNil(directFallback.averageLogProbability)
+        XCTAssertNotNil(directFallback.networkMetrics)
+
+        defaults.set(
+            OpenAITranscriptionProfile.economy.rawValue,
+            forKey: Constants.openAITranscriptionProfileKey
+        )
+        let economy = try await transcriber.transcribe(audioURL: audioURL)
+        XCTAssertTrue(Self.looksLikeSmokeTranscript(economy.text), economy.text)
+        XCTAssertEqual(economy.modelIdentifier, "gpt-4o-mini-transcribe")
+        XCTAssertNotNil(economy.averageLogProbability)
+        XCTAssertNotNil(economy.networkMetrics)
+
+        defaults.set(
+            OpenAITranscriptionProfile.liveQuality.rawValue,
+            forKey: Constants.openAITranscriptionProfileKey
+        )
 
         let realtimePCM = try Self.pcmPayload(fromWAV: audioURL)
         do {
@@ -408,9 +711,160 @@ final class OpenAILiveSmokeTests: XCTestCase {
         XCTAssertNotNil(processed.networkMetrics)
     }
 
+    func testRepresentativeCorpusAgainstAllTranscriptionPaths() async throws {
+        let environment = ProcessInfo.processInfo.environment
+        guard let corpusPath = environment["PRESSAY_LIVE_CORPUS_DIRECTORY"],
+              !corpusPath.isEmpty,
+              corpusPath != "$(PRESSAY_LIVE_CORPUS_DIRECTORY)"
+        else {
+            throw XCTSkip("Corpus OpenAI réel désactivé")
+        }
+        let corpusURL = URL(fileURLWithPath: corpusPath, isDirectory: true)
+        let manifestData = try Data(
+            contentsOf: corpusURL.appendingPathComponent("manifest.json")
+        )
+        let fixtures = try JSONDecoder().decode(
+            [LiveCorpusFixture].self,
+            from: manifestData
+        )
+        XCTAssertGreaterThanOrEqual(fixtures.count, 12)
+
+        let suiteName = "OpenAICorpus.\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        defaults.set("custom", forKey: Constants.vocabularyProfileKey)
+        defaults.set(
+            "Pressay, OpenAI, SwiftUI, GitHub, Yodev, MCP",
+            forKey: Constants.technicalVocabularyKey
+        )
+        var liveFinalizationSeconds: [TimeInterval] = []
+        var economySeconds: [TimeInterval] = []
+
+        for fixture in fixtures {
+            let audioURL = corpusURL.appendingPathComponent(fixture.file)
+            XCTAssertTrue(FileManager.default.fileExists(atPath: audioURL.path))
+            defaults.set(fixture.language, forKey: Constants.transcriptionLanguageKey)
+
+            defaults.set(
+                OpenAITranscriptionProfile.liveQuality.rawValue,
+                forKey: Constants.openAITranscriptionProfileKey
+            )
+            let fallbackTranscriber = TranscriptionService(defaults: defaults)
+            let fallback = try await fallbackTranscriber.transcribe(
+                audioURL: audioURL
+            )
+            XCTAssertEqual(fallback.modelIdentifier, "gpt-transcribe")
+            assertProtectedTerms(fixture.protectedTerms, in: fallback.text)
+
+            defaults.set(
+                OpenAITranscriptionProfile.economy.rawValue,
+                forKey: Constants.openAITranscriptionProfileKey
+            )
+            let economyTranscriber = TranscriptionService(defaults: defaults)
+            let economyStartedAt = Date()
+            let economy = try await economyTranscriber.transcribe(
+                audioURL: audioURL
+            )
+            economySeconds.append(Date().timeIntervalSince(economyStartedAt))
+            XCTAssertEqual(economy.modelIdentifier, "gpt-4o-mini-transcribe")
+            assertProtectedTerms(fixture.protectedTerms, in: economy.text)
+
+            defaults.set(
+                OpenAITranscriptionProfile.liveQuality.rawValue,
+                forKey: Constants.openAITranscriptionProfileKey
+            )
+            let liveTranscriber = TranscriptionService(defaults: defaults)
+            let livePreview = LockedTextCapture()
+            liveTranscriber.setRealtimeTranscriptHandler { text in
+                livePreview.update(text)
+            }
+            try await liveTranscriber.startRealtimeTranscription()
+            let realtimePCM = try Self.pcmPayload(fromWAV: audioURL)
+            for chunkStart in stride(from: 0, to: realtimePCM.count, by: 4_800) {
+                let chunkEnd = min(chunkStart + 4_800, realtimePCM.count)
+                liveTranscriber.appendRealtimeAudio(
+                    realtimePCM.subdata(in: chunkStart..<chunkEnd)
+                )
+                try await Task.sleep(for: .milliseconds(100))
+            }
+            let audioDuration = Double(realtimePCM.count) / (24_000 * 2)
+            if audioDuration >= 1 {
+                XCTAssertFalse(
+                    livePreview.value.isEmpty,
+                    "Aucun texte Direct reçu pendant \(fixture.file)"
+                )
+            }
+            let finalizationStartedAt = Date()
+            let live = try await liveTranscriber.finishRealtimeTranscription()
+            liveFinalizationSeconds.append(
+                Date().timeIntervalSince(finalizationStartedAt)
+            )
+            XCTAssertEqual(live.modelIdentifier, "gpt-live-transcribe")
+            assertProtectedTerms(fixture.protectedTerms, in: live.text)
+        }
+
+        let liveMedian = try XCTUnwrap(Self.median(liveFinalizationSeconds))
+        let economyMedian = try XCTUnwrap(Self.median(economySeconds))
+        print(
+            "PRESSAY_OPENAI_EVAL "
+                + "samples=\(fixtures.count) "
+                + "live_finalization_median=\(liveMedian) "
+                + "economy_median=\(economyMedian)"
+        )
+        XCTAssertLessThanOrEqual(liveMedian, economyMedian)
+    }
+
     private static func looksLikeSmokeTranscript(_ text: String) -> Bool {
         let normalized = TranscriptionResponseValidator.normalized(text)
         return normalized.contains("bonjour") && normalized.contains("test")
+    }
+
+    private func assertProtectedTerms(
+        _ terms: [String],
+        in transcription: String,
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) {
+        let normalized = TranscriptionResponseValidator.normalized(transcription)
+        XCTAssertFalse(normalized.isEmpty, file: file, line: line)
+        for term in terms {
+            XCTAssertTrue(
+                normalized.contains(
+                    TranscriptionResponseValidator.normalized(term)
+                ),
+                "Terme protégé absent : \(term)",
+                file: file,
+                line: line
+            )
+        }
+    }
+
+    private static func median(_ values: [TimeInterval]) -> TimeInterval? {
+        guard !values.isEmpty else { return nil }
+        let sorted = values.sorted()
+        let middle = sorted.count / 2
+        return sorted.count.isMultiple(of: 2)
+            ? (sorted[middle - 1] + sorted[middle]) / 2
+            : sorted[middle]
+    }
+
+    private struct LiveCorpusFixture: Decodable {
+        let file: String
+        let language: String
+        let protectedTerms: [String]
+    }
+
+    private final class LockedTextCapture: @unchecked Sendable {
+        private let lock = NSLock()
+        private var text = ""
+
+        var value: String {
+            lock.withLock { text }
+        }
+
+        func update(_ value: String) {
+            lock.withLock { text = value }
+        }
     }
 
     private static func pcmPayload(fromWAV url: URL) throws -> Data {
@@ -1611,6 +2065,9 @@ final class DiagnosticReportTests: XCTestCase {
         XCTAssertTrue(json.contains("\"customModeCount\" : 2"))
         XCTAssertTrue(json.contains("\"applicationProfileCount\" : 3"))
         XCTAssertTrue(json.contains("\"transcriptionProvider\" : \"openai\""))
+        XCTAssertTrue(json.contains("\"schemaVersion\" : 4"))
+        XCTAssertTrue(json.contains("\"openAITranscriptionProfile\" : \"live-quality\""))
+        XCTAssertTrue(json.contains("\"resolvedTranscriptionModel\" : \"gpt-live-transcribe\""))
     }
 }
 
@@ -3017,9 +3474,71 @@ final class SessionCoordinatorTests: XCTestCase {
         XCTAssertEqual(delivery.insertedTexts, ["Repli batch"])
     }
 
-    func testCloudTranscriptionTimeoutNamesTheFailingPhase() async throws {
+    func testAllRealtimeTerminalFailuresFallBackToOneBatchRequest() async throws {
+        let errors: [Error] = [
+            URLError(.cannotFindHost),
+            URLError(.networkConnectionLost),
+            URLError(.timedOut),
+            TranscriptionService.TranscriptionError.noSpeech,
+            TranscriptionService.TranscriptionError.invalidResponse
+        ]
+
+        for error in errors {
+            let transcriber = MockRealtimeSpeechTranscriber(
+                realtimeText: "",
+                batchText: "Repli borné",
+                finishError: error
+            )
+            let coordinator = makeCoordinator(
+                audio: MockAudioCapturer(result: speechResult()),
+                transcriber: transcriber,
+                context: MockContextCapturer(
+                    result: .init(target: nil, context: .empty)
+                ),
+                delivery: MockTextDeliverer(shouldInsert: true),
+                history: MockHistoryRepository()
+            )
+
+            coordinator.startCapture()
+            coordinator.stopCaptureAndQueue()
+            try await waitUntilFinished(coordinator)
+
+            XCTAssertEqual(transcriber.finishCount, 1)
+            XCTAssertEqual(transcriber.batchCallCount, 1)
+            XCTAssertEqual(coordinator.lastSession?.finalText, "Repli borné")
+        }
+    }
+
+    func testEconomyStrategyNeverStartsRealtime() async throws {
+        let transcriber = MockRealtimeSpeechTranscriber(
+            realtimeEnabled: false,
+            realtimeText: "Ne doit pas servir",
+            batchText: "Mini différé"
+        )
         let coordinator = makeCoordinator(
             audio: MockAudioCapturer(result: speechResult()),
+            transcriber: transcriber,
+            context: MockContextCapturer(
+                result: .init(target: nil, context: .empty)
+            ),
+            delivery: MockTextDeliverer(shouldInsert: true),
+            history: MockHistoryRepository()
+        )
+
+        coordinator.startCapture()
+        coordinator.stopCaptureAndQueue()
+        try await waitUntilFinished(coordinator)
+
+        XCTAssertEqual(transcriber.startCount, 0)
+        XCTAssertEqual(transcriber.finishCount, 0)
+        XCTAssertEqual(transcriber.batchCallCount, 1)
+        XCTAssertEqual(coordinator.lastSession?.finalText, "Mini différé")
+    }
+
+    func testCloudTranscriptionTimeoutNamesTheFailingPhase() async throws {
+        let audio = MockAudioCapturer(result: speechResult())
+        let coordinator = makeCoordinator(
+            audio: audio,
             transcriber: MockSpeechTranscriber(
                 text: "Trop lent",
                 delay: .seconds(1)
@@ -3043,6 +3562,7 @@ final class SessionCoordinatorTests: XCTestCase {
         guard case .failed = coordinator.lastSession?.state else {
             return XCTFail("La session devait être marquée en échec")
         }
+        XCTAssertTrue(audio.cleanedURLs.contains(speechResult().url))
     }
 
     func testFailedInstantDictationCanRetryRetainedAudio() async throws {
@@ -3951,6 +4471,7 @@ private final class MockRealtimeSpeechTranscriber: RealtimeSpeechTranscribing {
     let realtimeText: String
     let batchText: String
     let finishError: Error?
+    let realtimeEnabled: Bool
     var startCount = 0
     var finishCount = 0
     var batchCallCount = 0
@@ -3958,10 +4479,12 @@ private final class MockRealtimeSpeechTranscriber: RealtimeSpeechTranscribing {
     var receivedAudio = Data()
 
     init(
+        realtimeEnabled: Bool = true,
         realtimeText: String,
         batchText: String = "Repli batch",
         finishError: Error? = nil
     ) {
+        self.realtimeEnabled = realtimeEnabled
         self.realtimeText = realtimeText
         self.batchText = batchText
         self.finishError = finishError

@@ -380,12 +380,10 @@ final class StatusItemController: NSObject, ObservableObject {
         let hostingController = NSHostingController(rootView: rootView)
         popover.contentViewController = hostingController
         popover.behavior = .transient
-        popover.animates = true
-        hostingController.view.layoutSubtreeIfNeeded()
-        let fittingHeight = hostingController.view.fittingSize.height
+        popover.animates = !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
         popover.contentSize = NSSize(
-            width: 316,
-            height: min(max(fittingHeight, 360), 720)
+            width: 380,
+            height: 660
         )
 
         if let button = statusItem.button {
@@ -426,9 +424,17 @@ final class StatusItemController: NSObject, ObservableObject {
             return
         }
 
+        let availableHeight = sender.window?.screen?.visibleFrame.height ?? 740
+        popover.animates = !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
+        popover.contentSize = NSSize(
+            width: 380,
+            height: min(700, max(520, availableHeight - 48))
+        )
+
         // Keep the destination application frontmost. Activating Pressay here
         // makes a dictation started from the popover capture Pressay itself as
         // the target, so delivery can only fall back to the pasteboard.
+        NotificationCenter.default.post(name: .pressayPopoverWillOpen, object: nil)
         popover.show(
             relativeTo: sender.bounds,
             of: sender,
@@ -521,6 +527,9 @@ final class PressayApplicationDelegate: NSObject, NSApplicationDelegate {
             AppMigrationService().runIfNeeded()
         }
 #endif
+        if !Constants.isRunningTests {
+            OpenAITranscriptionProfile.migrateIfNeeded()
+        }
         appState = AppState()
         updateService = UpdateService()
         super.init()

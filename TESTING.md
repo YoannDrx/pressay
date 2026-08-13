@@ -16,6 +16,10 @@ La cible `PressayTests` couvre :
 - pic sonore bref rejeté et voix détectée au-dessus du bruit ambiant ;
 - voix au-dessus d'un bruit ambiant adaptatif ;
 - réponse vide ou égale au vocabulaire/prompt français ou anglais ;
+- migration des profils OpenAI, politiques de paramètres par modèle,
+  nettoyage des mots-clés et absence de double appel après un succès Direct ;
+- replis Realtime bornés, respect de `Retry-After`, arrêt immédiat sur
+  annulation/authentification et nettoyage de l’audio dans les chemins terminaux ;
 - assemblage multipart et délimiteur final ;
 - expiration de l'historique ;
 - migration idempotente depuis `fr.yodev.whisper` et `com.hyrak.whisper` ;
@@ -50,10 +54,33 @@ La cible `PressayTests` couvre :
 - restauration exacte d'un presse-papiers riche et multi-item après insertion,
   avec préservation d'une copie concurrente de l'utilisateur.
 
-La suite contient actuellement **114 tests Swift et 2 tests Python actifs**.
 Les anciens scénarios multi-provider/OIDC placés derrière `#if false` ne sont
-pas comptés. Cette suite ne remplace ni les tests AX réels ni la matrice
-interapplications.
+pas comptés. La suite locale affiche son nombre exact à chaque exécution. Elle
+ne remplace ni les tests AX réels ni la matrice interapplications.
+
+## Corpus OpenAI réel
+
+Le test `OpenAILiveSmokeTests/testRepresentativeCorpusAgainstAllTranscriptionPaths`
+attend un dossier externe contenant `manifest.json` et au moins douze WAV PCM
+24 kHz mono non sensibles. Pour transmettre explicitement ce dossier au
+processus de test macOS :
+
+```bash
+launchctl setenv PRESSAY_LIVE_CORPUS_DIRECTORY /private/tmp/pressay-openai-corpus
+xcodebuild test \
+  -project Pressay.xcodeproj \
+  -scheme Pressay \
+  -destination 'platform=macOS' \
+  -only-testing:PressayTests/OpenAILiveSmokeTests/testRepresentativeCorpusAgainstAllTranscriptionPaths \
+  CODE_SIGNING_ALLOWED=NO
+launchctl unsetenv PRESSAY_LIVE_CORPUS_DIRECTORY
+```
+
+Chaque entrée du manifeste contient `file`, `language` et `protectedTerms`.
+Le test isole les connexions, vérifie les trois parcours, les résultats vides,
+les termes protégés, le texte Direct reçu pendant les dictées d’au moins une
+seconde et la médiane après relâchement. Ni la clé ni les transcriptions ne sont
+écrites dans le dépôt ou les journaux de diagnostic de Pressay.
 
 ## Vérifications de release automatisées
 

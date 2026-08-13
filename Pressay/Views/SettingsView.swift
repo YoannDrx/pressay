@@ -17,11 +17,12 @@ struct SettingsView: View {
     @State private var diagnosticsMessage: String?
     @State private var selectedPage = SettingsPage.general
     @State private var settingsSearch = ""
+    @State private var showsOpenAIModelDetails = false
 
     @AppStorage(Constants.transcriptionLanguageKey)
     private var language = Constants.defaultTranscriptionLanguage
-    @AppStorage(Constants.transcriptionModelKey)
-    private var model = Constants.defaultTranscriptionModel
+    @AppStorage(Constants.openAITranscriptionProfileKey)
+    private var openAIProfile = Constants.defaultOpenAITranscriptionProfile
     @AppStorage(Constants.processingModelKey)
     private var processingModel = Constants.defaultProcessingModel
     @AppStorage(Constants.transcriptionEngineKey)
@@ -250,7 +251,11 @@ struct SettingsView: View {
 
                 Divider().opacity(0.45)
                 if transcriptionEngine == TranscriptionEngine.openAI.rawValue {
-                    openAICredentialRow
+                    VStack(alignment: .leading, spacing: 14) {
+                        openAIProfilePicker
+                        Divider().opacity(0.45)
+                        openAICredentialRow
+                    }
                 } else {
                     VStack(alignment: .leading, spacing: 9) {
                         HStack {
@@ -281,7 +286,7 @@ struct SettingsView: View {
                 VStack(alignment: .leading, spacing: 2) {
                     Text("OpenAI")
                         .font(.system(size: 12, weight: .semibold))
-                    Text("gpt-4o-mini-transcribe · rapide et fiable")
+                    Text("Clé API personnelle · facturation directe par OpenAI")
                         .font(.system(size: 10))
                         .foregroundStyle(.secondary)
                 }
@@ -327,6 +332,106 @@ struct SettingsView: View {
                     .font(.system(size: 10))
                     .foregroundStyle(apiKeyValidationMessage.success ? .green : .orange)
             }
+        }
+    }
+
+    private var openAIProfilePicker: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Text("QUALITÉ DE TRANSCRIPTION OPENAI")
+                .font(.system(size: 9, weight: .bold))
+                .foregroundStyle(.secondary)
+
+            HStack(spacing: 10) {
+                ForEach(OpenAITranscriptionProfile.allCases) { profile in
+                    Button {
+                        openAIProfile = profile.rawValue
+                    } label: {
+                        VStack(alignment: .leading, spacing: 6) {
+                            HStack {
+                                Image(
+                                    systemName: profile == .liveQuality
+                                        ? "waveform.badge.mic"
+                                        : "leaf"
+                                )
+                                Text(
+                                    profile == .liveQuality
+                                        ? "Direct — recommandé"
+                                        : profile.label
+                                )
+                                .font(.system(size: 11, weight: .semibold))
+                                Spacer()
+                                Image(
+                                    systemName: openAIProfile == profile.rawValue
+                                        ? "checkmark.circle.fill"
+                                        : "circle"
+                                )
+                                .foregroundStyle(
+                                    openAIProfile == profile.rawValue
+                                        ? Color.accentColor
+                                        : Color.secondary
+                                )
+                            }
+                            Text(profile.detail)
+                                .font(.system(size: 9))
+                                .foregroundStyle(.secondary)
+                                .fixedSize(horizontal: false, vertical: true)
+                        }
+                        .padding(10)
+                        .frame(maxWidth: .infinity, minHeight: 86, alignment: .topLeading)
+                        .background(
+                            openAIProfile == profile.rawValue
+                                ? Color.accentColor.opacity(0.10)
+                                : Color.primary.opacity(0.035),
+                            in: RoundedRectangle(cornerRadius: 10)
+                        )
+                        .overlay {
+                            RoundedRectangle(cornerRadius: 10)
+                                .stroke(
+                                    openAIProfile == profile.rawValue
+                                        ? Color.accentColor.opacity(0.45)
+                                        : Color.secondary.opacity(0.15)
+                                )
+                        }
+                        .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel("Profil \(profile.label)")
+                    .accessibilityValue(
+                        openAIProfile == profile.rawValue ? "Sélectionné" : "Non sélectionné"
+                    )
+                }
+            }
+
+            DisclosureGroup(
+                "Modèles et fonctionnement",
+                isExpanded: $showsOpenAIModelDetails
+            ) {
+                VStack(alignment: .leading, spacing: 5) {
+                    Text("Direct : gpt-live-transcribe, avec gpt-transcribe uniquement si le direct échoue.")
+                    Text("Économie : gpt-4o-mini-transcribe après la fin de la dictée.")
+                    Text("WhisperKit reste entièrement local et n’entraîne aucun coût API.")
+                }
+                .font(.system(size: 9))
+                .foregroundStyle(.secondary)
+                .padding(.top, 5)
+            }
+            .font(.system(size: 10, weight: .medium))
+
+            HStack(spacing: 12) {
+                Link(
+                    "Temps réel ↗",
+                    destination: URL(string: "https://developers.openai.com/api/docs/guides/realtime-transcription")!
+                )
+                Link(
+                    "Transcription de fichiers ↗",
+                    destination: URL(string: "https://developers.openai.com/api/reference/resources/audio/subresources/transcriptions/methods/create")!
+                )
+                Link(
+                    "Tarifs OpenAI ↗",
+                    destination: URL(string: "https://developers.openai.com/api/docs/pricing")!
+                )
+            }
+            .font(.system(size: 9))
         }
     }
 
@@ -386,12 +491,6 @@ struct SettingsView: View {
                     Text("Français").tag("fr")
                     Text("Anglais").tag("en")
                     Text("Automatique").tag("")
-                }
-                Divider().opacity(0.45)
-                settingPicker(title: "Modèle", detail: "Même API, compromis coût / précision.", selection: $model) {
-                    ForEach(TranscriptionModel.allCases) { item in
-                        Text(item.label).tag(item.rawValue)
-                    }
                 }
                 Divider().opacity(0.45)
                 settingPicker(title: "Profil de vocabulaire", detail: "Seul le profil actif est envoyé avec l’audio.", selection: $vocabularyProfile) {
