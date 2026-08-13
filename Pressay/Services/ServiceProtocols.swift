@@ -129,10 +129,17 @@ protocol SpeechTranscribing: AnyObject {
 }
 
 protocol RealtimeSpeechTranscribing: SpeechTranscribing {
+    var realtimeEnabled: Bool { get }
+    func setRealtimeTranscriptHandler(_ handler: ((String) -> Void)?)
     func startRealtimeTranscription() async throws
     func appendRealtimeAudio(_ data: Data)
     func finishRealtimeTranscription() async throws -> TranscriptionResult
     func cancelRealtimeTranscription()
+}
+
+extension RealtimeSpeechTranscribing {
+    var realtimeEnabled: Bool { true }
+    func setRealtimeTranscriptHandler(_ handler: ((String) -> Void)?) {}
 }
 
 extension SpeechTranscribing {
@@ -467,7 +474,7 @@ enum ProviderFailurePolicy {
         default:
             retryAfter = nil
         }
-        return .milliseconds(Int(min(max(retryAfter ?? 0.35, 0.1), 3) * 1_000))
+        return .milliseconds(Int(min(max(retryAfter ?? 0.35, 0.1), 30) * 1_000))
     }
 
     static func performWithOneSafeRetry<T>(
@@ -479,6 +486,34 @@ enum ProviderFailurePolicy {
             guard isSafeToRetry(error), !Task.isCancelled else { throw error }
             try await Task.sleep(for: retryDelay(for: error))
             return try await operation()
+        }
+    }
+
+    static func performWithSafeRetries<T>(
+        maxRetries: Int,
+        allowAmbiguousNetworkErrors: Bool = false,
+        _ operation: () async throws -> T
+    ) async throws -> T {
+        var retry = 0
+        while true {
+            do {
+                return try await operation()
+            } catch {
+                let retryable = allowAmbiguousNetworkErrors
+                    ? isTransient(error)
+                    : isSafeToRetry(error)
+                guard retry < maxRetries,
+                      retryable,
+                      !Task.isCancelled else {
+                    throw error
+                }
+                let baseDelay = retryDelay(for: error)
+                let jitterMilliseconds = Int.random(in: 0...150)
+                try await Task.sleep(
+                    for: baseDelay + .milliseconds(retry * 450 + jitterMilliseconds)
+                )
+                retry += 1
+            }
         }
     }
 
@@ -525,13 +560,13 @@ enum ProviderNetworkError: LocalizedError, Equatable {
         case .cannotResolveHost:
             "Impossible de joindre OpenAI — vérifie ta connexion, ton DNS ou ton VPN"
         case .offline:
-            "Aucune connexion Internet — vérifie le réseau puis réessaie"
+            "Réseau indisponible — vérifie ta connexion puis réessaie"
         case .cannotConnect:
             "Connexion à OpenAI impossible — vérifie le réseau, le pare-feu ou le VPN"
         case .connectionLost:
             "La connexion à OpenAI a été interrompue — tu peux réessayer"
         case .timedOut:
-            "OpenAI n’a pas répondu à temps — tu peux réessayer"
+            "OpenAI ne répond pas dans le délai prévu — tu peux réessayer"
         }
     }
 }

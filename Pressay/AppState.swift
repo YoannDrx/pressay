@@ -20,6 +20,18 @@ final class AppState: ObservableObject {
     var pendingCount: Int { sessionCoordinator.pendingCount }
     var lastError: String? { sessionCoordinator.lastError }
     var lastNotice: String? { sessionCoordinator.lastNotice }
+    var lastTranscriptionModel: String? {
+        sessionCoordinator.lastTranscriptionModel
+    }
+    var lastTranscriptionFallbackReason: String? {
+        sessionCoordinator.lastTranscriptionFallbackReason
+    }
+    var lastTranscriptionMetrics: NetworkRequestMetrics? {
+        sessionCoordinator.lastTranscriptionMetrics
+    }
+    var realtimeTranscriptPreview: String? {
+        sessionCoordinator.realtimeTranscriptPreview
+    }
 
     convenience init() {
         let contextCapturer: ContextCapturing = AccessibilityContextService.shared

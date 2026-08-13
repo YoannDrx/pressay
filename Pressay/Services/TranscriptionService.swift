@@ -4,15 +4,21 @@ struct TranscriptionResult: Equatable {
     let text: String
     let averageLogProbability: Double?
     let networkMetrics: NetworkRequestMetrics?
+    let modelIdentifier: String?
+    let profile: OpenAITranscriptionProfile?
 
     init(
         text: String,
         averageLogProbability: Double?,
-        networkMetrics: NetworkRequestMetrics? = nil
+        networkMetrics: NetworkRequestMetrics? = nil,
+        modelIdentifier: String? = nil,
+        profile: OpenAITranscriptionProfile? = nil
     ) {
         self.text = text
         self.averageLogProbability = averageLogProbability
         self.networkMetrics = networkMetrics
+        self.modelIdentifier = modelIdentifier
+        self.profile = profile
     }
 
     var isLowConfidence: Bool {
@@ -28,14 +34,21 @@ enum TranscriptionResponseValidator {
     private static let wordExpression = try! NSRegularExpression(
         pattern: "[\\p{L}\\p{N}]+"
     )
+    private static let pressayApplicationExpression = try! NSRegularExpression(
+        pattern: "(?i)(\\b(?:application(?:\\s+de\\s+dictée)?|outil(?:\\s+de\\s+dictée)?|logiciel(?:\\s+de\\s+dictée)?|dictée)\\s+)(?:press[ée]|presay|présé)\\b"
+    )
 
     static func validated(
         _ text: String,
         vocabulary: String,
         prompt: String? = nil
     ) throws -> String {
-        let cleanText = removeKnownHallucinatedEnding(
+        let rawCleanText = removeKnownHallucinatedEnding(
             from: text.trimmingCharacters(in: .whitespacesAndNewlines)
+        )
+        let cleanText = restoreProtectedProductNames(
+            in: rawCleanText,
+            vocabulary: vocabulary
         )
         guard !cleanText.isEmpty else {
             throw TranscriptionService.TranscriptionError.noSpeech
@@ -49,6 +62,20 @@ enum TranscriptionResponseValidator {
             throw TranscriptionService.TranscriptionError.noSpeech
         }
         return cleanText
+    }
+
+    private static func restoreProtectedProductNames(
+        in text: String,
+        vocabulary: String
+    ) -> String {
+        guard normalized(vocabulary).split(separator: " ").contains("pressay")
+        else { return text }
+        let range = NSRange(text.startIndex..<text.endIndex, in: text)
+        return pressayApplicationExpression.stringByReplacingMatches(
+            in: text,
+            range: range,
+            withTemplate: "$1Pressay"
+        )
     }
 
     private static func removeKnownHallucinatedEnding(from text: String) -> String {
@@ -119,9 +146,17 @@ final class TranscriptionService: SpeechTranscribing {
     private var realtimeReadyCompletion: Result<Void, Error>?
     private var realtimeReadyWaiter: CheckedContinuation<Void, Error>?
     private var realtimePendingAudio: [Data] = []
+    private var realtimeStartedAt: Date?
+    private var realtimeReadyAt: Date?
+    private var realtimeFirstTextAt: Date?
+    private var realtimeDeltaText = ""
+    private var realtimeTranscriptHandler: ((String) -> Void)?
 
     var identifier: String { "openai" }
     var isReady: Bool { apiKeyProvider() != nil }
+    var realtimeEnabled: Bool {
+        OpenAITranscriptionProfile.current(in: defaults).usesRealtime
+    }
 
     init(
         session: URLSession? = nil,
@@ -173,6 +208,7 @@ final class TranscriptionService: SpeechTranscribing {
 
         let type: String
         let transcript: String?
+        let delta: String?
         let error: RealtimeError?
     }
 
@@ -190,8 +226,8 @@ final class TranscriptionService: SpeechTranscribing {
         let language = defaults.string(forKey: Constants.transcriptionLanguageKey)
             ?? Constants.defaultTranscriptionLanguage
         let vocabulary = Self.selectedVocabulary(preferences: defaults)
-        let model = defaults.string(forKey: Constants.transcriptionModelKey)
-            ?? Constants.defaultTranscriptionModel
+        let profile = OpenAITranscriptionProfile.current(in: defaults)
+        let model = profile.batchModel
         let prepared = try await Task.detached(priority: .userInitiated) {
             try Self.prepareRequest(
                 audioURL: audioURL,
@@ -206,7 +242,10 @@ final class TranscriptionService: SpeechTranscribing {
         let decoded: TranscriptionResponse
         var requestMetrics: [NetworkRequestMetrics] = []
         do {
-            decoded = try await ProviderFailurePolicy.performWithOneSafeRetry {
+            decoded = try await ProviderFailurePolicy.performWithSafeRetries(
+                maxRetries: 2,
+                allowAmbiguousNetworkErrors: true
+            ) {
                 let collector = NetworkTaskMetricsCollector()
                 let startedAt = Date()
                 let data: Data
@@ -261,7 +300,9 @@ final class TranscriptionService: SpeechTranscribing {
         return TranscriptionResult(
             text: cleanText,
             averageLogProbability: averageLogProbability,
-            networkMetrics: .combined(requestMetrics)
+            networkMetrics: .combined(requestMetrics),
+            modelIdentifier: model,
+            profile: profile
         )
     }
 
@@ -334,6 +375,12 @@ final class TranscriptionService: SpeechTranscribing {
         }
     }
 
+    func setRealtimeTranscriptHandler(_ handler: ((String) -> Void)?) {
+        realtimeLock.lock()
+        realtimeTranscriptHandler = handler
+        realtimeLock.unlock()
+    }
+
     func appendRealtimeAudio(_ data: Data) {
         realtimeLock.lock()
         let continuation = realtimeAudioContinuation
@@ -381,6 +428,11 @@ final class TranscriptionService: SpeechTranscribing {
         realtimeReadyCompletion = nil
         realtimeReadyWaiter = nil
         realtimePendingAudio.removeAll(keepingCapacity: true)
+        realtimeStartedAt = nil
+        realtimeReadyAt = nil
+        realtimeFirstTextAt = nil
+        realtimeDeltaText = ""
+        realtimeTranscriptHandler = nil
         realtimeLock.unlock()
 
         continuation?.finish()
@@ -403,6 +455,10 @@ final class TranscriptionService: SpeechTranscribing {
         realtimeWaiter = nil
         realtimeReadyCompletion = nil
         realtimeReadyWaiter = nil
+        realtimeStartedAt = Date()
+        realtimeReadyAt = nil
+        realtimeFirstTextAt = nil
+        realtimeDeltaText = ""
         let pending = realtimePendingAudio
         realtimePendingAudio.removeAll(keepingCapacity: true)
         return pending
@@ -424,17 +480,14 @@ final class TranscriptionService: SpeechTranscribing {
         return state
     }
 
-    private func realtimeSessionUpdate() throws -> String {
+    func realtimeSessionUpdate() throws -> String {
         let language = defaults.string(forKey: Constants.transcriptionLanguageKey)
             ?? Constants.defaultTranscriptionLanguage
         let vocabulary = Self.selectedVocabulary(preferences: defaults)
-        let keywords = vocabulary
-            .split(separator: ",")
-            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
-            .filter { !$0.isEmpty }
+        let keywords = Self.sanitizedKeywords(from: vocabulary)
         var transcription: [String: Any] = [
             "model": "gpt-live-transcribe",
-            "delay": "minimal"
+            "delay": "low"
         ]
         if !language.isEmpty { transcription["languages"] = [language] }
         if !keywords.isEmpty { transcription["keywords"] = keywords }
@@ -488,7 +541,19 @@ final class TranscriptionService: SpeechTranscribing {
         ) else { return }
         switch event.type {
         case "session.updated":
+            realtimeLock.lock()
+            realtimeReadyAt = Date()
+            realtimeLock.unlock()
             completeRealtimeReady(.success(()))
+        case "conversation.item.input_audio_transcription.delta":
+            guard let delta = event.delta, !delta.isEmpty else { break }
+            realtimeLock.lock()
+            if realtimeFirstTextAt == nil { realtimeFirstTextAt = Date() }
+            realtimeDeltaText += delta
+            let partialText = realtimeDeltaText
+            let handler = realtimeTranscriptHandler
+            realtimeLock.unlock()
+            handler?(partialText)
         case "conversation.item.input_audio_transcription.completed":
             do {
                 let vocabulary = Self.selectedVocabulary(preferences: defaults)
@@ -496,11 +561,18 @@ final class TranscriptionService: SpeechTranscribing {
                     event.transcript ?? "",
                     vocabulary: vocabulary
                 )
+                realtimeLock.lock()
+                let handler = realtimeTranscriptHandler
+                realtimeLock.unlock()
+                handler?(text)
                 completeRealtime(
                     .success(
                         TranscriptionResult(
                             text: text,
-                            averageLogProbability: nil
+                            averageLogProbability: nil,
+                            networkMetrics: realtimeMetrics(finalizedAt: Date()),
+                            modelIdentifier: "gpt-live-transcribe",
+                            profile: .liveQuality
                         )
                     )
                 )
@@ -517,6 +589,30 @@ final class TranscriptionService: SpeechTranscribing {
         default:
             break
         }
+    }
+
+    private func realtimeMetrics(finalizedAt: Date) -> NetworkRequestMetrics? {
+        realtimeLock.lock()
+        let startedAt = realtimeStartedAt
+        let readyAt = realtimeReadyAt
+        let firstTextAt = realtimeFirstTextAt
+        realtimeLock.unlock()
+        guard let startedAt else { return nil }
+        return NetworkRequestMetrics(
+            dnsSeconds: nil,
+            connectionSeconds: readyAt.map {
+                max(0, $0.timeIntervalSince(startedAt))
+            },
+            tlsSeconds: nil,
+            requestSeconds: nil,
+            timeToFirstByteSeconds: firstTextAt.map {
+                max(0, $0.timeIntervalSince(startedAt))
+            },
+            responseSeconds: nil,
+            totalSeconds: max(0, finalizedAt.timeIntervalSince(startedAt)),
+            attempts: 1,
+            reusedConnection: false
+        )
     }
 
     private func completeRealtime(
@@ -589,6 +685,7 @@ final class TranscriptionService: SpeechTranscribing {
             audioURL: audioURL,
             model: model,
             language: language,
+            keywords: sanitizedKeywords(from: vocabulary),
             prompt: prompt
         )
 
@@ -621,10 +718,11 @@ final class TranscriptionService: SpeechTranscribing {
         }
     }
 
-    private static func makeBody(
+    static func makeBody(
         audioURL: URL,
         model: String,
         language: String,
+        keywords: [String],
         prompt: String?
     ) throws -> (data: Data, boundary: String) {
         let boundary = UUID().uuidString
@@ -652,12 +750,28 @@ final class TranscriptionService: SpeechTranscribing {
                 value: "logprobs"
             )
         }
-        if !language.isEmpty {
+        if !language.isEmpty,
+           TranscriptionRequestPolicy.usesPluralLanguages(model: model) {
+            data.appendMultipartField(
+                boundary: boundary,
+                name: "languages[]",
+                value: language
+            )
+        } else if !language.isEmpty {
             data.appendMultipartField(
                 boundary: boundary,
                 name: "language",
                 value: language
             )
+        }
+        if TranscriptionRequestPolicy.supportsKeywords(model: model) {
+            for keyword in keywords {
+                data.appendMultipartField(
+                    boundary: boundary,
+                    name: "keywords[]",
+                    value: keyword
+                )
+            }
         }
         if let prompt {
             data.appendMultipartField(
@@ -741,6 +855,29 @@ final class TranscriptionService: SpeechTranscribing {
         }
     }
 
+    static func sanitizedKeywords(from vocabulary: String) -> [String] {
+        var seen = Set<String>()
+        return vocabulary
+            .components(separatedBy: CharacterSet(charactersIn: ",\n\r"))
+            .map {
+                $0.replacingOccurrences(of: "<", with: "")
+                    .replacingOccurrences(of: ">", with: "")
+                    .trimmingCharacters(in: .whitespacesAndNewlines)
+            }
+            .filter { !$0.isEmpty }
+            .compactMap { value -> String? in
+                let bounded = String(value.prefix(80))
+                let key = bounded.folding(
+                    options: [.caseInsensitive, .diacriticInsensitive],
+                    locale: .current
+                )
+                guard seen.insert(key).inserted else { return nil }
+                return bounded
+            }
+            .prefix(64)
+            .map { $0 }
+    }
+
     private static func transcriptionPrompt(
         vocabulary: String,
         language: String,
@@ -749,15 +886,19 @@ final class TranscriptionService: SpeechTranscribing {
         if model == "whisper-1" {
             return vocabulary.isEmpty ? nil : vocabulary
         }
-        let vocabularyGuidance = vocabulary.isEmpty
+        let safeVocabulary = sanitizedKeywords(from: vocabulary).joined(separator: ", ")
+        let vocabularyGuidance = safeVocabulary.isEmpty
             ? ""
             : language == "en"
-                ? " Expected technical vocabulary: \(vocabulary)."
-                : " Vocabulaire technique attendu : \(vocabulary)."
+                ? " The recording may discuss the Pressay dictation application. Expected literal spellings for proper names and technical terms include: \(safeVocabulary). Pressay is the product name pronounced like the French word ‘pressé’."
+                : " L’enregistrement peut parler de l’application de dictée Pressay. Orthographes littérales attendues pour les noms propres et termes techniques : \(safeVocabulary). Pressay est le nom du produit, prononcé comme « pressé »."
         if language == "en" {
-            return "Transcribe only words actually spoken. Stop at the last spoken word; never complete trailing silence with extra text. Preserve natural punctuation.\(vocabularyGuidance)"
+            return "Natural personal dictation in English.\(vocabularyGuidance)"
         }
-        return "Transcris uniquement les mots réellement prononcés. Arrête-toi au dernier mot prononcé ; ne complète jamais le silence final par du texte. Conserve une ponctuation naturelle.\(vocabularyGuidance)"
+        if language.isEmpty {
+            return "Natural personal dictation, usually in French or English.\(vocabularyGuidance)"
+        }
+        return "Dictée personnelle naturelle en français.\(vocabularyGuidance)"
     }
 
     enum TranscriptionError: LocalizedError, Equatable {
@@ -790,6 +931,19 @@ final class TranscriptionService: SpeechTranscribing {
             case .httpError(let code):
                 return "Erreur HTTP : \(code)"
             case .httpFailure(let status, let message, _):
+                if status == 401 || status == 403 {
+                    return "Clé OpenAI invalide — vérifie-la dans les réglages"
+                }
+                if status == 429 {
+                    if message?.localizedCaseInsensitiveContains("quota") == true
+                        || message?.localizedCaseInsensitiveContains("insufficient") == true {
+                        return "Quota OpenAI atteint — vérifie ton compte"
+                    }
+                    return "OpenAI limite temporairement les requêtes — réessaie dans un instant"
+                }
+                if (500...599).contains(status) {
+                    return "OpenAI est temporairement indisponible — réessaie dans un instant"
+                }
                 if let message, !message.isEmpty {
                     return "OpenAI (HTTP \(status)) : \(message)"
                 }
@@ -810,6 +964,14 @@ enum TranscriptionRequestPolicy {
         model.hasPrefix("gpt-4o-")
             && model.contains("transcribe")
             && !model.contains("diarize")
+    }
+
+    static func usesPluralLanguages(model: String) -> Bool {
+        model == "gpt-transcribe"
+    }
+
+    static func supportsKeywords(model: String) -> Bool {
+        model == "gpt-transcribe"
     }
 }
 

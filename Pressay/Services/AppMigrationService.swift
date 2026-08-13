@@ -72,7 +72,8 @@ struct AppMigrationService {
 
     @discardableResult
     func runIfNeeded() -> Bool {
-        guard !defaults.bool(forKey: Constants.identityMigrationCompletedKey) else {
+        if defaults.bool(forKey: Constants.identityMigrationCompletedKey) {
+            OpenAITranscriptionProfile.migrateIfNeeded(in: defaults)
             return true
         }
 
@@ -87,6 +88,7 @@ struct AppMigrationService {
 
         guard didMigrateKeychain, didMigrateApplicationSupport else { return false }
         defaults.set(true, forKey: Constants.identityMigrationCompletedKey)
+        OpenAITranscriptionProfile.migrateIfNeeded(in: defaults)
         return true
     }
 

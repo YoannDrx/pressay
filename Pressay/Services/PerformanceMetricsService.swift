@@ -83,6 +83,9 @@ struct DiagnosticPermissions: Codable, Equatable {
 
 struct DiagnosticConfiguration: Codable, Equatable {
     let transcriptionLanguage: String
+    let transcriptionEngine: String
+    let openAITranscriptionProfile: String
+    let resolvedTranscriptionModel: String
     let transcriptionModel: String
     let processingModel: String
     let activationMode: String
@@ -118,7 +121,7 @@ struct DiagnosticReport: Codable, Equatable {
         now: Date = Date()
     ) -> DiagnosticReport {
         DiagnosticReport(
-            schemaVersion: 3,
+            schemaVersion: 4,
             generatedAt: now,
             appVersion: bundle.object(
                 forInfoDictionaryKey: "CFBundleShortVersionString"
@@ -133,6 +136,15 @@ struct DiagnosticReport: Codable, Equatable {
                 transcriptionLanguage: defaults.string(
                     forKey: Constants.transcriptionLanguageKey
                 ) ?? Constants.defaultTranscriptionLanguage,
+                transcriptionEngine: defaults.string(
+                    forKey: Constants.transcriptionEngineKey
+                ) ?? TranscriptionEngine.openAI.rawValue,
+                openAITranscriptionProfile: OpenAITranscriptionProfile.current(
+                    in: defaults
+                ).rawValue,
+                resolvedTranscriptionModel: OpenAITranscriptionProfile.current(
+                    in: defaults
+                ).primaryModel,
                 transcriptionModel: defaults.string(
                     forKey: Constants.transcriptionModelKey
                 ) ?? Constants.defaultTranscriptionModel,

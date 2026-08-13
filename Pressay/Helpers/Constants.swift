@@ -28,6 +28,7 @@ enum Constants {
     static let openAIResponsesURL = "https://api.openai.com/v1/responses"
     static let transcriptionLanguageKey = "transcription-language"
     static let transcriptionModelKey = "transcription-model"
+    static let openAITranscriptionProfileKey = "openai-transcription-profile-v1"
     static let technicalVocabularyKey = "technical-vocabulary"
     static let vocabularyProfileKey = "vocabulary-profile"
     static let shortcutKey = "dictation-shortcut"
@@ -53,6 +54,7 @@ enum Constants {
     static let migratedPreferenceKeys = [
         transcriptionLanguageKey,
         transcriptionModelKey,
+        openAITranscriptionProfileKey,
         technicalVocabularyKey,
         vocabularyProfileKey,
         shortcutKey,
@@ -77,6 +79,7 @@ enum Constants {
     static let defaultTranscriptionLanguage = "fr"
     static let defaultActivationMode = ActivationMode.hold.rawValue
     static let defaultTranscriptionModel = "gpt-4o-mini-transcribe"
+    static let defaultOpenAITranscriptionProfile = OpenAITranscriptionProfile.liveQuality.rawValue
     static let defaultProcessingModel = "gpt-5.6-luna"
     static let defaultTechnicalVocabulary = """
     API, SDK, GitHub, TypeScript, JavaScript, React, Node.js, Python, Claude, GPT, LLM, MCP, STT, TTS, Whisper, Pressay, OpenAI, Anthropic, Convex, Vercel, Next.js, SwiftUI, Xcode, iOS, macOS
@@ -160,6 +163,74 @@ enum TranscriptionModel: String, CaseIterable, Identifiable {
     }
 }
 
+enum OpenAITranscriptionProfile: String, CaseIterable, Identifiable {
+    case liveQuality = "live-quality"
+    case economy
+
+    var id: String { rawValue }
+
+    var label: String {
+        switch self {
+        case .liveQuality: "Direct"
+        case .economy: "Économie"
+        }
+    }
+
+    var detail: String {
+        switch self {
+        case .liveQuality:
+            "Texte disponible pendant la dictée, meilleure réactivité, consommation API supérieure."
+        case .economy:
+            "Transcription après la dictée avec gpt-4o-mini-transcribe et consommation API réduite."
+        }
+    }
+
+    var primaryModel: String {
+        switch self {
+        case .liveQuality: "gpt-live-transcribe"
+        case .economy: "gpt-4o-mini-transcribe"
+        }
+    }
+
+    var batchModel: String {
+        switch self {
+        case .liveQuality: "gpt-transcribe"
+        case .economy: "gpt-4o-mini-transcribe"
+        }
+    }
+
+    var usesRealtime: Bool { self == .liveQuality }
+
+    static func current(in defaults: UserDefaults = .standard) -> Self {
+        Self(
+            rawValue: defaults.string(
+                forKey: Constants.openAITranscriptionProfileKey
+            ) ?? ""
+        ) ?? .liveQuality
+    }
+
+    @discardableResult
+    static func migrateIfNeeded(in defaults: UserDefaults = .standard) -> Self {
+        if let stored = defaults.string(
+            forKey: Constants.openAITranscriptionProfileKey
+        ), let profile = Self(rawValue: stored) {
+            return profile
+        }
+
+        let profile: Self
+        switch defaults.string(forKey: Constants.transcriptionModelKey) {
+        case TranscriptionModel.fast.rawValue:
+            profile = .economy
+        case TranscriptionModel.accurate.rawValue:
+            profile = .liveQuality
+        default:
+            profile = .liveQuality
+        }
+        defaults.set(profile.rawValue, forKey: Constants.openAITranscriptionProfileKey)
+        return profile
+    }
+}
+
 enum DictationShortcut: String, CaseIterable, Identifiable {
     case function
     case rightOption
@@ -204,7 +275,7 @@ enum TranscriptionEngine: String, CaseIterable, Identifiable {
     var detail: String {
         switch self {
         case .openAI:
-            "Transcription rapide avec gpt-4o-mini-transcribe et ta clé OpenAI."
+            "Transcription Direct ou Économie avec ta clé OpenAI personnelle."
         case .whisperKit:
             "Transcription hors ligne sur ce Mac ; l’audio ne quitte pas l’appareil."
         }
