@@ -33,6 +33,38 @@ final class ClipboardRestorationPolicyTests: XCTestCase {
     }
 }
 
+final class MenuBarPanelPlacementTests: XCTestCase {
+    func testPanelStartsAtIconsUpperLeftEdge() {
+        let frame = MenuBarPanelPlacement.frame(
+            anchor: NSRect(x: 866, y: 1_020, width: 36, height: 30),
+            visibleFrame: NSRect(x: 0, y: 0, width: 1_680, height: 1_020),
+            size: NSSize(width: 380, height: 640)
+        )
+
+        XCTAssertEqual(frame.minX, 858)
+        XCTAssertEqual(frame.maxY, 1_015)
+    }
+
+    func testPanelStaysInsideHorizontalScreenMargins() {
+        let visible = NSRect(x: 0, y: 0, width: 1_680, height: 1_020)
+        let size = NSSize(width: 380, height: 640)
+
+        let left = MenuBarPanelPlacement.frame(
+            anchor: NSRect(x: 0, y: 1_020, width: 30, height: 30),
+            visibleFrame: visible,
+            size: size
+        )
+        let right = MenuBarPanelPlacement.frame(
+            anchor: NSRect(x: 1_660, y: 1_020, width: 20, height: 30),
+            visibleFrame: visible,
+            size: size
+        )
+
+        XCTAssertEqual(left.minX, 8)
+        XCTAssertEqual(right.maxX, visible.maxX - 8)
+    }
+}
+
 @MainActor
 final class PasteboardSnapshotCodecTests: XCTestCase {
     func testSnapshotRestoresEveryItemAndRepresentation() throws {

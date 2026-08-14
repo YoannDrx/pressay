@@ -263,6 +263,7 @@ final class AccountService: NSObject, ObservableObject {
     private let session: URLSession
     private var authenticationSession: ASWebAuthenticationSession?
     private var tokens: TokenSet?
+    private lazy var currentDeviceIdentifier = stableDeviceIdentifier()
 
     init(
         configuration: PressayCloudConfiguration? = .current,
@@ -381,6 +382,10 @@ final class AccountService: NSObject, ObservableObject {
         }
     }
 
+    func isCurrentDevice(_ device: PressayDevice) -> Bool {
+        device.deviceIdentifier == currentDeviceIdentifier
+    }
+
     static func codeChallenge(for verifier: String) -> String {
         let digest = SHA256.hash(data: Data(verifier.utf8))
         return Data(digest).base64URLEncodedString()
@@ -433,7 +438,7 @@ final class AccountService: NSObject, ObservableObject {
     private func registerThisMac() async throws {
         let consent = defaults.bool(forKey: Constants.remoteTelemetryEnabledKey)
         let registration = PressayDeviceRegistration(
-            deviceIdentifier: stableDeviceIdentifier(),
+            deviceIdentifier: currentDeviceIdentifier,
             platform: "macos",
             appVersion: Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "unknown",
             distributionChannel: "direct",

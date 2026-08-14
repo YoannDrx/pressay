@@ -359,6 +359,31 @@ private final class MenuBarPanel: NSPanel {
     override var canBecomeMain: Bool { false }
 }
 
+enum MenuBarPanelPlacement {
+    static func frame(
+        anchor: NSRect,
+        visibleFrame: NSRect,
+        size: NSSize,
+        margin: CGFloat = 8,
+        gap: CGFloat = 5
+    ) -> NSRect {
+        // Keep the icon close to the panel's upper-left corner. This matches
+        // the visual origin of native menu-bar panels and avoids the panel
+        // appearing detached in the middle of the screen.
+        let proposedX = anchor.minX - 8
+        let x = min(
+            max(proposedX, visibleFrame.minX + margin),
+            visibleFrame.maxX - size.width - margin
+        )
+        let proposedY = anchor.minY - size.height - gap
+        let y = min(
+            max(proposedY, visibleFrame.minY + margin),
+            visibleFrame.maxY - size.height
+        )
+        return NSRect(origin: NSPoint(x: x, y: y), size: size)
+    }
+}
+
 @MainActor
 final class StatusItemController: NSObject, ObservableObject {
     private let statusItem: NSStatusItem
@@ -460,16 +485,13 @@ final class StatusItemController: NSObject, ObservableObject {
         let height = min(660, max(560, visible.height - 18))
         let margin: CGFloat = 8
 
-        // Align the panel's right edge with the menu-bar icon. It naturally
-        // expands to the left, like a macOS status menu near the screen edge.
-        let proposedX = anchor.maxX - width + 6
-        let x = min(
-            max(proposedX, visible.minX + margin),
-            visible.maxX - width - margin
+        let frame = MenuBarPanelPlacement.frame(
+            anchor: anchor,
+            visibleFrame: visible,
+            size: NSSize(width: width, height: height),
+            margin: margin
         )
-        let proposedY = anchor.minY - height - 5
-        let y = max(visible.minY + margin, proposedY)
-        panel.setFrame(NSRect(x: x, y: y, width: width, height: height), display: true)
+        panel.setFrame(frame, display: true)
     }
 
     private func installOutsideClickMonitors() {

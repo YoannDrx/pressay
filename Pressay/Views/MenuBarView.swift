@@ -126,12 +126,20 @@ struct MenuBarView: View {
                         Text(tab.label)
                             .font(.system(size: 10.5, weight: .semibold))
                     }
-                    .foregroundStyle(selectedTab == tab ? Color.white : .secondary)
+                    .foregroundStyle(selectedTab == tab ? tab.color : .secondary)
                     .frame(maxWidth: .infinity, minHeight: 49)
                     .background(
-                        selectedTab == tab ? Color.accentColor : .clear,
+                        selectedTab == tab ? tab.color.opacity(0.12) : .clear,
                         in: RoundedRectangle(cornerRadius: 10, style: .continuous)
                     )
+                    .overlay(alignment: .bottom) {
+                        if selectedTab == tab {
+                            Capsule()
+                                .fill(tab.color)
+                                .frame(width: 28, height: 2)
+                                .padding(.bottom, 2)
+                        }
+                    }
                     .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
@@ -178,27 +186,71 @@ struct MenuBarView: View {
                 }
             }
 
-            MenuBarCard(tint: .blue) {
+            MenuBarCard(tint: requiresAPIKey ? .orange : engineColor) {
                 HStack(spacing: 10) {
-                    Label("Moteur", systemImage: transcriptionEngineValue == .openAI ? "cloud.fill" : "laptopcomputer")
-                        .font(.system(size: 11, weight: .medium))
+                    Image(systemName: transcriptionEngineValue == .openAI ? "cloud.fill" : "laptopcomputer")
+                        .foregroundStyle(requiresAPIKey ? .orange : engineColor)
+                        .frame(width: 18)
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(transcriptionEngineValue.label)
+                            .font(.system(size: 11, weight: .semibold))
+                        Text(engineStatusDetail)
+                            .font(.system(size: 9.5))
+                            .foregroundStyle(.secondary)
+                    }
                     Spacer()
-                    Text(transcriptionEngineValue.label)
-                        .font(.system(size: 10, weight: .semibold))
-                        .foregroundStyle(transcriptionEngineValue == .openAI ? .blue : .green)
+                    if requiresAPIKey {
+                        Button("Configurer…", action: showSettings)
+                            .controlSize(.small)
+                    } else {
+                        Button(action: showSettings) {
+                            Image(systemName: "slider.horizontal.3")
+                        }
+                        .buttonStyle(.plain)
+                        .foregroundStyle(.secondary)
+                        .help("Régler le moteur de transcription")
+                    }
                 }
-                Divider().opacity(0.4)
-                HStack(spacing: 10) {
-                    Label("Style", systemImage: selectedMode.symbolName)
-                        .font(.system(size: 11, weight: .medium))
+            }
+
+            MenuBarCard(tint: .indigo) {
+                HStack {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("Style de rédaction")
+                            .font(.system(size: 11, weight: .semibold))
+                        Text("\(modes.visibleModes.count) styles disponibles")
+                            .font(.system(size: 9.5))
+                            .foregroundStyle(.secondary)
+                    }
                     Spacer()
-                    Picker("", selection: selectedModeBinding) {
-                        ForEach(modes.visibleModes) { mode in
-                            Text(mode.name).tag(mode.id)
+                    Button {
+                        onRequestClose()
+                        ModesWindowController.shared.show(
+                            shortcutRouter: appState.keyboardService
+                        )
+                    } label: {
+                        Image(systemName: "ellipsis.circle")
+                    }
+                    .buttonStyle(.plain)
+                    .foregroundStyle(.secondary)
+                    .help("Gérer les styles")
+                }
+
+                LazyVGrid(
+                    columns: Array(
+                        repeating: GridItem(.flexible(), spacing: 6),
+                        count: 3
+                    ),
+                    spacing: 6
+                ) {
+                    ForEach(modes.visibleModes) { mode in
+                        ModeChoiceButton(
+                            mode: mode,
+                            isSelected: mode.id == selectedMode.id
+                        ) {
+                            modes.selectedModeID = mode.id
                         }
                     }
-                    .labelsHidden()
-                    .frame(width: 160)
                 }
             }
 
@@ -233,37 +285,6 @@ struct MenuBarView: View {
                     Label("Annuler la transcription", systemImage: "xmark.circle")
                 }
                 .buttonStyle(MenuBarRowButtonStyle())
-            }
-
-            if let latest = history.entries.first {
-                MenuBarCard(tint: .purple) {
-                    HStack {
-                        Label("Dernière dictée", systemImage: "quote.bubble.fill")
-                            .font(.system(size: 10, weight: .semibold))
-                            .foregroundStyle(.purple)
-                        Spacer()
-                        Text(latest.date, style: .relative)
-                            .font(.system(size: 9))
-                            .foregroundStyle(.tertiary)
-                    }
-                    Button {
-                        TextInjector.shared.copyToPasteboard(latest.text)
-                        onRequestClose()
-                    } label: {
-                        HStack(alignment: .top, spacing: 8) {
-                            Text(latest.text)
-                                .font(.system(size: 10.5))
-                                .foregroundStyle(.secondary)
-                                .lineLimit(3)
-                                .frame(maxWidth: .infinity, alignment: .leading)
-                            Image(systemName: "doc.on.doc")
-                                .foregroundStyle(.purple)
-                        }
-                        .contentShape(Rectangle())
-                    }
-                    .buttonStyle(.plain)
-                    .help("Copier la dernière dictée")
-                }
             }
         }
     }
@@ -451,8 +472,18 @@ struct MenuBarView: View {
                     value: entitlement.offlineValidUntil.formatted(date: .abbreviated, time: .omitted)
                 )
             }
-            LabeledContent("Mac actifs", value: "\(account.devices.count)")
-                .font(.system(size: 10.5))
+            Divider().opacity(0.4)
+            HStack {
+                Label("Appareils", systemImage: "laptopcomputer")
+                    .font(.system(size: 10.5, weight: .semibold))
+                Spacer()
+                Text("\(account.devices.count) actif\(account.devices.count > 1 ? "s" : "")")
+                    .font(.system(size: 9.5))
+                    .foregroundStyle(.secondary)
+            }
+            ForEach(account.devices) { device in
+                accountDeviceRow(device)
+            }
             Divider().opacity(0.4)
             HStack(spacing: 12) {
                 Link("Gérer le compte ↗", destination: URL(string: "https://press-say.app/account")!)
@@ -463,6 +494,35 @@ struct MenuBarView: View {
                     .foregroundStyle(.secondary)
             }
         }
+    }
+
+    private func accountDeviceRow(_ device: PressayDevice) -> some View {
+        let isCurrent = account.isCurrentDevice(device)
+        return HStack(spacing: 8) {
+            Image(systemName: isCurrent ? "laptopcomputer.and.arrow.down" : "laptopcomputer")
+                .foregroundStyle(isCurrent ? .green : .secondary)
+                .frame(width: 18)
+            VStack(alignment: .leading, spacing: 1) {
+                Text(isCurrent ? "Ce Mac" : "Mac Pressay")
+                    .font(.system(size: 10.5, weight: isCurrent ? .semibold : .regular))
+                Text("Pressay \(device.appVersion) · vu \(device.lastSeenAt, style: .relative)")
+                    .font(.system(size: 8.5))
+                    .foregroundStyle(.tertiary)
+            }
+            Spacer()
+            if !isCurrent {
+                Button {
+                    Task { await account.revokeDevice(device.id) }
+                } label: {
+                    Image(systemName: "xmark.circle")
+                }
+                .buttonStyle(.plain)
+                .foregroundStyle(.secondary)
+                .help("Retirer ce Mac")
+                .accessibilityLabel("Retirer ce Mac du compte")
+            }
+        }
+        .padding(.vertical, 2)
     }
 
     private func accountMessage(_ text: String, icon: String, color: Color) -> some View {
@@ -542,15 +602,27 @@ struct MenuBarView: View {
             ?? NativeModeCatalog.visibleModes[0]
     }
 
-    private var selectedModeBinding: Binding<UUID> {
-        Binding(
-            get: { modes.selectedModeID },
-            set: { modes.selectedModeID = $0 }
-        )
-    }
-
     private var transcriptionEngineValue: TranscriptionEngine {
         TranscriptionEngine(rawValue: transcriptionEngine) ?? .openAI
+    }
+
+    private var requiresAPIKey: Bool {
+        transcriptionEngineValue == .openAI && !appState.hasAPIKey
+    }
+
+    private var engineColor: Color {
+        transcriptionEngineValue == .openAI ? .blue : .green
+    }
+
+    private var engineStatusDetail: String {
+        switch transcriptionEngineValue {
+        case .openAI where requiresAPIKey:
+            "Clé personnelle requise — le compte Pressay ne la remplace pas."
+        case .openAI:
+            "Clé personnelle configurée sur ce Mac."
+        case .whisperKit:
+            "Traitement local — aucun appel à l’API OpenAI."
+        }
     }
 
     private func showSettings() {
@@ -618,21 +690,21 @@ struct MenuBarView: View {
     private var statusIcon: String {
         if appState.isRecording { return "waveform" }
         if appState.isTranscribing { return "ellipsis" }
-        if !appState.hasAPIKey { return "key.slash" }
+        if requiresAPIKey { return "key.slash" }
         return "checkmark"
     }
 
     private var statusColor: Color {
         if appState.isRecording { return .red }
         if appState.isTranscribing { return .blue }
-        if !appState.hasAPIKey { return .orange }
+        if requiresAPIKey { return .orange }
         return .green
     }
 
     private var statusText: String {
         if appState.isRecording { return "J’écoute…" }
         if appState.isTranscribing { return "Transcription en cours…" }
-        if !appState.hasAPIKey { return "Clé API à configurer" }
+        if requiresAPIKey { return "Clé OpenAI à configurer" }
         return "Prêt"
     }
 }
@@ -696,6 +768,39 @@ private struct MenuBarCard<Content: View>: View {
             RoundedRectangle(cornerRadius: 11, style: .continuous)
                 .stroke(tint.opacity(contrast == .increased ? 0.48 : 0.16))
         }
+    }
+}
+
+private struct ModeChoiceButton: View {
+    let mode: ModeDefinition
+    let isSelected: Bool
+    let action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            VStack(spacing: 4) {
+                Image(systemName: mode.symbolName)
+                    .font(.system(size: 12, weight: .semibold))
+                Text(mode.name)
+                    .font(.system(size: 9.5, weight: isSelected ? .semibold : .regular))
+                    .lineLimit(1)
+            }
+            .foregroundStyle(isSelected ? Color.indigo : .secondary)
+            .frame(maxWidth: .infinity, minHeight: 42)
+            .background(
+                isSelected ? Color.indigo.opacity(0.13) : Color.primary.opacity(0.035),
+                in: RoundedRectangle(cornerRadius: 8, style: .continuous)
+            )
+            .overlay {
+                RoundedRectangle(cornerRadius: 8, style: .continuous)
+                    .stroke(isSelected ? Color.indigo.opacity(0.36) : .clear)
+            }
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .help(mode.name)
+        .accessibilityLabel("Style \(mode.name)")
+        .accessibilityAddTraits(isSelected ? .isSelected : [])
     }
 }
 
