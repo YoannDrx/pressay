@@ -487,7 +487,7 @@ final class TranscriptionService: SpeechTranscribing {
         let keywords = Self.sanitizedKeywords(from: vocabulary)
         var transcription: [String: Any] = [
             "model": "gpt-live-transcribe",
-            "delay": "low"
+            "delay": "minimal"
         ]
         if !language.isEmpty { transcription["languages"] = [language] }
         if !keywords.isEmpty { transcription["keywords"] = keywords }

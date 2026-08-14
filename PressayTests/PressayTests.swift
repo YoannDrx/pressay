@@ -522,7 +522,7 @@ final class TranscriptionRequestPolicyTests: XCTestCase {
         XCTAssertTrue(text.contains("gpt-transcribe"))
     }
 
-    func testRealtimeRequestUsesLowDelayAndSanitizedContext() throws {
+    func testRealtimeRequestUsesMinimalDelayAndSanitizedContext() throws {
         let suite = "RealtimeRequest.\(UUID().uuidString)"
         let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
         defer { defaults.removePersistentDomain(forName: suite) }
@@ -544,7 +544,7 @@ final class TranscriptionRequestPolicyTests: XCTestCase {
         let transcription = try XCTUnwrap(input["transcription"] as? [String: Any])
 
         XCTAssertEqual(transcription["model"] as? String, "gpt-live-transcribe")
-        XCTAssertEqual(transcription["delay"] as? String, "low")
+        XCTAssertEqual(transcription["delay"] as? String, "minimal")
         XCTAssertEqual(transcription["languages"] as? [String], ["fr"])
         XCTAssertEqual(
             transcription["keywords"] as? [String],
