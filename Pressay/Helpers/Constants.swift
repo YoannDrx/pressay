@@ -29,6 +29,8 @@ enum Constants {
     static let transcriptionLanguageKey = "transcription-language"
     static let transcriptionModelKey = "transcription-model"
     static let openAITranscriptionProfileKey = "openai-transcription-profile-v2"
+    static let acceleratedTextProcessingEnabledKey = "accelerated-text-processing-v1"
+    static let translationTargetLanguageKey = "translation-target-language-v1"
     static let technicalVocabularyKey = "technical-vocabulary"
     static let vocabularyProfileKey = "vocabulary-profile"
     static let shortcutKey = "dictation-shortcut"
@@ -55,6 +57,8 @@ enum Constants {
         transcriptionLanguageKey,
         transcriptionModelKey,
         openAITranscriptionProfileKey,
+        acceleratedTextProcessingEnabledKey,
+        translationTargetLanguageKey,
         technicalVocabularyKey,
         vocabularyProfileKey,
         shortcutKey,
@@ -78,9 +82,10 @@ enum Constants {
     ]
     static let defaultTranscriptionLanguage = "fr"
     static let defaultActivationMode = ActivationMode.hold.rawValue
-    static let defaultTranscriptionModel = "gpt-transcribe"
-    static let defaultOpenAITranscriptionProfile = OpenAITranscriptionProfile.transcribe.rawValue
+    static let defaultTranscriptionModel = "gpt-4o-mini-transcribe"
+    static let defaultOpenAITranscriptionProfile = OpenAITranscriptionProfile.mini.rawValue
     static let defaultProcessingModel = "gpt-5.6-luna"
+    static let defaultTranslationTargetLanguage = "en"
     static let defaultTechnicalVocabulary = """
     API, SDK, GitHub, TypeScript, JavaScript, React, Node.js, Python, Claude, GPT, LLM, MCP, STT, TTS, Whisper, Pressay, OpenAI, Anthropic, Convex, Vercel, Next.js, SwiftUI, Xcode, iOS, macOS
     """
@@ -163,23 +168,21 @@ enum TranscriptionModel: String, CaseIterable, Identifiable {
 }
 
 enum OpenAITranscriptionProfile: String, CaseIterable, Identifiable {
-    case transcribe
+    case mini
 
     var id: String { rawValue }
 
     var label: String {
-        "GPT Transcribe"
+        "GPT-4o Mini Transcribe"
     }
 
-    var shortLabel: String { "Transcribe" }
+    var shortLabel: String { "Mini" }
 
     var detail: String {
-        "Transcription finale après le relâchement · précise et fiable."
+        "Transcription finale rapide après le relâchement de Fn."
     }
 
-    var primaryModel: String { "gpt-transcribe" }
-
-    var usesRealtime: Bool { false }
+    var primaryModel: String { "gpt-4o-mini-transcribe" }
 
     static func current(in defaults: UserDefaults = .standard) -> Self {
         if let value = defaults.string(
@@ -188,22 +191,22 @@ enum OpenAITranscriptionProfile: String, CaseIterable, Identifiable {
             if let profile = Self(rawValue: value) {
                 return profile
             }
-            // 1.2.8 exposed Live and Mini. Both old values now migrate to the
-            // single recommended file-transcription path.
-            if value == "live" || value == "mini" {
+            // The short-lived Live and GPT Transcribe preferences both return
+            // to the original single Mini file-transcription path.
+            if value == "live" || value == "transcribe" {
                 defaults.set(
-                    Self.transcribe.rawValue,
+                    Self.mini.rawValue,
                     forKey: Constants.openAITranscriptionProfileKey
                 )
-                return .transcribe
+                return .mini
             }
         }
 
         defaults.set(
-            Self.transcribe.rawValue,
+            Self.mini.rawValue,
             forKey: Constants.openAITranscriptionProfileKey
         )
-        return .transcribe
+        return .mini
     }
 }
 

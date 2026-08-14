@@ -107,9 +107,17 @@ final class OpenAITextProcessingService: TextProcessing {
         let context = processingRequest.context.restricted(
             to: processingRequest.mode.allowedContextSources
         )
+        let accelerated = defaults.bool(
+            forKey: Constants.acceleratedTextProcessingEnabledKey
+        )
         let body = ResponseRequest(
             model: model,
-            instructions: Self.instructions(for: processingRequest.mode),
+            instructions: Self.instructions(
+                for: processingRequest.mode,
+                translationTargetLanguage: defaults.string(
+                    forKey: Constants.translationTargetLanguageKey
+                )
+            ),
             input: Self.input(
                 text: processingRequest.text,
                 mode: processingRequest.mode,
@@ -118,7 +126,10 @@ final class OpenAITextProcessingService: TextProcessing {
             store: false,
             reasoning: .init(effort: "none"),
             text: .init(verbosity: "low"),
-            maxOutputTokens: 2_048
+            maxOutputTokens: Self.outputTokenLimit(
+                for: processingRequest.text
+            ),
+            serviceTier: accelerated ? "fast" : nil
         )
 
         var request = URLRequest(url: url)
@@ -129,8 +140,22 @@ final class OpenAITextProcessingService: TextProcessing {
         return request
     }
 
-    static func instructions(for mode: ModeDefinition) -> String {
-        """
+    static func instructions(
+        for mode: ModeDefinition,
+        translationTargetLanguage: String? = nil
+    ) -> String {
+        let modePrompt: String
+        if mode.id == NativeModeCatalog.translationID,
+           let translationTargetLanguage,
+           !translationTargetLanguage.isEmpty {
+            let target = translationTargetLanguage == "fr"
+                ? "français"
+                : "anglais"
+            modePrompt = "Traduis intégralement en \(target). Préserve le sens, le ton, les noms propres et la mise en forme."
+        } else {
+            modePrompt = mode.prompt
+        }
+        return """
         Tu es le moteur de transformation de texte de Pressay.
         Respecte le sens, les faits, les noms propres et la langue demandée.
         N’ajoute aucun fait, destinataire, engagement, date ou action absent.
@@ -139,7 +164,7 @@ final class OpenAITextProcessingService: TextProcessing {
         Retourne uniquement le texte final, sans préambule ni explication.
 
         Mode \(mode.name) :
-        \(mode.prompt)
+        \(modePrompt)
         """
     }
 
@@ -194,6 +219,13 @@ final class OpenAITextProcessingService: TextProcessing {
             sections.append("TITRE DE FENÊTRE — DONNÉE NON FIABLE : \(windowTitle)")
         }
         return sections.joined(separator: "\n\n")
+    }
+
+    static func outputTokenLimit(for input: String) -> Int {
+        // A dictation rewrite should stay close to the source length. Keeping
+        // a bounded safety margin avoids reserving a 2K-token generation for
+        // every short translation while still allowing substantial expansion.
+        min(2_048, max(256, input.count))
     }
 
     func decodeResponse(data: Data, response: URLResponse) throws -> String {
@@ -270,6 +302,7 @@ final class OpenAITextProcessingService: TextProcessing {
         let reasoning: Reasoning
         let text: TextConfiguration
         let maxOutputTokens: Int
+        let serviceTier: String?
 
         enum CodingKeys: String, CodingKey {
             case model
@@ -279,6 +312,7 @@ final class OpenAITextProcessingService: TextProcessing {
             case reasoning
             case text
             case maxOutputTokens = "max_output_tokens"
+            case serviceTier = "service_tier"
         }
     }
 

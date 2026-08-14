@@ -347,11 +347,11 @@ final class TranscriptionResponseValidatorTests: XCTestCase {
 }
 
 final class TranscriptionRequestPolicyTests: XCTestCase {
-    func testGPTTranscribeIsTheOnlyOpenAIProfile() {
-        XCTAssertEqual(OpenAITranscriptionProfile.allCases, [.transcribe])
+    func testMiniIsTheOnlyOpenAIProfile() {
+        XCTAssertEqual(OpenAITranscriptionProfile.allCases, [.mini])
         XCTAssertEqual(
-            OpenAITranscriptionProfile.transcribe.primaryModel,
-            "gpt-transcribe"
+            OpenAITranscriptionProfile.mini.primaryModel,
+            "gpt-4o-mini-transcribe"
         )
     }
 
@@ -379,22 +379,22 @@ final class TranscriptionRequestPolicyTests: XCTestCase {
         )
     }
 
-    func testFreshPreferenceUsesGPTTranscribeProfile() throws {
+    func testFreshPreferenceUsesMiniProfile() throws {
         let suite = "OpenAIProfile.fresh.\(UUID().uuidString)"
         let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
         defer { defaults.removePersistentDomain(forName: suite) }
 
         XCTAssertEqual(
             OpenAITranscriptionProfile.current(in: defaults),
-            .transcribe
+            .mini
         )
         XCTAssertEqual(
             defaults.string(forKey: Constants.openAITranscriptionProfileKey),
-            OpenAITranscriptionProfile.transcribe.rawValue
+            OpenAITranscriptionProfile.mini.rawValue
         )
     }
 
-    func testLegacyLivePreferenceMigratesToGPTTranscribe() throws {
+    func testLegacyLivePreferenceMigratesToMini() throws {
         let suite = "OpenAIProfile.live.\(UUID().uuidString)"
         let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
         defer { defaults.removePersistentDomain(forName: suite) }
@@ -402,15 +402,15 @@ final class TranscriptionRequestPolicyTests: XCTestCase {
 
         XCTAssertEqual(
             OpenAITranscriptionProfile.current(in: defaults),
-            .transcribe
+            .mini
         )
         XCTAssertEqual(
             defaults.string(forKey: Constants.openAITranscriptionProfileKey),
-            OpenAITranscriptionProfile.transcribe.rawValue
+            OpenAITranscriptionProfile.mini.rawValue
         )
     }
 
-    func testLegacyMiniPreferenceMigratesToGPTTranscribe() throws {
+    func testLegacyMiniPreferenceRemainsMini() throws {
         let suite = "OpenAIProfile.mini.\(UUID().uuidString)"
         let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
         defer { defaults.removePersistentDomain(forName: suite) }
@@ -418,20 +418,21 @@ final class TranscriptionRequestPolicyTests: XCTestCase {
 
         XCTAssertEqual(
             OpenAITranscriptionProfile.current(in: defaults),
-            .transcribe
+            .mini
         )
     }
 
-    func testGPTTranscribeProfileNeverEnablesRealtime() throws {
+    func testShortLivedGPTTranscribePreferenceMigratesToMini() throws {
         let suite = "OpenAIProfile.transcribe.\(UUID().uuidString)"
         let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
         defer { defaults.removePersistentDomain(forName: suite) }
-        defaults.set(
-            OpenAITranscriptionProfile.transcribe.rawValue,
-            forKey: Constants.openAITranscriptionProfileKey
-        )
+        defaults.set("transcribe", forKey: Constants.openAITranscriptionProfileKey)
 
-        XCTAssertFalse(TranscriptionService(defaults: defaults).realtimeEnabled)
+        XCTAssertEqual(OpenAITranscriptionProfile.current(in: defaults), .mini)
+        XCTAssertEqual(
+            defaults.string(forKey: Constants.openAITranscriptionProfileKey),
+            OpenAITranscriptionProfile.mini.rawValue
+        )
     }
 
     func testGPTTranscribeMultipartUsesOnlySupportedHints() throws {
@@ -456,22 +457,6 @@ final class TranscriptionRequestPolicyTests: XCTestCase {
         XCTAssertTrue(body.contains("name=\"include[]\"\r\n\r\nlogprobs"))
         XCTAssertFalse(body.contains("name=\"languages[]\""))
         XCTAssertFalse(body.contains("name=\"keywords[]\""))
-    }
-
-    func testTranslationPayloadDoesNotMixTranscriptionFields() throws {
-        let service = TranscriptionService()
-        let payload = try service.realtimeSessionUpdate(
-            for: .translation(targetLanguage: "en")
-        )
-        let root = try XCTUnwrap(
-            JSONSerialization.jsonObject(with: Data(payload.utf8)) as? [String: Any]
-        )
-        let session = try XCTUnwrap(root["session"] as? [String: Any])
-        let audio = try XCTUnwrap(session["audio"] as? [String: Any])
-        let output = try XCTUnwrap(audio["output"] as? [String: Any])
-
-        XCTAssertEqual(output["language"] as? String, "en")
-        XCTAssertNil(audio["input"])
     }
 
     private func multipartBody(
@@ -517,7 +502,8 @@ final class OpenAICostEstimatorTests: XCTestCase {
 }
 
 final class OpenAISmokeTests: XCTestCase {
-    func testGPTTranscribeAndResponsesAgainstOpenAI() async throws {
+    func testMiniTranscribeAndResponsesAgainstOpenAI() async throws {
+        executionTimeAllowance = 90
         let environment = ProcessInfo.processInfo.environment
         let defaultAudioPath = "/private/tmp/pressay-openai-smoke.wav"
         let audioPath = environment["PRESSAY_LIVE_AUDIO_PATH"] ?? defaultAudioPath
@@ -545,15 +531,19 @@ final class OpenAISmokeTests: XCTestCase {
         )
 
         let transcriber = TranscriptionService(defaults: defaults)
+        let batchStartedAt = Date()
         let batch = try await transcriber.transcribe(audioURL: audioURL)
+        let batchDuration = Date().timeIntervalSince(batchStartedAt)
         XCTAssertTrue(Self.looksLikeSmokeTranscript(batch.text), batch.text)
         XCTAssertNotNil(batch.networkMetrics)
 
+        defaults.set(true, forKey: Constants.acceleratedTextProcessingEnabledKey)
         let processor = OpenAITextProcessingService(defaults: defaults)
         let cleanMode = try XCTUnwrap(
             NativeModeCatalog.visibleModes.first { $0.id == NativeModeCatalog.cleanID }
         )
         let processed: TextProcessingResult
+        let processingStartedAt = Date()
         do {
             processed = try await processor.process(
                 TextProcessingRequest(
@@ -568,6 +558,14 @@ final class OpenAISmokeTests: XCTestCase {
         }
         XCTAssertTrue(Self.looksLikeSmokeTranscript(processed.text), processed.text)
         XCTAssertNotNil(processed.networkMetrics)
+        let processingDuration = Date().timeIntervalSince(processingStartedAt)
+        print(
+            String(
+                format: "OPENAI_SMOKE transcription=%.3fs responses_fast=%.3fs",
+                batchDuration,
+                processingDuration
+            )
+        )
     }
 
     private static func looksLikeSmokeTranscript(_ text: String) -> Bool {
@@ -1516,6 +1514,53 @@ final class OpenAITextProcessingServiceTests: XCTestCase {
         XCTAssertFalse(input.contains("INSTRUCTION MALVEILLANTE"))
         XCTAssertFalse(input.contains("avant secret"))
         XCTAssertTrue(instructions.contains("données non fiables"))
+        XCTAssertNil(json["service_tier"])
+        XCTAssertEqual(json["max_output_tokens"] as? Int, 256)
+    }
+
+    func testAcceleratedProcessingUsesFastTierAndExplicitTranslationTarget() throws {
+        let suiteName = "PressayTests.FastProcessing.\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        defaults.set("gpt-5.6-luna", forKey: Constants.processingModelKey)
+        defaults.set(true, forKey: Constants.acceleratedTextProcessingEnabledKey)
+        defaults.set("fr", forKey: Constants.translationTargetLanguageKey)
+        let service = OpenAITextProcessingService(
+            apiKeyProvider: { "sk-test" },
+            defaults: defaults
+        )
+        let mode = try XCTUnwrap(
+            NativeModeCatalog.visibleModes.first {
+                $0.id == NativeModeCatalog.translationID
+            }
+        )
+        let request = try service.makeRequest(
+            for: TextProcessingRequest(
+                text: "Hello Pressay",
+                mode: mode,
+                context: .empty
+            ),
+            apiKey: "sk-test"
+        )
+        let body = try XCTUnwrap(request.httpBody)
+        let json = try XCTUnwrap(
+            JSONSerialization.jsonObject(with: body) as? [String: Any]
+        )
+        let instructions = try XCTUnwrap(json["instructions"] as? String)
+
+        XCTAssertEqual(json["service_tier"] as? String, "fast")
+        XCTAssertTrue(instructions.contains("Traduis intégralement en français"))
+        XCTAssertEqual(json["max_output_tokens"] as? Int, 256)
+    }
+
+    func testOutputTokenLimitIsBounded() {
+        XCTAssertEqual(OpenAITextProcessingService.outputTokenLimit(for: "court"), 256)
+        XCTAssertEqual(
+            OpenAITextProcessingService.outputTokenLimit(
+                for: String(repeating: "a", count: 4_000)
+            ),
+            2_048
+        )
     }
 
     func testResponseAggregatesOnlyOutputTextItems() throws {
@@ -2461,18 +2506,18 @@ final class DeliveryPreferencePolicyTests: XCTestCase {
         )
     }
 
-    func testInstantDictationUsesApplicationMenuInElectronApp() {
+    func testInstantDictationUsesTargetedPasteInElectronApp() {
         XCTAssertTrue(
-            DeliveryPreferencePolicy.shouldUseApplicationMenuPaste(
+            DeliveryPreferencePolicy.shouldUseTargetedPaste(
                 prefersPaste: true,
                 isInstantDictation: true
             )
         )
     }
 
-    func testTransformationDoesNotUseApplicationMenuPaste() {
+    func testTransformationDoesNotUseTargetedPaste() {
         XCTAssertFalse(
-            DeliveryPreferencePolicy.shouldUseApplicationMenuPaste(
+            DeliveryPreferencePolicy.shouldUseTargetedPaste(
                 prefersPaste: true,
                 isInstantDictation: false
             )
@@ -2586,9 +2631,9 @@ final class TargetActivationPolicyTests: XCTestCase {
 }
 
 final class MissingAccessibilityTargetPolicyTests: XCTestCase {
-    func testCodexInstantDictationCanUseMenuWhenComposerIsNotExposed() {
+    func testCodexInstantDictationCanUseTargetedPasteWhenComposerIsNotExposed() {
         XCTAssertTrue(
-            MissingAccessibilityTargetPolicy.canUseApplicationMenuPaste(
+            MissingAccessibilityTargetPolicy.canUseTargetedPaste(
                 bundleIdentifier: "com.openai.codex",
                 isInstantDictation: true,
                 prefersPaste: true,
@@ -2600,7 +2645,7 @@ final class MissingAccessibilityTargetPolicyTests: XCTestCase {
 
     func testFallbackDoesNotApplyToUnknownElectronApps() {
         XCTAssertFalse(
-            MissingAccessibilityTargetPolicy.canUseApplicationMenuPaste(
+            MissingAccessibilityTargetPolicy.canUseTargetedPaste(
                 bundleIdentifier: "com.example.electron",
                 isInstantDictation: true,
                 prefersPaste: true,
@@ -2610,9 +2655,9 @@ final class MissingAccessibilityTargetPolicyTests: XCTestCase {
         )
     }
 
-    func testChromeInstantDictationCanUseMenuWhenWebEditorIsNotExposed() {
+    func testChromeInstantDictationCanUseTargetedPasteWhenWebEditorIsNotExposed() {
         XCTAssertTrue(
-            MissingAccessibilityTargetPolicy.canUseApplicationMenuPaste(
+            MissingAccessibilityTargetPolicy.canUseTargetedPaste(
                 bundleIdentifier: "com.google.Chrome",
                 isInstantDictation: true,
                 prefersPaste: true,
@@ -2624,7 +2669,7 @@ final class MissingAccessibilityTargetPolicyTests: XCTestCase {
 
     func testFallbackNeverBypassesSecureOrExistingAccessibilityTargets() {
         XCTAssertFalse(
-            MissingAccessibilityTargetPolicy.canUseApplicationMenuPaste(
+            MissingAccessibilityTargetPolicy.canUseTargetedPaste(
                 bundleIdentifier: "com.openai.codex",
                 isInstantDictation: true,
                 prefersPaste: true,
@@ -2633,7 +2678,7 @@ final class MissingAccessibilityTargetPolicyTests: XCTestCase {
             )
         )
         XCTAssertFalse(
-            MissingAccessibilityTargetPolicy.canUseApplicationMenuPaste(
+            MissingAccessibilityTargetPolicy.canUseTargetedPaste(
                 bundleIdentifier: "com.openai.codex",
                 isInstantDictation: true,
                 prefersPaste: true,
@@ -2645,7 +2690,7 @@ final class MissingAccessibilityTargetPolicyTests: XCTestCase {
 
     func testFallbackIsLimitedToInstantPasteDelivery() {
         XCTAssertFalse(
-            MissingAccessibilityTargetPolicy.canUseApplicationMenuPaste(
+            MissingAccessibilityTargetPolicy.canUseTargetedPaste(
                 bundleIdentifier: "com.openai.codex",
                 isInstantDictation: false,
                 prefersPaste: true,
@@ -2654,7 +2699,7 @@ final class MissingAccessibilityTargetPolicyTests: XCTestCase {
             )
         )
         XCTAssertFalse(
-            MissingAccessibilityTargetPolicy.canUseApplicationMenuPaste(
+            MissingAccessibilityTargetPolicy.canUseTargetedPaste(
                 bundleIdentifier: "com.openai.codex",
                 isInstantDictation: true,
                 prefersPaste: false,
@@ -2666,9 +2711,9 @@ final class MissingAccessibilityTargetPolicyTests: XCTestCase {
 }
 
 final class BrowserFocusLossPastePolicyTests: XCTestCase {
-    func testChromeInstantDictationCanUseMenuAfterTransientFocusLoss() {
+    func testChromeInstantDictationCanUseTargetedPasteAfterTransientFocusLoss() {
         XCTAssertTrue(
-            BrowserFocusLossPastePolicy.canUseApplicationMenuPaste(
+            BrowserFocusLossPastePolicy.canUseTargetedPaste(
                 bundleIdentifier: "com.google.Chrome",
                 isInstantDictation: true,
                 prefersPaste: true,
@@ -2680,7 +2725,7 @@ final class BrowserFocusLossPastePolicyTests: XCTestCase {
 
     func testFallbackUsesCapturedBrowserFocusWhenAXEditabilityIsIncomplete() {
         XCTAssertTrue(
-            BrowserFocusLossPastePolicy.canUseApplicationMenuPaste(
+            BrowserFocusLossPastePolicy.canUseTargetedPaste(
                 bundleIdentifier: "com.google.Chrome",
                 isInstantDictation: true,
                 prefersPaste: true,
@@ -2692,7 +2737,7 @@ final class BrowserFocusLossPastePolicyTests: XCTestCase {
 
     func testFallbackRequiresCapturedFocusAndANonSecureTarget() {
         XCTAssertFalse(
-            BrowserFocusLossPastePolicy.canUseApplicationMenuPaste(
+            BrowserFocusLossPastePolicy.canUseTargetedPaste(
                 bundleIdentifier: "com.google.Chrome",
                 isInstantDictation: true,
                 prefersPaste: true,
@@ -2701,7 +2746,7 @@ final class BrowserFocusLossPastePolicyTests: XCTestCase {
             )
         )
         XCTAssertFalse(
-            BrowserFocusLossPastePolicy.canUseApplicationMenuPaste(
+            BrowserFocusLossPastePolicy.canUseTargetedPaste(
                 bundleIdentifier: "com.google.Chrome",
                 isInstantDictation: true,
                 prefersPaste: true,
@@ -2713,7 +2758,7 @@ final class BrowserFocusLossPastePolicyTests: XCTestCase {
 
     func testFallbackDoesNotApplyToUnknownElectronAppsOrTransformations() {
         XCTAssertFalse(
-            BrowserFocusLossPastePolicy.canUseApplicationMenuPaste(
+            BrowserFocusLossPastePolicy.canUseTargetedPaste(
                 bundleIdentifier: "com.example.electron",
                 isInstantDictation: true,
                 prefersPaste: true,
@@ -2722,7 +2767,7 @@ final class BrowserFocusLossPastePolicyTests: XCTestCase {
             )
         )
         XCTAssertFalse(
-            BrowserFocusLossPastePolicy.canUseApplicationMenuPaste(
+            BrowserFocusLossPastePolicy.canUseTargetedPaste(
                 bundleIdentifier: "com.google.Chrome",
                 isInstantDictation: false,
                 prefersPaste: true,
@@ -3109,68 +3154,6 @@ final class SessionCoordinatorTests: XCTestCase {
         XCTAssertEqual(transcriber.callCount, 1)
         XCTAssertEqual(delivery.dictationInsertCount, 1)
         XCTAssertEqual(delivery.insertedTexts, ["Résultat OpenAI"])
-    }
-
-    func testRealtimeDictationStreamsPCMAndSkipsBatchFallback() async throws {
-        let audio = MockAudioCapturer(result: speechResult())
-        let transcriber = MockRealtimeSpeechTranscriber(
-            realtimeText: "Résultat temps réel"
-        )
-        let delivery = MockTextDeliverer(shouldInsert: true)
-        let coordinator = makeCoordinator(
-            audio: audio,
-            transcriber: transcriber,
-            context: MockContextCapturer(
-                result: .init(
-                    target: makeTarget(
-                        processIdentifier: 4321,
-                        bundleIdentifier: "com.example.editor"
-                    ),
-                    context: .empty
-                )
-            ),
-            delivery: delivery,
-            history: MockHistoryRepository()
-        )
-
-        coordinator.startCapture()
-        audio.onPCMChunk?(Data([1, 2, 3, 4]))
-        coordinator.stopCaptureAndQueue()
-        try await waitUntilFinished(coordinator)
-
-        XCTAssertEqual(transcriber.startCount, 1)
-        XCTAssertEqual(transcriber.finishCount, 1)
-        XCTAssertEqual(transcriber.batchCallCount, 0)
-        XCTAssertEqual(transcriber.receivedAudio, Data([1, 2, 3, 4]))
-        XCTAssertEqual(delivery.insertedTexts, ["Résultat temps réel"])
-    }
-
-    func testRealtimeFailureFallsBackToBatchTranscription() async throws {
-        let audio = MockAudioCapturer(result: speechResult())
-        let transcriber = MockRealtimeSpeechTranscriber(
-            realtimeText: "",
-            batchText: "Repli batch",
-            finishError: URLError(.networkConnectionLost)
-        )
-        let delivery = MockTextDeliverer(shouldInsert: true)
-        let coordinator = makeCoordinator(
-            audio: audio,
-            transcriber: transcriber,
-            context: MockContextCapturer(
-                result: .init(target: nil, context: .empty)
-            ),
-            delivery: delivery,
-            history: MockHistoryRepository()
-        )
-
-        coordinator.startCapture()
-        audio.onPCMChunk?(Data([9, 8, 7]))
-        coordinator.stopCaptureAndQueue()
-        try await waitUntilFinished(coordinator)
-
-        XCTAssertEqual(transcriber.finishCount, 1)
-        XCTAssertEqual(transcriber.batchCallCount, 1)
-        XCTAssertEqual(delivery.insertedTexts, ["Repli batch"])
     }
 
     func testCloudTranscriptionTimeoutNamesTheFailingPhase() async throws {
@@ -4037,10 +4020,9 @@ final class SessionCoordinatorTests: XCTestCase {
     }
 }
 
-private final class MockAudioCapturer: AudioCapturing, PCMChunkProviding {
+private final class MockAudioCapturer: AudioCapturing {
     var hasPermission = true
     var onLevelUpdate: ((Float) -> Void)?
-    var onPCMChunk: ((Data) -> Void)?
     var result: CapturedAudio?
     var didStart = false
     var didCleanupCurrentRecording = false
@@ -4097,60 +4079,6 @@ private final class MockSpeechTranscriber: SpeechTranscribing {
         try await Task.sleep(for: delay)
         if let error { throw error }
         return TranscriptionResult(text: text, averageLogProbability: 0)
-    }
-}
-
-private final class MockRealtimeSpeechTranscriber: RealtimeSpeechTranscribing {
-    let identifier = "openai"
-    let isReady = true
-    let locality: ProviderLocality = .cloud
-    let realtimeText: String
-    let batchText: String
-    let finishError: Error?
-    var startCount = 0
-    var finishCount = 0
-    var batchCallCount = 0
-    var cancelCount = 0
-    var receivedAudio = Data()
-    var startedPurpose: RealtimeSpeechPurpose?
-
-    init(
-        realtimeText: String,
-        batchText: String = "Repli batch",
-        finishError: Error? = nil
-    ) {
-        self.realtimeText = realtimeText
-        self.batchText = batchText
-        self.finishError = finishError
-    }
-
-    func startRealtimeTranscription(
-        purpose: RealtimeSpeechPurpose
-    ) async throws {
-        startCount += 1
-        startedPurpose = purpose
-    }
-
-    func appendRealtimeAudio(_ data: Data) {
-        receivedAudio.append(data)
-    }
-
-    func finishRealtimeTranscription() async throws -> TranscriptionResult {
-        finishCount += 1
-        if let finishError { throw finishError }
-        return TranscriptionResult(
-            text: realtimeText,
-            averageLogProbability: nil
-        )
-    }
-
-    func cancelRealtimeTranscription() {
-        cancelCount += 1
-    }
-
-    func transcribe(audioURL: URL) async throws -> TranscriptionResult {
-        batchCallCount += 1
-        return TranscriptionResult(text: batchText, averageLogProbability: 0)
     }
 }
 

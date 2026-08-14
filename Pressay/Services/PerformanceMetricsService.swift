@@ -433,7 +433,6 @@ enum OpenAICostEstimator {
         audioDurationSeconds: TimeInterval
     ) -> Double? {
         let perMinute: Double? = switch model {
-        case "gpt-realtime-translate": 0.034
         case "gpt-live-transcribe": 0.017
         case "gpt-transcribe": 0.0045
         case "gpt-4o-transcribe": 0.006

@@ -73,8 +73,8 @@ bêta recevront aussi cette version stable.
 
 La stable `v1.2.7` (build `12106`) remplace Clerk par l’identité Pressay
 auto-hébergée, conserve Google, ajoute passkeys et TOTP, et sécurise la connexion
-macOS avec OAuth 2.1 + PKCE. La version en développement utilise une requête
-`gpt-transcribe` bornée après le relâchement de Fn, sans session Realtime. La
+macOS avec OAuth 2.1 + PKCE. La version en développement utilise une seule requête
+`gpt-4o-mini-transcribe` après le relâchement de Fn, sans session Realtime. La
 matrice interapplications, le test Intel réel et sept jours sans P0/P1 restent
 des preuves QA à compléter avant la prochaine publication.
 
@@ -244,8 +244,8 @@ Dans les réglages, choisis un seul moteur de transcription :
 1. **OpenAI** : colle une clé de projet `sk-…`. Pressay la valide avant de
    l’enregistrer dans le Trousseau macOS. Après détection locale de la voix,
    l’enregistrement est finalisé au relâchement de Fn puis envoyé une seule fois
-   à `gpt-transcribe`. Pressay n’ouvre aucune session Realtime et ne dépend donc
-   d’aucune finalisation WebSocket avant le collage.
+   à `gpt-4o-mini-transcribe`. Pressay n’ouvre aucune session WebSocket et ne prépare
+   aucun second appel en parallèle.
 2. **WhisperKit local** : télécharge le modèle Small une seule fois. L’audio et
    la transcription restent ensuite sur le Mac, même hors ligne. Le modèle est
    préchargé à la sélection du moteur et pendant la capture si nécessaire.
@@ -262,14 +262,16 @@ gratuit mais occupe de l’espace disque.
 1. `ShortcutRouter` demande au `SessionCoordinator` de créer une `VoiceSession`.
 2. La cible AX, la sélection et les seules sources de contexte autorisées sont
    capturées avant l’enregistrement.
-3. L’audio PCM 16 bits, mono, 24 kHz est analysé localement. Les blocs restent
-   en mémoire jusqu’à ce que la détection locale confirme de la parole ; un
-   silence pur n’est pas diffusé.
-4. Avec OpenAI, le WAV temporaire est envoyé à `gpt-transcribe` dès le
+3. L’audio PCM 16 bits, mono, 24 kHz est écrit dans un WAV temporaire et analysé
+   localement. Si aucune parole n’est détectée, le fichier est supprimé sans
+   appel à OpenAI.
+4. Avec OpenAI, le WAV temporaire est envoyé à `gpt-4o-mini-transcribe` dès le
    relâchement de Fn. WhisperKit reste un chemin local séparé, sans fallback
    cloud.
 5. Le mode résolu choisit entre restitution fidèle et transformation via la
-   Responses API avec `store: false`.
+   Responses API avec `store: false`. Le mode Traduction utilise une langue
+   cible explicite ; le traitement accéléré reste une option distincte car son
+   coût API peut être supérieur.
 6. Une transformation de sélection attend un aperçu éditable.
 7. Une dictée simple colle directement si l’application initiale est toujours
    au premier plan ; les transformations conservent la validation AX stricte.

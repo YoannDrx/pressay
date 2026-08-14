@@ -116,51 +116,12 @@ protocol AudioCapturing: AnyObject {
     func cleanup(url: URL)
 }
 
-protocol PCMChunkProviding: AnyObject {
-    var onPCMChunk: ((Data) -> Void)? { get set }
-}
-
 protocol SpeechTranscribing: AnyObject {
     var identifier: String { get }
     var isReady: Bool { get }
     var locality: ProviderLocality { get }
     func prepare() async throws
     func transcribe(audioURL: URL) async throws -> TranscriptionResult
-}
-
-enum RealtimeSpeechPurpose: Equatable, Sendable {
-    case transcription
-    case translation(targetLanguage: String)
-
-    var modelIdentifier: String {
-        switch self {
-        case .transcription: "gpt-live-transcribe"
-        case .translation: "gpt-realtime-translate"
-        }
-    }
-
-    var isTranslation: Bool {
-        if case .translation = self { return true }
-        return false
-    }
-}
-
-protocol RealtimeSpeechTranscribing: SpeechTranscribing {
-    var realtimeEnabled: Bool { get }
-    func setRealtimeTranscriptHandler(_ handler: ((String, Bool) -> Void)?)
-    func startRealtimeTranscription(purpose: RealtimeSpeechPurpose) async throws
-    func appendRealtimeAudio(_ data: Data)
-    func finishRealtimeTranscription() async throws -> TranscriptionResult
-    func cancelRealtimeTranscription()
-}
-
-extension RealtimeSpeechTranscribing {
-    var realtimeEnabled: Bool { true }
-    func setRealtimeTranscriptHandler(_ handler: ((String, Bool) -> Void)?) {}
-
-    func startRealtimeTranscription() async throws {
-        try await startRealtimeTranscription(purpose: .transcription)
-    }
 }
 
 extension SpeechTranscribing {

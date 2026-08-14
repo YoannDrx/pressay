@@ -12,6 +12,7 @@ struct MenuBarView: View {
     @ObservedObject private var apiUsage = APIUsageLedger.shared
     @AppStorage(Constants.activationModeKey) private var activationMode = Constants.defaultActivationMode
     @AppStorage(Constants.transcriptionEngineKey) private var transcriptionEngine = TranscriptionEngine.openAI.rawValue
+    @AppStorage(Constants.translationTargetLanguageKey) private var translationTargetLanguage = Constants.defaultTranslationTargetLanguage
     @State private var selectedTab = MenuBarTab.dictate
     private let onRequestClose: () -> Void
 
@@ -232,7 +233,7 @@ struct MenuBarView: View {
                     Divider().opacity(0.4)
                     HStack(spacing: 8) {
                         Label(
-                            "GPT Transcribe",
+                            "GPT-4o Mini",
                             systemImage: "waveform.badge.magnifyingglass"
                         )
                         .font(.system(size: 10, weight: .semibold))
@@ -241,7 +242,7 @@ struct MenuBarView: View {
                             .font(.system(size: 9.5))
                             .foregroundStyle(.secondary)
                     }
-                    Text(OpenAITranscriptionProfile.transcribe.detail)
+                    Text(OpenAITranscriptionProfile.mini.detail)
                         .font(.system(size: 9.5))
                         .foregroundStyle(.secondary)
                         .fixedSize(horizontal: false, vertical: true)
@@ -292,6 +293,23 @@ struct MenuBarView: View {
                     .buttonStyle(.plain)
                     .foregroundStyle(.secondary)
                     .help("Gérer les styles")
+                }
+
+                if selectedMode.id == NativeModeCatalog.translationID {
+                    Divider().opacity(0.35)
+                    HStack(spacing: 8) {
+                        Text("Traduire vers")
+                            .font(.system(size: 10, weight: .medium))
+                            .foregroundStyle(.secondary)
+                        Spacer()
+                        Picker("", selection: $translationTargetLanguage) {
+                            Text("Anglais").tag("en")
+                            Text("Français").tag("fr")
+                        }
+                        .labelsHidden()
+                        .pickerStyle(.menu)
+                        .controlSize(.small)
+                    }
                 }
             }
 
@@ -736,7 +754,6 @@ struct MenuBarView: View {
         case "gpt-transcribe": "GPT Transcribe"
         case "gpt-4o-mini-transcribe": "Mini"
         case "gpt-live-transcribe": "Live"
-        case "gpt-realtime-translate": "Translate Live"
         default: model
         }
     }

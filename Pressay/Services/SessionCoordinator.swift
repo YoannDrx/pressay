@@ -5,12 +5,6 @@ struct SessionTimeoutPolicy {
     var cloudTranscription: TimeInterval = 30
     var localPreparation: TimeInterval = 75
     var localTranscription: TimeInterval = 75
-    // Direct gets a very short chance to finalize. A slow or unhealthy socket
-    // must never hold the stable Mini path hostage after Fn is released.
-    // The real OpenAI smoke corpus finalizes Live around 0.8 s on a healthy
-    // connection. Keep enough scheduling headroom to avoid a false Mini
-    // fallback while still bounding a genuinely unhealthy socket.
-    var realtimeFinalization: TimeInterval = 2
     var textProcessing: TimeInterval = 45
 }
 
@@ -45,7 +39,6 @@ final class SessionCoordinator: ObservableObject {
         let replayOriginalText: String?
         let transcriber: any SpeechTranscribing
         let preparationTask: Task<Void, Error>?
-        let realtimeTask: Task<TranscriptionResult, Error>?
     }
 
     private struct ReplayDescriptor {
@@ -97,8 +90,6 @@ final class SessionCoordinator: ObservableObject {
     private var captureDeliveryPolicy: ApplicationDeliveryPolicy?
     private var captureTranscriber: (any SpeechTranscribing)?
     private var captureTranscriberPreparationTask: Task<Void, Error>?
-    private var captureRealtimeTranscriber: (any RealtimeSpeechTranscribing)?
-    private var captureRealtimeStartTask: Task<Void, Error>?
     private var previewDelivery: PreviewDelivery?
     private var capturePreparationTask: Task<Void, Never>?
     private var targetRecoveryTask: Task<Void, Never>?
@@ -289,24 +280,6 @@ final class SessionCoordinator: ObservableObject {
         captureTranscriberPreparationTask = Task {
             try await activeTranscriber.prepare()
         }
-        let realtime = activeTranscriber as? any RealtimeSpeechTranscribing
-        if let realtime,
-           realtime.realtimeEnabled,
-           audioCapturer is PCMChunkProviding {
-            realtime.cancelRealtimeTranscription()
-            let purpose = realtimePurpose(for: mode)
-            // Live stays an internal acceleration path. Provisional text is
-            // intentionally not rendered: only the validated final result is
-            // delivered after Fn is released.
-            realtime.setRealtimeTranscriptHandler(nil)
-            captureRealtimeTranscriber = realtime
-            captureRealtimeStartTask = Task {
-                try await realtime.startRealtimeTranscription(purpose: purpose)
-            }
-            (audioCapturer as? PCMChunkProviding)?.onPCMChunk = { data in
-                realtime.appendRealtimeAudio(data)
-            }
-        }
         do {
             try audioCapturer.startRecording()
 
@@ -370,10 +343,6 @@ final class SessionCoordinator: ObservableObject {
         captureTranscriber = nil
         let preparationTask = captureTranscriberPreparationTask
         captureTranscriberPreparationTask = nil
-        let realtimeTranscriber = captureRealtimeTranscriber
-        captureRealtimeTranscriber = nil
-        let realtimeStartTask = captureRealtimeStartTask
-        captureRealtimeStartTask = nil
         let target = captureTarget
         captureTarget = nil
 
@@ -382,18 +351,17 @@ final class SessionCoordinator: ObservableObject {
         // Pressay is listening once Fn is up.
         hud.show(.transcribing, detail: "Finalisation…", autoHide: false)
 
+        let audioFinalizationStartedAt = Date()
         guard let audio = audioCapturer.stopRecording() else {
-            (audioCapturer as? PCMChunkProviding)?.onPCMChunk = nil
             preparationTask?.cancel()
-            realtimeStartTask?.cancel()
-            realtimeTranscriber?.cancelRealtimeTranscription()
             session.transition(to: .failed("Aucun enregistrement trouvé"))
             lastSession = session
             fail("Aucun enregistrement trouvé")
             return
         }
-        (audioCapturer as? PCMChunkProviding)?.onPCMChunk = nil
-
+        logger.notice(
+            "Audio finalized: duration=\(Date().timeIntervalSince(audioFinalizationStartedAt), format: .fixed(precision: 3), privacy: .public)s, audioDuration=\(audio.duration, format: .fixed(precision: 3), privacy: .public)s"
+        )
         sounds.playStopSound()
         session.timings.captureEndedAt = Date()
         session.audioURL = audio.url
@@ -403,8 +371,6 @@ final class SessionCoordinator: ObservableObject {
 
         guard audio.containsSpeech else {
             preparationTask?.cancel()
-            realtimeStartTask?.cancel()
-            realtimeTranscriber?.cancelRealtimeTranscription()
             audioCapturer.cleanup(url: audio.url)
             _ = session.transition(to: .cancelled)
             lastSession = session
@@ -412,15 +378,6 @@ final class SessionCoordinator: ObservableObject {
             lastNotice = "Aucune parole détectée — rien n’a été collé"
             hud.show(.cancelled, detail: lastNotice, autoHide: true)
             return
-        }
-
-        let realtimeTask: Task<TranscriptionResult, Error>? = if let realtimeTranscriber {
-            Task {
-                try await realtimeStartTask?.value
-                return try await realtimeTranscriber.finishRealtimeTranscription()
-            }
-        } else {
-            nil
         }
 
         let item = PendingSession(
@@ -431,8 +388,7 @@ final class SessionCoordinator: ObservableObject {
             deliveryPolicy: deliveryPolicy,
             replayOriginalText: nil,
             transcriber: activeTranscriber,
-            preparationTask: preparationTask,
-            realtimeTask: realtimeTask
+            preparationTask: preparationTask
         )
         // Replay and comparison are useful for advanced modes, but loading and
         // retaining the audio is not part of instant faithful dictation.
@@ -460,18 +416,6 @@ final class SessionCoordinator: ObservableObject {
               let mode = modeResolver.availableModes().first(where: {
                 $0.id == modeID && $0.isEnabled
               }) else { return }
-        let purposeChanged = (captureMode?.id == NativeModeCatalog.translationID)
-            != (mode.id == NativeModeCatalog.translationID)
-        if purposeChanged {
-            // Reusing a translation socket as a transcription socket (or the
-            // reverse) would produce the wrong final text. Keep the complete
-            // local recording and fall back to Mini for this one dictation.
-            captureRealtimeStartTask?.cancel()
-            captureRealtimeStartTask = nil
-            captureRealtimeTranscriber?.cancelRealtimeTranscription()
-            captureRealtimeTranscriber = nil
-            (audioCapturer as? PCMChunkProviding)?.onPCMChunk = nil
-        }
         captureMode = mode
         session.modeIdentifier = mode.id
         captureSession = session
@@ -480,16 +424,6 @@ final class SessionCoordinator: ObservableObject {
             detail: listeningDetail(modeName: mode.name),
             autoHide: false
         )
-    }
-
-    private func realtimePurpose(for mode: ModeDefinition) -> RealtimeSpeechPurpose {
-        guard mode.id == NativeModeCatalog.translationID else {
-            return .transcription
-        }
-        let sourceLanguage = UserDefaults.standard.string(
-            forKey: Constants.transcriptionLanguageKey
-        ) ?? Constants.defaultTranscriptionLanguage
-        return .translation(targetLanguage: sourceLanguage == "en" ? "fr" : "en")
     }
 
     func cancelCurrentSession() {
@@ -635,8 +569,7 @@ final class SessionCoordinator: ObservableObject {
             transcriber: descriptor.transcriber,
             preparationTask: Task {
                 try await descriptor.transcriber.prepare()
-            },
-            realtimeTask: nil
+            }
         )
         pendingCount = 0
         process(item)
@@ -691,6 +624,9 @@ final class SessionCoordinator: ObservableObject {
 
             do {
                 let activeTranscriber = item.transcriber
+                self.logger.notice(
+                    "Fn release processing started: profile=\(activeTranscriber.identifier, privacy: .public), mode=\(item.mode.name, privacy: .public), audioDuration=\(item.audio.duration, format: .fixed(precision: 3), privacy: .public)s"
+                )
                 self.hud.show(
                     .transcribing,
                     detail: "\(activeTranscriber.locality == .local ? "Local" : "Cloud") · \(activeTranscriber.identifier)",
@@ -707,6 +643,9 @@ final class SessionCoordinator: ObservableObject {
                     .transcription,
                     duration: Date().timeIntervalSince(transcriptionStartedAt)
                 )
+                self.logger.notice(
+                    "Transcription completed: model=\(transcription.modelIdentifier ?? activeTranscriber.identifier, privacy: .public), mode=\(item.mode.name, privacy: .public), duration=\(Date().timeIntervalSince(transcriptionStartedAt), format: .fixed(precision: 3), privacy: .public)s"
+                )
                 try Task.checkCancellation()
                 let transcriptionText = try TranscriptionResponseValidator.validated(
                     transcription.text,
@@ -718,27 +657,10 @@ final class SessionCoordinator: ObservableObject {
                 _ = item.session.transition(to: .processing)
                 self.processingSession = item.session
 
-                let processed: (
-                    text: String,
-                    providerIdentifier: String?,
-                    contextManifest: [String],
-                    tokenUsage: OpenAITokenUsage?,
-                    processingModel: String?
-                ) = if transcription.fulfilledPurpose?.isTranslation == true,
-                       item.mode.id == NativeModeCatalog.translationID {
-                    (
-                        text: transcriptionText,
-                        providerIdentifier: transcription.modelIdentifier,
-                        contextManifest: [String](),
-                        tokenUsage: nil,
-                        processingModel: nil
-                    )
-                } else {
-                    try await self.processText(
-                        transcriptionText,
-                        item: item
-                    )
-                }
+                let processed = try await self.processText(
+                    transcriptionText,
+                    item: item
+                )
                 try Task.checkCancellation()
                 item.session.finalText = processed.text
                 item.session.timings.processingEndedAt = Date()
@@ -915,27 +837,6 @@ final class SessionCoordinator: ObservableObject {
             }
         }
 
-        if let realtimeTask = item.realtimeTask {
-            do {
-                return try await realtimeResult(
-                    task: realtimeTask,
-                    transcriber: item.transcriber
-                )
-            } catch {
-                guard !Task.isCancelled, !(error is CancellationError) else {
-                    throw error
-                }
-                realtimeTask.cancel()
-                (item.transcriber as? any RealtimeSpeechTranscribing)?
-                    .cancelRealtimeTranscription()
-                hud.show(
-                    .transcribing,
-                    detail: "Temps réel indisponible · repli OpenAI",
-                    autoHide: false
-                )
-            }
-        }
-
         let timeout = item.transcriber.locality == .local
             ? timeoutPolicy.localTranscription
             : timeoutPolicy.cloudTranscription
@@ -947,30 +848,6 @@ final class SessionCoordinator: ObservableObject {
             error: timeoutError
         ) {
             try await item.transcriber.transcribe(audioURL: item.audio.url)
-        }
-    }
-
-    private func realtimeResult(
-        task: Task<TranscriptionResult, Error>,
-        transcriber: any SpeechTranscribing
-    ) async throws -> TranscriptionResult {
-        let timeout = timeoutPolicy.realtimeFinalization
-        return try await withThrowingTaskGroup(
-            of: TranscriptionResult.self
-        ) { group in
-            group.addTask { try await task.value }
-            group.addTask {
-                try await Task.sleep(for: .seconds(timeout))
-                task.cancel()
-                (transcriber as? any RealtimeSpeechTranscribing)?
-                    .cancelRealtimeTranscription()
-                throw PhaseTimeoutError.realtime(timeout)
-            }
-            guard let first = try await group.next() else {
-                throw CancellationError()
-            }
-            group.cancelAll()
-            return first
         }
     }
 
@@ -1084,7 +961,11 @@ final class SessionCoordinator: ObservableObject {
             result.networkMetrics,
             sessionID: item.session.id
         )
-        metrics.record(.processing, duration: Date().timeIntervalSince(startedAt))
+        let processingDuration = Date().timeIntervalSince(startedAt)
+        metrics.record(.processing, duration: processingDuration)
+        logger.notice(
+            "Text processing completed: model=\(activeProcessor.modelIdentifier, privacy: .public), mode=\(item.mode.name, privacy: .public), duration=\(processingDuration, format: .fixed(precision: 3), privacy: .public)s"
+        )
         return (
             result.text,
             result.providerIdentifier,
@@ -1322,6 +1203,9 @@ final class SessionCoordinator: ObservableObject {
             .insertion,
             duration: Date().timeIntervalSince(insertionStartedAt)
         )
+        logger.notice(
+            "Delivery returned: inserted=\(inserted, privacy: .public), strategy=\(String(describing: self.textDeliverer.lastDeliveryStrategy), privacy: .public), mode=\(item.mode.name, privacy: .public), duration=\(Date().timeIntervalSince(insertionStartedAt), format: .fixed(precision: 3), privacy: .public)s"
+        )
         var session = item.session
         session.finalText = text
         session.timings.deliveryEndedAt = Date()
@@ -1351,6 +1235,9 @@ final class SessionCoordinator: ObservableObject {
         lowConfidence: Bool,
         textAlreadyCopied: Bool = false
     ) {
+        logger.notice(
+            "Session completed: inserted=\(inserted, privacy: .public), transcription=\(transcriptionProviderIdentifier ?? self.transcriber.identifier, privacy: .public), processing=\(processingProvider ?? "none", privacy: .public), total=\(Date().timeIntervalSince(session.timings.createdAt), format: .fixed(precision: 3), privacy: .public)s"
+        )
         metrics.record(
             .total,
             duration: Date().timeIntervalSince(session.timings.createdAt)
@@ -1403,9 +1290,12 @@ final class SessionCoordinator: ObservableObject {
 
         lastError = nil
         if inserted {
-            lastNotice = lowConfidence
-                ? "Texte inséré — vérifie cette transcription incertaine"
+            let deliveryLabel = textDeliverer.lastDeliveryStrategy == .paste
+                ? "Texte envoyé"
                 : "Texte inséré"
+            lastNotice = lowConfidence
+                ? "\(deliveryLabel) — vérifie cette transcription incertaine"
+                : deliveryLabel
         } else {
             let deliveryFailure = textDeliverer.lastDeliveryFailure
             if !textAlreadyCopied {
@@ -1562,6 +1452,14 @@ final class SessionCoordinator: ObservableObject {
                 )
             )
         }
+        let terminalState = String(describing: item.session.state)
+        let terminalMode = item.mode.name
+        let terminalCategory = MetricFailureClassifier.category(
+            for: underlyingError
+        )
+        logger.notice(
+            "Session ended: state=\(terminalState, privacy: .public), mode=\(terminalMode, privacy: .public), category=\(terminalCategory, privacy: .public)"
+        )
         lastSession = item.session
         networkMetricsBySession.removeValue(forKey: item.session.id)
         let canRetry = replayBuffer.audio(for: item.session.id) != nil
@@ -1604,16 +1502,14 @@ final class SessionCoordinator: ObservableObject {
     ) {
         guard let metrics else { return }
         networkMetricsBySession[sessionID, default: []].append(metrics)
+        logger.notice(
+            "Network timing: attempts=\(metrics.attempts, privacy: .public), reused=\(metrics.reusedConnection, privacy: .public), dns=\(metrics.dnsSeconds ?? 0, format: .fixed(precision: 3), privacy: .public)s, connect=\(metrics.connectionSeconds ?? 0, format: .fixed(precision: 3), privacy: .public)s, tls=\(metrics.tlsSeconds ?? 0, format: .fixed(precision: 3), privacy: .public)s, request=\(metrics.requestSeconds ?? 0, format: .fixed(precision: 3), privacy: .public)s, ttfb=\(metrics.timeToFirstByteSeconds ?? 0, format: .fixed(precision: 3), privacy: .public)s, response=\(metrics.responseSeconds ?? 0, format: .fixed(precision: 3), privacy: .public)s, total=\(metrics.totalSeconds, format: .fixed(precision: 3), privacy: .public)s"
+        )
     }
 
     private func cancelCaptureAcceleration() {
         captureTranscriberPreparationTask?.cancel()
         captureTranscriberPreparationTask = nil
-        captureRealtimeStartTask?.cancel()
-        captureRealtimeStartTask = nil
-        captureRealtimeTranscriber?.cancelRealtimeTranscription()
-        captureRealtimeTranscriber = nil
-        (audioCapturer as? PCMChunkProviding)?.onPCMChunk = nil
     }
 
     private func textTarget(for session: VoiceSession) -> TextInjectionTarget? {
@@ -1659,7 +1555,6 @@ final class SessionCoordinator: ObservableObject {
         case cloudTranscription(TimeInterval)
         case localPreparation(TimeInterval)
         case localTranscription(TimeInterval)
-        case realtime(TimeInterval)
         case textProcessing(TimeInterval)
 
         var errorDescription: String? {
@@ -1670,8 +1565,6 @@ final class SessionCoordinator: ObservableObject {
                 "Chargement de WhisperKit interrompu après \(Int(seconds)) s"
             case .localTranscription(let seconds):
                 "Transcription locale interrompue après \(Int(seconds)) s"
-            case .realtime(let seconds):
-                "Finalisation temps réel interrompue après \(Int(seconds)) s"
             case .textProcessing(let seconds):
                 "Transformation OpenAI interrompue après \(Int(seconds)) s — tu peux réessayer"
             }
