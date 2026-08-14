@@ -1,4 +1,5 @@
 import Foundation
+import OSLog
 
 struct SessionTimeoutPolicy {
     var cloudTranscription: TimeInterval = 30
@@ -85,6 +86,10 @@ final class SessionCoordinator: ObservableObject {
     private let hud: HUDPresenting
     private let replayBuffer: ReplayBuffer
     private let timeoutPolicy: SessionTimeoutPolicy
+    private let logger = Logger(
+        subsystem: Bundle.main.bundleIdentifier ?? "fr.yodev.pressay",
+        category: "SessionPerformance"
+    )
 
     private var processingTask: Task<Void, Never>?
     private var captureTarget: TextInjectionTarget?
@@ -810,7 +815,13 @@ final class SessionCoordinator: ObservableObject {
 
             do {
                 let transcriptionStartedAt = Date()
+                self.logger.notice(
+                    "Fn release processing started: profile=\(item.transcriber.identifier, privacy: .public), audioDuration=\(item.audio.duration, format: .fixed(precision: 3), privacy: .public)s"
+                )
                 let transcription = try await self.transcription(for: item)
+                let transcriptionDuration = Date().timeIntervalSince(
+                    transcriptionStartedAt
+                )
                 self.lastTranscriptionModel = transcription.modelIdentifier
                 self.appendNetworkMetrics(
                     transcription.networkMetrics,
@@ -818,7 +829,10 @@ final class SessionCoordinator: ObservableObject {
                 )
                 self.metrics.record(
                     .transcription,
-                    duration: Date().timeIntervalSince(transcriptionStartedAt)
+                    duration: transcriptionDuration
+                )
+                self.logger.notice(
+                    "Transcription completed: model=\(transcription.modelIdentifier ?? item.transcriber.identifier, privacy: .public), duration=\(transcriptionDuration, format: .fixed(precision: 3), privacy: .public)s"
                 )
                 try Task.checkCancellation()
                 let transcriptionText = InstantDictationTextNormalizer.normalized(
@@ -841,9 +855,15 @@ final class SessionCoordinator: ObservableObject {
                     text: transcriptionText,
                     target: item.target
                 )
+                let insertionDuration = Date().timeIntervalSince(
+                    insertionStartedAt
+                )
                 self.metrics.record(
                     .insertion,
-                    duration: Date().timeIntervalSince(insertionStartedAt)
+                    duration: insertionDuration
+                )
+                self.logger.notice(
+                    "Delivery returned: inserted=\(inserted, privacy: .public), strategy=\(String(describing: self.textDeliverer.lastDeliveryStrategy), privacy: .public), duration=\(insertionDuration, format: .fixed(precision: 3), privacy: .public)s"
                 )
 
                 item.session.timings.deliveryEndedAt = Date()

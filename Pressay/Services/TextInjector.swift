@@ -150,7 +150,8 @@ final class TextInjector: TextDelivering {
         lastDeliveryFailure = nil
 
         let targetBundleIdentifier = target.snapshot.bundleIdentifier ?? "unknown"
-        logger.info(
+        let deliveryStartedAt = Date()
+        logger.notice(
             "Delivery started: instant=\(isInstantDictation, privacy: .public), target=\(targetBundleIdentifier, privacy: .public), pid=\(target.processIdentifier, privacy: .public), prefersPaste=\(prefersPaste, privacy: .public)"
         )
 
@@ -185,6 +186,9 @@ final class TextInjector: TextDelivering {
                     processIdentifier: target.processIdentifier
                 )
             lastDeliveryStrategy = didPaste ? .paste : .copied
+            logger.notice(
+                "Application-menu delivery ended: success=\(didPaste, privacy: .public), duration=\(Date().timeIntervalSince(deliveryStartedAt), format: .fixed(precision: 3), privacy: .public)s"
+            )
             return didPaste ? true : fail(.clipboardPasteFailed)
         }
         guard let currentFocusedElement = currentFocusedElement(
@@ -206,6 +210,9 @@ final class TextInjector: TextDelivering {
                         processIdentifier: target.processIdentifier
                     )
                 lastDeliveryStrategy = didPaste ? .paste : .copied
+                logger.notice(
+                    "Browser-focus delivery ended: success=\(didPaste, privacy: .public), duration=\(Date().timeIntervalSince(deliveryStartedAt), format: .fixed(precision: 3), privacy: .public)s"
+                )
                 return didPaste ? true : fail(.clipboardPasteFailed)
             }
             return fail(.focusedElementUnavailable)
@@ -239,7 +246,9 @@ final class TextInjector: TextDelivering {
                 rememberUndo(for: activeTarget, insertedText: cleanText)
             }
             lastDeliveryStrategy = .paste
-            logger.info("Delivery completed with application-menu paste")
+            logger.notice(
+                "Delivery completed with application-menu paste in \(Date().timeIntervalSince(deliveryStartedAt), format: .fixed(precision: 3), privacy: .public)s"
+            )
             return true
         }
 
@@ -290,8 +299,8 @@ final class TextInjector: TextDelivering {
             return fail(.clipboardPasteFailed)
         }
         let completedStrategy = String(describing: lastDeliveryStrategy)
-        logger.info(
-            "Delivery completed with strategy \(completedStrategy, privacy: .public)"
+        logger.notice(
+            "Delivery completed with strategy \(completedStrategy, privacy: .public) in \(Date().timeIntervalSince(deliveryStartedAt), format: .fixed(precision: 3), privacy: .public)s"
         )
         return didPaste
     }

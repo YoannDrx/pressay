@@ -167,46 +167,28 @@ actor ClipboardTransactionCoordinator {
         processIdentifier: pid_t
     ) async -> Bool {
         guard tryAcquire() else { return false }
+        defer { release() }
 
-        let initial = await MainActor.run {
-            PasteboardSnapshotCodec.snapshot(NSPasteboard.general)
-        }
-        let pressayChangeCount: Int? = await MainActor.run {
+        let prepared = await MainActor.run {
             let pasteboard = NSPasteboard.general
             pasteboard.clearContents()
-            guard pasteboard.setString(text, forType: .string) else {
-                PasteboardSnapshotCodec.restore(initial, to: pasteboard)
-                return nil
-            }
-            return pasteboard.changeCount
+            return pasteboard.setString(text, forType: .string)
         }
-        guard let pressayChangeCount else {
-            release()
-            return false
-        }
+        guard prepared else { return false }
 
         let pressed = await MainActor.run {
             Self.performPasteMenuItem(processIdentifier: processIdentifier)
         }
-        guard pressed else {
-            // Keep the dictated text available when the target application
-            // refuses its Paste command. The caller will report "copied"
-            // instead of claiming that an unverified keyboard event worked.
-            release()
-            return false
-        }
-
-        // AXPress applies the target application's real Paste command
-        // synchronously. Restore the user's previous clipboard shortly after,
-        // without holding the terminal HUD open for that grace period.
-        Task { [weak self] in
+        if pressed {
+            // Electron and Chromium can acknowledge AXPress before their
+            // editor has consumed the Paste command. Keep the dictated text
+            // available during that hand-off and leave it recoverable in the
+            // clipboard afterwards. Restoring the previous clipboard after
+            // 120 ms created a race where the menu action ran with stale data
+            // and appeared to complete only after another menu-bar click.
             try? await Task.sleep(for: .milliseconds(120))
-            await self?.finishDictationPaste(
-                initial: initial,
-                expectedChangeCount: pressayChangeCount
-            )
         }
-        return true
+        return pressed
     }
 
     func pasteDictation(
