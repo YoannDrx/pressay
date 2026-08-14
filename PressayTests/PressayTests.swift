@@ -3140,6 +3140,34 @@ final class TargetSelectionValidatorTests: XCTestCase {
 
 @MainActor
 final class ShortcutRouterTests: XCTestCase {
+    func testPhysicalKeyPollerDetectsReleaseWithoutAFlagsChangedEvent() async {
+        var keyIsPressed = true
+        let released = expectation(description: "Relâchement physique détecté")
+        let poller = ModifierOnlyKeyReleasePoller(interval: .milliseconds(5))
+
+        poller.start(
+            keyIsPressed: { keyIsPressed },
+            onRelease: { released.fulfill() }
+        )
+        keyIsPressed = false
+
+        await fulfillment(of: [released], timeout: 1)
+    }
+
+    func testStoppingPhysicalKeyPollerPreventsAStaleRelease() async {
+        let released = expectation(description: "Aucun relâchement périmé")
+        released.isInverted = true
+        let poller = ModifierOnlyKeyReleasePoller(interval: .milliseconds(5))
+
+        poller.start(
+            keyIsPressed: { false },
+            onRelease: { released.fulfill() }
+        )
+        poller.stop()
+
+        await fulfillment(of: [released], timeout: 0.05)
+    }
+
     func testConflictKeepsExistingModifierShortcut() {
         let router = ShortcutRouter()
         let definition = ShortcutDefinition(

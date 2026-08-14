@@ -1,6 +1,44 @@
+import Foundation
+
+@MainActor
+final class ModifierOnlyKeyReleasePoller {
+    private let interval: Duration
+    private var pollingTask: Task<Void, Never>?
+
+    init(interval: Duration = .milliseconds(25)) {
+        self.interval = interval
+    }
+
+    func start(
+        keyIsPressed: @escaping @MainActor () -> Bool,
+        onRelease: @escaping @MainActor () -> Void
+    ) {
+        stop()
+        pollingTask = Task { @MainActor [weak self] in
+            guard let self else { return }
+            while !Task.isCancelled {
+                do {
+                    try await Task.sleep(for: interval)
+                } catch {
+                    return
+                }
+                guard keyIsPressed() else {
+                    pollingTask = nil
+                    onRelease()
+                    return
+                }
+            }
+        }
+    }
+
+    func stop() {
+        pollingTask?.cancel()
+        pollingTask = nil
+    }
+}
+
 #if APP_STORE
 import Combine
-import Foundation
 
 enum ShortcutAction: Hashable {
     case dictate
@@ -69,7 +107,6 @@ typealias KeyboardService = ShortcutRouter
 #else
 import AppKit
 import Carbon.HIToolbox
-import Foundation
 
 enum ShortcutAction: Hashable {
     case dictate
@@ -109,6 +146,7 @@ final class ShortcutRouter: ObservableObject {
     private var shortcutIsPressed = false
     private var pendingRelease: DispatchWorkItem?
     private var ignoresNextRelease = false
+    private let modifierReleasePoller = ModifierOnlyKeyReleasePoller()
 
     var onShortcutPressed: (() -> Void)?
     var onShortcutReleased: (() -> Void)?
@@ -192,6 +230,7 @@ final class ShortcutRouter: ObservableObject {
         }
         pendingRelease?.cancel()
         pendingRelease = nil
+        modifierReleasePoller.stop()
         shortcutIsPressed = false
         monitoredDictationShortcut = nil
         ignoresNextRelease = false
@@ -226,6 +265,8 @@ final class ShortcutRouter: ObservableObject {
                     forKey: previous.identifier
                 )
             }
+            modifierReleasePoller.stop()
+            shortcutIsPressed = false
             monitoredDictationShortcut = shortcut
             lastRegistrationMessage = nil
             return .registered
@@ -408,6 +449,10 @@ final class ShortcutRouter: ObservableObject {
 
         if isPressed && !shortcutIsPressed {
             shortcutIsPressed = true
+            monitorPhysicalRelease(
+                keyCode: shortcut.keyCode,
+                activationMode: activationMode
+            )
             if activationMode == .hold {
                 handleHoldPressed()
             } else {
@@ -416,10 +461,33 @@ final class ShortcutRouter: ObservableObject {
                 }
             }
         } else if !isPressed && shortcutIsPressed {
-            shortcutIsPressed = false
-            guard activationMode == .hold else { return }
-            handleHoldReleased()
+            finishModifierRelease(activationMode: activationMode)
         }
+    }
+
+    private func monitorPhysicalRelease(
+        keyCode: UInt16,
+        activationMode: ActivationMode
+    ) {
+        modifierReleasePoller.start(
+            keyIsPressed: {
+                CGEventSource.keyState(
+                    .combinedSessionState,
+                    key: CGKeyCode(keyCode)
+                )
+            },
+            onRelease: { [weak self] in
+                self?.finishModifierRelease(activationMode: activationMode)
+            }
+        )
+    }
+
+    private func finishModifierRelease(activationMode: ActivationMode) {
+        guard shortcutIsPressed else { return }
+        shortcutIsPressed = false
+        modifierReleasePoller.stop()
+        guard activationMode == .hold else { return }
+        handleHoldReleased()
     }
 
     private func handleHoldPressed() {
