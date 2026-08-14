@@ -162,6 +162,41 @@ actor ClipboardTransactionCoordinator {
         await pasteDictation(text, processIdentifier: nil)
     }
 
+    func pasteDictationUsingApplicationMenu(
+        _ text: String,
+        processIdentifier: pid_t
+    ) async -> Bool {
+        guard tryAcquire() else { return false }
+        defer { release() }
+
+        let initial = await MainActor.run {
+            PasteboardSnapshotCodec.snapshot(NSPasteboard.general)
+        }
+        let pressayChangeCount: Int? = await MainActor.run {
+            let pasteboard = NSPasteboard.general
+            pasteboard.clearContents()
+            guard pasteboard.setString(text, forType: .string) else {
+                PasteboardSnapshotCodec.restore(initial, to: pasteboard)
+                return nil
+            }
+            return pasteboard.changeCount
+        }
+        guard let pressayChangeCount else { return false }
+
+        let pressed = await MainActor.run {
+            Self.performPasteMenuItem(processIdentifier: processIdentifier)
+        }
+        if pressed {
+            try? await Task.sleep(for: .milliseconds(120))
+        }
+        await restoreIfUnchanged(
+            initial,
+            expectedChangeCount: pressayChangeCount,
+            pasteSucceeded: pressed
+        )
+        return pressed
+    }
+
     func pasteDictation(
         _ text: String,
         processIdentifier: pid_t?
@@ -301,6 +336,141 @@ actor ClipboardTransactionCoordinator {
             keyUp.post(tap: .cghidEventTap)
         }
         return true
+    }
+
+    @MainActor
+    private static func performPasteMenuItem(
+        processIdentifier: pid_t
+    ) -> Bool {
+        let application = AXUIElementCreateApplication(processIdentifier)
+        guard let menuBar = copiedElement(
+            attribute: kAXMenuBarAttribute,
+            from: application
+        ),
+              let pasteItem = pasteMenuItem(in: menuBar, remainingDepth: 4)
+        else {
+            return false
+        }
+        return AXUIElementPerformAction(
+            pasteItem,
+            kAXPressAction as CFString
+        ) == .success
+    }
+
+    @MainActor
+    private static func pasteMenuItem(
+        in element: AXUIElement,
+        remainingDepth: Int
+    ) -> AXUIElement? {
+        let role = copiedString(attribute: kAXRoleAttribute, from: element)
+        let title = copiedString(attribute: kAXTitleAttribute, from: element)?
+            .folding(
+                options: [.caseInsensitive, .diacriticInsensitive],
+                locale: .current
+            )
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        if role == kAXMenuItemRole as String,
+           title == "paste" || title == "coller" {
+            if copiedBool(attribute: kAXEnabledAttribute, from: element) == false {
+                return nil
+            }
+            return element
+        }
+
+        guard remainingDepth > 0,
+              let children = copiedElements(
+                attribute: kAXChildrenAttribute,
+                from: element
+              ) else {
+            return nil
+        }
+        for child in children {
+            if let match = pasteMenuItem(
+                in: child,
+                remainingDepth: remainingDepth - 1
+            ) {
+                return match
+            }
+        }
+        return nil
+    }
+
+    @MainActor
+    private static func copiedElement(
+        attribute: String,
+        from element: AXUIElement
+    ) -> AXUIElement? {
+        var value: CFTypeRef?
+        guard AXUIElementCopyAttributeValue(
+            element,
+            attribute as CFString,
+            &value
+        ) == .success,
+              let value,
+              CFGetTypeID(value) == AXUIElementGetTypeID() else {
+            return nil
+        }
+        return unsafeBitCast(value, to: AXUIElement.self)
+    }
+
+    @MainActor
+    private static func copiedElements(
+        attribute: String,
+        from element: AXUIElement
+    ) -> [AXUIElement]? {
+        var value: CFTypeRef?
+        guard AXUIElementCopyAttributeValue(
+            element,
+            attribute as CFString,
+            &value
+        ) == .success,
+              let value,
+              CFGetTypeID(value) == CFArrayGetTypeID() else {
+            return nil
+        }
+        let array = unsafeBitCast(value, to: CFArray.self)
+        return (0..<CFArrayGetCount(array)).compactMap { index in
+            guard let rawValue = CFArrayGetValueAtIndex(array, index) else {
+                return nil
+            }
+            let child = unsafeBitCast(rawValue, to: CFTypeRef.self)
+            guard CFGetTypeID(child) == AXUIElementGetTypeID() else {
+                return nil
+            }
+            return unsafeBitCast(child, to: AXUIElement.self)
+        }
+    }
+
+    @MainActor
+    private static func copiedString(
+        attribute: String,
+        from element: AXUIElement
+    ) -> String? {
+        var value: CFTypeRef?
+        guard AXUIElementCopyAttributeValue(
+            element,
+            attribute as CFString,
+            &value
+        ) == .success else {
+            return nil
+        }
+        return value as? String
+    }
+
+    @MainActor
+    private static func copiedBool(
+        attribute: String,
+        from element: AXUIElement
+    ) -> Bool? {
+        var value: CFTypeRef?
+        guard AXUIElementCopyAttributeValue(
+            element,
+            attribute as CFString,
+            &value
+        ) == .success else {
+            return nil
+        }
+        return (value as? NSNumber)?.boolValue
     }
 
 }

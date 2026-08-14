@@ -133,10 +133,24 @@ final class TextInjector: TextDelivering {
             return fail(.targetApplicationNotFrontmost)
         }
 
-        // This is the original reliable Fn path: publish the final text and
-        // post one global Cmd+V while the captured application is still
-        // frontmost. There is no AX menu lookup, PID-targeted event, value
-        // polling or clipboard restoration on the critical path.
+        // Pressay 1.2.7 used the target application's native Edit > Paste
+        // command for Electron and browser editors. Unlike a synthetic CGEvent,
+        // AXPress reports whether the application accepted the menu action.
+        let didUseApplicationMenu = await ClipboardTransactionCoordinator.shared
+            .pasteDictationUsingApplicationMenu(
+                cleanText,
+                processIdentifier: target.processIdentifier
+            )
+        if didUseApplicationMenu {
+            lastDeliveryStrategy = .paste
+            logger.notice(
+                "Native application-menu paste accepted: pid=\(target.processIdentifier, privacy: .public)"
+            )
+            return true
+        }
+
+        // Some small native applications do not expose a conventional Paste
+        // menu item. Keep the historical global shortcut only as a fallback.
         let pasteboard = NSPasteboard.general
         pasteboard.clearContents()
         guard pasteboard.setString(cleanText, forType: .string) else {
