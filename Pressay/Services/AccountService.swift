@@ -74,6 +74,27 @@ struct PressayDevice: Codable, Equatable, Identifiable, Sendable {
     let lastSeenAt: Date
 }
 
+/// Wire payload for `POST /v1/devices/register`.
+///
+/// The Pressay API deliberately uses camelCase for request bodies. Keep this
+/// separate from `PressayJSON.encoder`, which uses snake_case for local cached
+/// values, so a storage-format change can never break the account handshake.
+struct PressayDeviceRegistration: Encodable, Equatable, Sendable {
+    let deviceIdentifier: String
+    let platform: String
+    let appVersion: String
+    let distributionChannel: String
+    let architecture: String
+    let osMajor: Int
+    let transcriptionEngine: String
+    let localModelID: String?
+    let telemetryConsent: Bool
+
+    func encodedForAPI() throws -> Data {
+        try JSONEncoder().encode(self)
+    }
+}
+
 struct PressayEntitlement: Codable, Equatable, Sendable {
     struct TimelineItem: Codable, Equatable, Sendable {
         let source: String
@@ -410,28 +431,19 @@ final class AccountService: NSObject, ObservableObject {
     }
 
     private func registerThisMac() async throws {
-        struct Registration: Encodable {
-            let deviceIdentifier: String
-            let platform = "macos"
-            let appVersion: String
-            let distributionChannel = "direct"
-            let architecture: String
-            let osMajor: Int
-            let transcriptionEngine: String
-            let localModelID: String?
-            let telemetryConsent: Bool
-        }
         let consent = defaults.bool(forKey: Constants.remoteTelemetryEnabledKey)
-        let registration = Registration(
+        let registration = PressayDeviceRegistration(
             deviceIdentifier: stableDeviceIdentifier(),
+            platform: "macos",
             appVersion: Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "unknown",
+            distributionChannel: "direct",
             architecture: Self.architecture,
             osMajor: ProcessInfo.processInfo.operatingSystemVersion.majorVersion,
             transcriptionEngine: defaults.string(forKey: Constants.transcriptionEngineKey) ?? "unknown",
             localModelID: consent ? defaults.string(forKey: Constants.whisperKitModelPathKey) : nil,
             telemetryConsent: consent
         )
-        let body = try PressayJSON.encoder.encode(registration)
+        let body = try registration.encodedForAPI()
         _ = try await apiRequest(path: "devices/register", method: "POST", body: body)
     }
 

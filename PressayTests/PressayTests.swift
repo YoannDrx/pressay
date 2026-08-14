@@ -533,6 +533,34 @@ final class AccountServiceSecurityTests: XCTestCase {
         XCTAssertTrue(values["scope", default: ""].contains("offline_access"))
     }
 
+    func testDeviceRegistrationUsesAPICamelCaseContract() throws {
+        let registration = PressayDeviceRegistration(
+            deviceIdentifier: "device-identifier-123",
+            platform: "macos",
+            appVersion: "1.2.7",
+            distributionChannel: "direct",
+            architecture: "arm64",
+            osMajor: 15,
+            transcriptionEngine: "openai",
+            localModelID: nil,
+            telemetryConsent: false
+        )
+
+        let object = try XCTUnwrap(
+            JSONSerialization.jsonObject(with: registration.encodedForAPI())
+                as? [String: Any]
+        )
+
+        XCTAssertEqual(object["deviceIdentifier"] as? String, "device-identifier-123")
+        XCTAssertEqual(object["appVersion"] as? String, "1.2.7")
+        XCTAssertEqual(object["distributionChannel"] as? String, "direct")
+        XCTAssertEqual(object["osMajor"] as? Int, 15)
+        XCTAssertEqual(object["transcriptionEngine"] as? String, "openai")
+        XCTAssertEqual(object["telemetryConsent"] as? Bool, false)
+        XCTAssertNil(object["device_identifier"])
+        XCTAssertNil(object["app_version"])
+    }
+
     func testSignedEntitlementAcceptsRawEd25519Key() throws {
         let key = Curve25519.Signing.PrivateKey()
         let payload = try entitlementPayload(
