@@ -38,10 +38,10 @@ final class OpenAITextProcessingService: TextProcessing {
             throw ProcessingError.noAPIKey
         }
         let urlRequest = try makeRequest(for: request, apiKey: apiKey)
-        let text: String
+        let decoded: DecodedProcessingResponse
         var requestMetrics: [NetworkRequestMetrics] = []
         do {
-            text = try await ProviderFailurePolicy.performWithOneSafeRetry {
+            decoded = try await ProviderFailurePolicy.performWithOneSafeRetry {
                 let collector = NetworkTaskMetricsCollector()
                 let startedAt = Date()
                 let data: Data
@@ -65,7 +65,10 @@ final class OpenAITextProcessingService: TextProcessing {
                     )
                 )
                 try Task.checkCancellation()
-                return try self.decodeResponse(data: data, response: response)
+                return try self.decodeDetailedResponse(
+                    data: data,
+                    response: response
+                )
             }
         } catch {
             if Task.isCancelled
@@ -85,9 +88,10 @@ final class OpenAITextProcessingService: TextProcessing {
             )
         }
         return TextProcessingResult(
-            text: text,
+            text: decoded.text,
             providerIdentifier: identifier,
-            networkMetrics: .combined(requestMetrics)
+            networkMetrics: .combined(requestMetrics),
+            tokenUsage: decoded.tokenUsage
         )
     }
 
@@ -193,6 +197,13 @@ final class OpenAITextProcessingService: TextProcessing {
     }
 
     func decodeResponse(data: Data, response: URLResponse) throws -> String {
+        try decodeDetailedResponse(data: data, response: response).text
+    }
+
+    private func decodeDetailedResponse(
+        data: Data,
+        response: URLResponse
+    ) throws -> DecodedProcessingResponse {
         guard let http = response as? HTTPURLResponse else {
             throw ProcessingError.invalidResponse
         }
@@ -221,7 +232,13 @@ final class OpenAITextProcessingService: TextProcessing {
         guard !text.isEmpty else {
             throw ProcessingError.emptyResponse
         }
-        return text
+        let tokenUsage = decoded.usage.map {
+            OpenAITokenUsage(
+                inputTokens: $0.inputTokens,
+                outputTokens: $0.outputTokens
+            )
+        }
+        return DecodedProcessingResponse(text: text, tokenUsage: tokenUsage)
     }
 
     private static func retryAfter(from response: HTTPURLResponse) -> TimeInterval? {
@@ -275,7 +292,23 @@ final class OpenAITextProcessingService: TextProcessing {
             let text: String?
         }
 
+        struct Usage: Decodable {
+            let inputTokens: Int
+            let outputTokens: Int
+
+            enum CodingKeys: String, CodingKey {
+                case inputTokens = "input_tokens"
+                case outputTokens = "output_tokens"
+            }
+        }
+
         let output: [OutputItem]
+        let usage: Usage?
+    }
+
+    private struct DecodedProcessingResponse {
+        let text: String
+        let tokenUsage: OpenAITokenUsage?
     }
 
     private struct ErrorResponse: Decodable {

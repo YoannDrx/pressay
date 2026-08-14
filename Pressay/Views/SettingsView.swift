@@ -20,8 +20,8 @@ struct SettingsView: View {
 
     @AppStorage(Constants.transcriptionLanguageKey)
     private var language = Constants.defaultTranscriptionLanguage
-    @AppStorage(Constants.transcriptionModelKey)
-    private var model = Constants.defaultTranscriptionModel
+    @AppStorage(Constants.openAITranscriptionProfileKey)
+    private var openAIProfile = Constants.defaultOpenAITranscriptionProfile
     @AppStorage(Constants.processingModelKey)
     private var processingModel = Constants.defaultProcessingModel
     @AppStorage(Constants.transcriptionEngineKey)
@@ -388,10 +388,29 @@ struct SettingsView: View {
                     Text("Automatique").tag("")
                 }
                 Divider().opacity(0.45)
-                settingPicker(title: "Modèle", detail: "Même API, compromis coût / précision.", selection: $model) {
-                    ForEach(TranscriptionModel.allCases) { item in
-                        Text(item.label).tag(item.rawValue)
+                if transcriptionEngine == TranscriptionEngine.openAI.rawValue {
+                    settingPicker(
+                        title: "Transcription OpenAI",
+                        detail: "Live privilégie la latence ; Mini privilégie stabilité et coût.",
+                        selection: $openAIProfile
+                    ) {
+                        ForEach(OpenAITranscriptionProfile.allCases) { profile in
+                            Text(profile.label).tag(profile.rawValue)
+                        }
                     }
+                    Text(
+                        (OpenAITranscriptionProfile(rawValue: openAIProfile) ?? .live)
+                            .detail
+                    )
+                    .font(.system(size: 9.5))
+                    .foregroundStyle(.secondary)
+                    Link(
+                        "Documentation et tarifs OpenAI ↗",
+                        destination: URL(
+                            string: "https://developers.openai.com/api/docs/pricing"
+                        )!
+                    )
+                    .font(.system(size: 9.5))
                 }
                 Divider().opacity(0.45)
                 settingPicker(title: "Profil de vocabulaire", detail: "Seul le profil actif est envoyé avec l’audio.", selection: $vocabularyProfile) {

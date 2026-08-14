@@ -151,7 +151,8 @@ final class TextInjector: TextDelivering {
 
         guard await restoreTargetApplication(
             app,
-            processIdentifier: target.processIdentifier
+            processIdentifier: target.processIdentifier,
+            isInstantDictation: isInstantDictation
         ) else {
             return fail(.targetApplicationNotFrontmost)
         }
@@ -268,7 +269,16 @@ final class TextInjector: TextDelivering {
             await ClipboardTransactionCoordinator.shared.paste(cleanText)
         }
         let didPaste: Bool
-        if let element = activeTarget.focusedElement,
+        if isInstantDictation {
+            // The keyboard event is posted only after the captured target is
+            // frontmost and its focused element has been revalidated. Keeping
+            // the clipboard alive briefly is necessary; waiting another half
+            // second for often-stale AXValue propagation is not. Native and
+            // Chromium editors can publish their old value after accepting the
+            // paste, which delayed the terminal HUD state without improving
+            // delivery safety.
+            didPaste = pasteWasPosted
+        } else if let element = activeTarget.focusedElement,
            let expectedPastedValue {
             didPaste = pasteWasPosted
                 ? await value(of: element, becomes: expectedPastedValue.value)
@@ -608,7 +618,8 @@ final class TextInjector: TextDelivering {
 
     private func restoreTargetApplication(
         _ application: NSRunningApplication,
-        processIdentifier: pid_t
+        processIdentifier: pid_t,
+        isInstantDictation: Bool
     ) async -> Bool {
         let frontmostProcessIdentifier = NSWorkspace.shared
             .frontmostApplication?.processIdentifier
@@ -632,7 +643,9 @@ final class TextInjector: TextDelivering {
         )
         if await waitForTargetApplication(
             processIdentifier,
-            timeout: .milliseconds(200)
+            timeout: isInstantDictation
+                ? .milliseconds(150)
+                : .milliseconds(200)
         ) {
             return true
         }
@@ -645,7 +658,9 @@ final class TextInjector: TextDelivering {
         )
         return await waitForTargetApplication(
             processIdentifier,
-            timeout: .seconds(1)
+            timeout: isInstantDictation
+                ? .milliseconds(350)
+                : .seconds(1)
         )
     }
 

@@ -214,7 +214,19 @@ enum PressayAccountError: LocalizedError, Equatable {
 
 @MainActor
 final class AccountService: NSObject, ObservableObject {
-    static let shared = AccountService()
+    static let shared: AccountService = {
+        // Hosted macOS tests construct the complete SwiftUI Settings scene
+        // before XCTest starts. Never let that implicit view construction read
+        // production OAuth tokens: a code-signing ACL prompt can otherwise
+        // block the test host (and SecurityAgent) indefinitely.
+        if Constants.isRunningTests {
+            return AccountService(
+                configuration: nil,
+                keychain: EmptyAccountKeychainStore()
+            )
+        }
+        return AccountService()
+    }()
 
     enum State: Equatable {
         case unavailable
@@ -275,7 +287,10 @@ final class AccountService: NSObject, ObservableObject {
         self.keychain = keychain
         self.defaults = defaults
         self.session = session
-        if let data = keychain.data(account: Constants.keychainAccountTokensAccount) {
+        if !Constants.isRunningTests,
+           let data = keychain.data(
+               account: Constants.keychainAccountTokensAccount
+           ) {
             self.tokens = try? PressayJSON.decoder.decode(TokenSet.self, from: data)
         }
         self.state = configuration == nil ? .unavailable : (tokens == nil ? .signedOut : .loading)
@@ -652,6 +667,12 @@ final class AccountService: NSObject, ObservableObject {
         "data.export",
         "data.delete"
     ]
+}
+
+private final class EmptyAccountKeychainStore: KeychainStoring {
+    func save(data: Data, account: String) -> Bool { false }
+    func data(account: String) -> Data? { nil }
+    func delete(account: String) -> Bool { true }
 }
 
 extension AccountService: ASWebAuthenticationPresentationContextProviding {

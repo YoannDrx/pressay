@@ -362,6 +362,119 @@ final class TranscriptionRequestPolicyTests: XCTestCase {
             )
         )
     }
+
+    func testFreshPreferenceUsesLiveProfile() throws {
+        let suite = "OpenAIProfile.fresh.\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+
+        XCTAssertEqual(OpenAITranscriptionProfile.current(in: defaults), .live)
+        XCTAssertEqual(
+            defaults.string(forKey: Constants.openAITranscriptionProfileKey),
+            OpenAITranscriptionProfile.live.rawValue
+        )
+    }
+
+    func testLegacyFastPreferenceMigratesToMini() throws {
+        let suite = "OpenAIProfile.fast.\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        defaults.set("gpt-4o-mini-transcribe", forKey: Constants.transcriptionModelKey)
+
+        XCTAssertEqual(OpenAITranscriptionProfile.current(in: defaults), .mini)
+        XCTAssertEqual(
+            defaults.string(forKey: Constants.openAITranscriptionProfileKey),
+            OpenAITranscriptionProfile.mini.rawValue
+        )
+    }
+
+    func testLegacyAccuratePreferenceMigratesToLive() throws {
+        let suite = "OpenAIProfile.accurate.\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        defaults.set("gpt-4o-transcribe", forKey: Constants.transcriptionModelKey)
+
+        XCTAssertEqual(OpenAITranscriptionProfile.current(in: defaults), .live)
+    }
+
+    func testMiniProfileNeverEnablesRealtime() throws {
+        let suite = "OpenAIProfile.mini.\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        defaults.set(
+            OpenAITranscriptionProfile.mini.rawValue,
+            forKey: Constants.openAITranscriptionProfileKey
+        )
+
+        XCTAssertFalse(TranscriptionService(defaults: defaults).realtimeEnabled)
+    }
+
+    func testRealtimePayloadUsesOnlyLiveCapabilities() throws {
+        let suite = "RealtimePayload.\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        defaults.set("fr", forKey: Constants.transcriptionLanguageKey)
+        defaults.set("Pressay, API\nPressay, <interdit>", forKey: Constants.technicalVocabularyKey)
+
+        let service = TranscriptionService(defaults: defaults)
+        let data = Data(try service.realtimeSessionUpdate().utf8)
+        let root = try XCTUnwrap(
+            JSONSerialization.jsonObject(with: data) as? [String: Any]
+        )
+        let session = try XCTUnwrap(root["session"] as? [String: Any])
+        let audio = try XCTUnwrap(session["audio"] as? [String: Any])
+        let input = try XCTUnwrap(audio["input"] as? [String: Any])
+        let transcription = try XCTUnwrap(
+            input["transcription"] as? [String: Any]
+        )
+
+        XCTAssertEqual(transcription["model"] as? String, "gpt-live-transcribe")
+        XCTAssertEqual(transcription["delay"] as? String, "minimal")
+        XCTAssertEqual(transcription["languages"] as? [String], ["fr"])
+        XCTAssertNil(transcription["language"])
+        XCTAssertFalse((transcription["keywords"] as? [String] ?? []).contains {
+            $0.contains("<") || $0.contains("\n")
+        })
+    }
+
+    func testTranslationPayloadDoesNotMixTranscriptionFields() throws {
+        let service = TranscriptionService()
+        let payload = try service.realtimeSessionUpdate(
+            for: .translation(targetLanguage: "en")
+        )
+        let root = try XCTUnwrap(
+            JSONSerialization.jsonObject(with: Data(payload.utf8)) as? [String: Any]
+        )
+        let session = try XCTUnwrap(root["session"] as? [String: Any])
+        let audio = try XCTUnwrap(session["audio"] as? [String: Any])
+        let output = try XCTUnwrap(audio["output"] as? [String: Any])
+
+        XCTAssertEqual(output["language"] as? String, "en")
+        XCTAssertNil(audio["input"])
+    }
+
+}
+
+final class OpenAICostEstimatorTests: XCTestCase {
+    func testMiniMinuteEstimateUsesPublishedRate() throws {
+        XCTAssertEqual(
+            try XCTUnwrap(OpenAICostEstimator.transcriptionUSD(
+                model: "gpt-4o-mini-transcribe",
+                audioDurationSeconds: 60
+            )),
+            0.003,
+            accuracy: 0.000_001
+        )
+    }
+
+    func testUnknownModelRemainsUnpriced() {
+        XCTAssertNil(
+            OpenAICostEstimator.transcriptionUSD(
+                model: "future-model",
+                audioDurationSeconds: 60
+            )
+        )
+    }
 }
 
 final class OpenAILiveSmokeTests: XCTestCase {
@@ -370,8 +483,7 @@ final class OpenAILiveSmokeTests: XCTestCase {
         let defaultAudioPath = "/private/tmp/pressay-openai-smoke.wav"
         let audioPath = environment["PRESSAY_LIVE_AUDIO_PATH"] ?? defaultAudioPath
         try XCTSkipUnless(
-            environment["PRESSAY_RUN_LIVE_OPENAI_TESTS"] == "1"
-                || FileManager.default.fileExists(atPath: defaultAudioPath),
+            environment["PRESSAY_RUN_LIVE_OPENAI_TESTS"] == "1",
             "Test OpenAI réel désactivé"
         )
         let audioURL = URL(fileURLWithPath: audioPath)
@@ -4016,6 +4128,7 @@ private final class MockRealtimeSpeechTranscriber: RealtimeSpeechTranscribing {
     var batchCallCount = 0
     var cancelCount = 0
     var receivedAudio = Data()
+    var startedPurpose: RealtimeSpeechPurpose?
 
     init(
         realtimeText: String,
@@ -4027,8 +4140,11 @@ private final class MockRealtimeSpeechTranscriber: RealtimeSpeechTranscribing {
         self.finishError = finishError
     }
 
-    func startRealtimeTranscription() async throws {
+    func startRealtimeTranscription(
+        purpose: RealtimeSpeechPurpose
+    ) async throws {
         startCount += 1
+        startedPurpose = purpose
     }
 
     func appendRealtimeAudio(_ data: Data) {

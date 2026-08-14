@@ -55,6 +55,8 @@ final class StatusHUDController: ObservableObject {
     @Published private(set) var detail: String?
     @Published private(set) var listeningStartedAt: Date?
     @Published private(set) var audioLevel: Float = 0
+    @Published private(set) var transcriptPreview: String?
+    @Published private(set) var previewIsTranslation = false
     @Published var isUndoAvailable = false
     @Published private(set) var canRetranscribe = false
     @Published private(set) var retranscribeLabel = "Retranscrire"
@@ -73,6 +75,7 @@ final class StatusHUDController: ObservableObject {
     private var onSelectMode: ((UUID) -> Void)?
     private var panel: NSPanel?
     private var hideTask: Task<Void, Never>?
+    private var terminalHardHideTask: Task<Void, Never>?
     private var autoHideRequested = false
     private var pointerIsInside = false
 
@@ -82,6 +85,8 @@ final class StatusHUDController: ObservableObject {
         autoHide: Bool = false
     ) {
         hideTask?.cancel()
+        terminalHardHideTask?.cancel()
+        terminalHardHideTask = nil
         refreshPreferences()
         autoHideRequested = autoHide
         self.state = state
@@ -114,9 +119,20 @@ final class StatusHUDController: ObservableObject {
         audioLevel = max(0, min(1, level))
     }
 
+    func updateTranscriptPreview(_ text: String?, isTranslation: Bool) {
+        let cleanText = text?.trimmingCharacters(in: .whitespacesAndNewlines)
+        transcriptPreview = cleanText?.isEmpty == false ? cleanText : nil
+        previewIsTranslation = isTranslation
+        guard let panel, panel.isVisible else { return }
+        panel.setContentSize(panelSize)
+        position(panel)
+    }
+
     func hide() {
         hideTask?.cancel()
         hideTask = nil
+        terminalHardHideTask?.cancel()
+        terminalHardHideTask = nil
         autoHideRequested = false
         pointerIsInside = false
         panel?.orderOut(nil)
@@ -201,7 +217,9 @@ final class StatusHUDController: ObservableObject {
     }
 
     private func scheduleAutoHideIfNeeded() {
-        guard autoHideRequested, !pointerIsInside else { return }
+        guard autoHideRequested else { return }
+        scheduleTerminalHardHideIfNeeded()
+        guard !pointerIsInside else { return }
         hideTask?.cancel()
         hideTask = Task { [weak self] in
             let delay: Duration
@@ -213,6 +231,22 @@ final class StatusHUDController: ObservableObject {
                 delay = .milliseconds(600)
             }
             try? await Task.sleep(for: delay)
+            guard !Task.isCancelled else { return }
+            self?.hide()
+        }
+    }
+
+    private func scheduleTerminalHardHideIfNeeded() {
+        guard terminalHardHideTask == nil,
+              resultDuration.delay != nil,
+              state == .success || state == .copied else {
+            return
+        }
+        // Hover still gives time to use result actions, but a completed HUD
+        // must never remain stuck forever because an enter/exit event was
+        // missed while the panel was resized or repositioned.
+        terminalHardHideTask = Task { [weak self] in
+            try? await Task.sleep(for: .seconds(8))
             guard !Task.isCancelled else { return }
             self?.hide()
         }
@@ -264,9 +298,11 @@ final class StatusHUDController: ObservableObject {
     }
 
     fileprivate var panelSize: NSSize {
-        hudSize == .compact
-            ? NSSize(width: 380, height: 52)
-            : NSSize(width: 430, height: 60)
+        let hasPreview = transcriptPreview?.isEmpty == false
+        if hudSize == .compact {
+            return NSSize(width: 380, height: hasPreview ? 76 : 52)
+        }
+        return NSSize(width: 430, height: hasPreview ? 88 : 60)
     }
 
     private func refreshPreferences() {
@@ -374,6 +410,36 @@ private struct StatusHUDView: View {
                     .accessibilityValue(
                         "\(Int(controller.audioLevel * 100)) pour cent"
                     )
+                }
+
+                if let preview = controller.transcriptPreview,
+                   !preview.isEmpty {
+                    HStack(alignment: .firstTextBaseline, spacing: 4) {
+                        Image(
+                            systemName: controller.previewIsTranslation
+                                ? "character.book.closed.fill"
+                                : "text.bubble.fill"
+                        )
+                        .foregroundStyle(
+                            controller.previewIsTranslation ? .purple : .blue
+                        )
+                        Text(preview)
+                            .lineLimit(2)
+                            .truncationMode(.head)
+                    }
+                    .font(
+                        .system(
+                            size: controller.hudSize == .compact ? 8 : 9,
+                            weight: .medium
+                        )
+                    )
+                    .foregroundStyle(.secondary)
+                    .accessibilityLabel(
+                        controller.previewIsTranslation
+                            ? "Traduction provisoire"
+                            : "Transcription provisoire"
+                    )
+                    .accessibilityValue(preview)
                 }
             }
             Spacer(minLength: 0)

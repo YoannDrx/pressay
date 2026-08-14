@@ -4,7 +4,9 @@ struct SessionTimeoutPolicy {
     var cloudTranscription: TimeInterval = 30
     var localPreparation: TimeInterval = 75
     var localTranscription: TimeInterval = 75
-    var realtimeFinalization: TimeInterval = 8
+    // Direct gets a very short chance to finalize. A slow or unhealthy socket
+    // must never hold the stable Mini path hostage after Fn is released.
+    var realtimeFinalization: TimeInterval = 1.25
     var textProcessing: TimeInterval = 45
 }
 
@@ -19,6 +21,9 @@ final class SessionCoordinator: ObservableObject {
     @Published private(set) var lastError: String?
     @Published private(set) var lastNotice: String?
     @Published private(set) var lastDeliveryReceipt: DeliveryReceipt?
+    @Published private(set) var realtimeTranscriptPreview: String?
+    @Published private(set) var realtimePreviewIsTranslation = false
+    @Published private(set) var lastTranscriptionModel: String?
 
     var isRecording: Bool { captureSession?.state == .capturing }
     var isPreparingCapture: Bool { preparingIntent != nil }
@@ -279,11 +284,25 @@ final class SessionCoordinator: ObservableObject {
             try await activeTranscriber.prepare()
         }
         let realtime = activeTranscriber as? any RealtimeSpeechTranscribing
-        if let realtime, audioCapturer is PCMChunkProviding {
+        if let realtime,
+           realtime.realtimeEnabled,
+           audioCapturer is PCMChunkProviding {
             realtime.cancelRealtimeTranscription()
+            let purpose = realtimePurpose(for: mode)
+            realtime.setRealtimeTranscriptHandler { [weak self] text, isTranslation in
+                Task { @MainActor [weak self] in
+                    guard let self else { return }
+                    self.realtimeTranscriptPreview = text
+                    self.realtimePreviewIsTranslation = isTranslation
+                    self.hud.updateTranscriptPreview(
+                        text,
+                        isTranslation: isTranslation
+                    )
+                }
+            }
             captureRealtimeTranscriber = realtime
             captureRealtimeStartTask = Task {
-                try await realtime.startRealtimeTranscription()
+                try await realtime.startRealtimeTranscription(purpose: purpose)
             }
             (audioCapturer as? PCMChunkProviding)?.onPCMChunk = { data in
                 realtime.appendRealtimeAudio(data)
@@ -309,6 +328,9 @@ final class SessionCoordinator: ObservableObject {
             captureSession = session
             lastError = nil
             lastNotice = nil
+            realtimeTranscriptPreview = nil
+            realtimePreviewIsTranslation = false
+            hud.updateTranscriptPreview(nil, isTranslation: false)
             sounds.playStartSound()
             hud.show(
                 .listening,
@@ -359,6 +381,11 @@ final class SessionCoordinator: ObservableObject {
         let target = captureTarget
         captureTarget = nil
 
+        // Reflect the physical release immediately. Audio finalization happens
+        // synchronously just below, but the HUD must never continue to say that
+        // Pressay is listening once Fn is up.
+        hud.show(.transcribing, detail: "Finalisation…", autoHide: false)
+
         guard let audio = audioCapturer.stopRecording() else {
             (audioCapturer as? PCMChunkProviding)?.onPCMChunk = nil
             preparationTask?.cancel()
@@ -385,6 +412,8 @@ final class SessionCoordinator: ObservableObject {
             audioCapturer.cleanup(url: audio.url)
             _ = session.transition(to: .cancelled)
             lastSession = session
+            realtimeTranscriptPreview = nil
+            hud.updateTranscriptPreview(nil, isTranslation: false)
             lastError = nil
             lastNotice = "Aucune parole détectée — rien n’a été collé"
             hud.show(.cancelled, detail: lastNotice, autoHide: true)
@@ -437,6 +466,21 @@ final class SessionCoordinator: ObservableObject {
               let mode = modeResolver.availableModes().first(where: {
                 $0.id == modeID && $0.isEnabled
               }) else { return }
+        let purposeChanged = (captureMode?.id == NativeModeCatalog.translationID)
+            != (mode.id == NativeModeCatalog.translationID)
+        if purposeChanged {
+            // Reusing a translation socket as a transcription socket (or the
+            // reverse) would produce the wrong final text. Keep the complete
+            // local recording and fall back to Mini for this one dictation.
+            captureRealtimeStartTask?.cancel()
+            captureRealtimeStartTask = nil
+            captureRealtimeTranscriber?.cancelRealtimeTranscription()
+            captureRealtimeTranscriber = nil
+            (audioCapturer as? PCMChunkProviding)?.onPCMChunk = nil
+            realtimeTranscriptPreview = nil
+            realtimePreviewIsTranslation = false
+            hud.updateTranscriptPreview(nil, isTranslation: false)
+        }
         captureMode = mode
         session.modeIdentifier = mode.id
         captureSession = session
@@ -447,6 +491,16 @@ final class SessionCoordinator: ObservableObject {
         )
     }
 
+    private func realtimePurpose(for mode: ModeDefinition) -> RealtimeSpeechPurpose {
+        guard mode.id == NativeModeCatalog.translationID else {
+            return .transcription
+        }
+        let sourceLanguage = UserDefaults.standard.string(
+            forKey: Constants.transcriptionLanguageKey
+        ) ?? Constants.defaultTranscriptionLanguage
+        return .translation(targetLanguage: sourceLanguage == "en" ? "fr" : "en")
+    }
+
     func cancelCurrentSession() {
         if capturePreparationTask != nil {
             capturePreparationTask?.cancel()
@@ -454,6 +508,7 @@ final class SessionCoordinator: ObservableObject {
             preparingIntent = nil
             lastError = nil
             lastNotice = "Capture annulée"
+            clearRealtimePreview()
             hud.show(.cancelled, detail: lastNotice, autoHide: true)
             return
         }
@@ -469,6 +524,7 @@ final class SessionCoordinator: ObservableObject {
             captureDeliveryPolicy = nil
             _ = session.transition(to: .cancelled)
             lastSession = session
+            clearRealtimePreview()
             lastError = nil
             lastNotice = "Dictée annulée"
             hud.show(.cancelled, detail: lastNotice, autoHide: true)
@@ -484,6 +540,7 @@ final class SessionCoordinator: ObservableObject {
     func cancelProcessing() {
         guard processingTask != nil else { return }
         processingTask?.cancel()
+        clearRealtimePreview()
         lastNotice = "Traitement annulé"
         lastError = nil
         hud.show(.cancelled, detail: lastNotice, autoHide: true)
@@ -492,6 +549,12 @@ final class SessionCoordinator: ObservableObject {
     func clearMessages() {
         lastError = nil
         lastNotice = nil
+    }
+
+    private func clearRealtimePreview() {
+        realtimeTranscriptPreview = nil
+        realtimePreviewIsTranslation = false
+        hud.updateTranscriptPreview(nil, isTranslation: false)
     }
 
     func undoLastInsertion() {
@@ -653,6 +716,7 @@ final class SessionCoordinator: ObservableObject {
                 )
                 let transcriptionStartedAt = Date()
                 let transcription = try await self.transcription(for: item)
+                self.lastTranscriptionModel = transcription.modelIdentifier
                 self.appendNetworkMetrics(
                     transcription.networkMetrics,
                     sessionID: item.session.id
@@ -672,10 +736,27 @@ final class SessionCoordinator: ObservableObject {
                 _ = item.session.transition(to: .processing)
                 self.processingSession = item.session
 
-                let processed = try await self.processText(
-                    transcriptionText,
-                    item: item
-                )
+                let processed: (
+                    text: String,
+                    providerIdentifier: String?,
+                    contextManifest: [String],
+                    tokenUsage: OpenAITokenUsage?,
+                    processingModel: String?
+                ) = if transcription.fulfilledPurpose?.isTranslation == true,
+                       item.mode.id == NativeModeCatalog.translationID {
+                    (
+                        text: transcriptionText,
+                        providerIdentifier: transcription.modelIdentifier,
+                        contextManifest: [String](),
+                        tokenUsage: nil,
+                        processingModel: nil
+                    )
+                } else {
+                    try await self.processText(
+                        transcriptionText,
+                        item: item
+                    )
+                }
                 try Task.checkCancellation()
                 item.session.finalText = processed.text
                 item.session.timings.processingEndedAt = Date()
@@ -686,8 +767,19 @@ final class SessionCoordinator: ObservableObject {
                     self.presentPreview(
                         item: item,
                         rawText: transcriptionText,
-                        processed: processed,
-                        transcriptionProviderIdentifier: activeTranscriber.identifier
+                        processed: (
+                            text: processed.text,
+                            providerIdentifier: processed.providerIdentifier,
+                            contextManifest: processed.contextManifest
+                        ),
+                        transcriptionProviderIdentifier: transcription.modelIdentifier
+                            ?? activeTranscriber.identifier
+                    )
+                    self.scheduleAPIUsageRecording(
+                        transcription: transcription,
+                        audioDuration: item.audio.duration,
+                        processingUsage: processed.tokenUsage,
+                        processingModel: processed.processingModel
                     )
                     return
                 }
@@ -699,9 +791,16 @@ final class SessionCoordinator: ObservableObject {
                     item: item,
                     rawText: transcriptionText,
                     providerIdentifier: processed.providerIdentifier,
-                    transcriptionProviderIdentifier: activeTranscriber.identifier,
+                    transcriptionProviderIdentifier: transcription.modelIdentifier
+                        ?? activeTranscriber.identifier,
                     contextManifest: processed.contextManifest,
                     lowConfidence: transcription.isLowConfidence
+                )
+                self.scheduleAPIUsageRecording(
+                    transcription: transcription,
+                    audioDuration: item.audio.duration,
+                    processingUsage: processed.tokenUsage,
+                    processingModel: processed.processingModel
                 )
             } catch {
                 self.finish(item: &item, with: error)
@@ -735,6 +834,7 @@ final class SessionCoordinator: ObservableObject {
             do {
                 let transcriptionStartedAt = Date()
                 let transcription = try await self.transcription(for: item)
+                self.lastTranscriptionModel = transcription.modelIdentifier
                 self.appendNetworkMetrics(
                     transcription.networkMetrics,
                     sessionID: item.session.id
@@ -776,11 +876,18 @@ final class SessionCoordinator: ObservableObject {
                     rawText: transcriptionText,
                     finalText: transcriptionText,
                     processingProvider: nil,
-                    transcriptionProviderIdentifier: item.transcriber.identifier,
+                    transcriptionProviderIdentifier: transcription.modelIdentifier
+                        ?? item.transcriber.identifier,
                     contextManifest: [],
                     audioDuration: item.audio.duration,
                     inserted: inserted,
                     lowConfidence: transcription.isLowConfidence
+                )
+                self.scheduleAPIUsageRecording(
+                    transcription: transcription,
+                    audioDuration: item.audio.duration,
+                    processingUsage: nil,
+                    processingModel: nil
                 )
             } catch {
                 self.finish(item: &item, with: error)
@@ -813,12 +920,10 @@ final class SessionCoordinator: ObservableObject {
 
         if let realtimeTask = item.realtimeTask {
             do {
-                return try await withPhaseTimeout(
-                    seconds: timeoutPolicy.realtimeFinalization,
-                    error: .realtime(timeoutPolicy.realtimeFinalization)
-                ) {
-                    try await realtimeTask.value
-                }
+                return try await realtimeResult(
+                    task: realtimeTask,
+                    transcriber: item.transcriber
+                )
             } catch {
                 guard !Task.isCancelled, !(error is CancellationError) else {
                     throw error
@@ -845,6 +950,30 @@ final class SessionCoordinator: ObservableObject {
             error: timeoutError
         ) {
             try await item.transcriber.transcribe(audioURL: item.audio.url)
+        }
+    }
+
+    private func realtimeResult(
+        task: Task<TranscriptionResult, Error>,
+        transcriber: any SpeechTranscribing
+    ) async throws -> TranscriptionResult {
+        let timeout = timeoutPolicy.realtimeFinalization
+        return try await withThrowingTaskGroup(
+            of: TranscriptionResult.self
+        ) { group in
+            group.addTask { try await task.value }
+            group.addTask {
+                try await Task.sleep(for: .seconds(timeout))
+                task.cancel()
+                (transcriber as? any RealtimeSpeechTranscribing)?
+                    .cancelRealtimeTranscription()
+                throw PhaseTimeoutError.realtime(timeout)
+            }
+            guard let first = try await group.next() else {
+                throw CancellationError()
+            }
+            group.cancelAll()
+            return first
         }
     }
 
@@ -875,11 +1004,13 @@ final class SessionCoordinator: ObservableObject {
     ) async throws -> (
         text: String,
         providerIdentifier: String?,
-        contextManifest: [String]
+        contextManifest: [String],
+        tokenUsage: OpenAITokenUsage?,
+        processingModel: String?
     ) {
         guard item.mode.cleaningLevel != .faithful
                 || item.session.intent == .transformSelection else {
-            return (transcription, nil, [])
+            return (transcription, nil, [], nil, nil)
         }
         if item.mode.providerPolicy == .localOnly, processingRouter == nil {
             throw CoordinatorError.localProcessorUnavailable
@@ -928,7 +1059,7 @@ final class SessionCoordinator: ObservableObject {
                 guard item.session.intent != .transformSelection else {
                     throw CoordinatorError.rawUnavailableForSelection
                 }
-                return (transcription, nil, [])
+                return (transcription, nil, [], nil, nil)
             case .cancel:
                 throw CancellationError()
             }
@@ -957,7 +1088,38 @@ final class SessionCoordinator: ObservableObject {
             sessionID: item.session.id
         )
         metrics.record(.processing, duration: Date().timeIntervalSince(startedAt))
-        return (result.text, result.providerIdentifier, manifest)
+        return (
+            result.text,
+            result.providerIdentifier,
+            manifest,
+            result.tokenUsage,
+            activeProcessor.modelIdentifier
+        )
+    }
+
+    private func scheduleAPIUsageRecording(
+        transcription: TranscriptionResult,
+        audioDuration: TimeInterval,
+        processingUsage: OpenAITokenUsage?,
+        processingModel: String?
+    ) {
+        guard let transcriptionModel = transcription.modelIdentifier else {
+            return
+        }
+        // Schedule after the current MainActor turn so persisting the local
+        // estimate can never delay target activation or the paste shortcut.
+        Task { @MainActor in
+            APIUsageLedger.shared.recordTranscription(
+                model: transcriptionModel,
+                audioDurationSeconds: audioDuration
+            )
+            if let processingUsage, let processingModel {
+                APIUsageLedger.shared.recordProcessing(
+                    model: processingModel,
+                    usage: processingUsage
+                )
+            }
+        }
     }
 
     private func cloudPreflight(
@@ -1208,6 +1370,7 @@ final class SessionCoordinator: ObservableObject {
         )
         networkMetricsBySession.removeValue(forKey: session.id)
         lastSession = session
+        clearRealtimePreview()
         let undoDeadline = inserted && textDeliverer.canUndoLastInsertion
             ? Date().addingTimeInterval(8)
             : nil
@@ -1404,6 +1567,7 @@ final class SessionCoordinator: ObservableObject {
             )
         }
         lastSession = item.session
+        clearRealtimePreview()
         networkMetricsBySession.removeValue(forKey: item.session.id)
         let canRetry = replayBuffer.audio(for: item.session.id) != nil
         hud.configureResultActions(

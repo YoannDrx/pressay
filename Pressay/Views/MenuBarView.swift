@@ -9,8 +9,10 @@ struct MenuBarView: View {
     @ObservedObject private var actionJournal = ActionJournalService.shared
     @ObservedObject private var modes = ModeStore.shared
     @ObservedObject private var account = AccountService.shared
+    @ObservedObject private var apiUsage = APIUsageLedger.shared
     @AppStorage(Constants.activationModeKey) private var activationMode = Constants.defaultActivationMode
     @AppStorage(Constants.transcriptionEngineKey) private var transcriptionEngine = TranscriptionEngine.openAI.rawValue
+    @AppStorage(Constants.openAITranscriptionProfileKey) private var openAIProfile = Constants.defaultOpenAITranscriptionProfile
     @State private var selectedTab = MenuBarTab.dictate
     private let onRequestClose: () -> Void
 
@@ -211,6 +213,47 @@ struct MenuBarView: View {
                         .help("Régler le moteur de transcription")
                     }
                 }
+
+                if transcriptionEngineValue == .openAI, !requiresAPIKey {
+                    Divider().opacity(0.4)
+                    Picker("Transcription OpenAI", selection: $openAIProfile) {
+                        ForEach(OpenAITranscriptionProfile.allCases) { profile in
+                            Text(profile.shortLabel).tag(profile.rawValue)
+                        }
+                    }
+                    .pickerStyle(.segmented)
+                    .labelsHidden()
+                    Text(selectedOpenAIProfile.detail)
+                        .font(.system(size: 9.5))
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+            }
+
+
+            if let preview = appState.realtimeTranscriptPreview,
+               !preview.isEmpty {
+                MenuBarCard(
+                    tint: appState.realtimePreviewIsTranslation ? .purple : .blue
+                ) {
+                    Label(
+                        appState.realtimePreviewIsTranslation
+                            ? "Traduction en direct"
+                            : "Texte en direct",
+                        systemImage: appState.realtimePreviewIsTranslation
+                            ? "character.book.closed.fill"
+                            : "text.bubble.fill"
+                    )
+                    .font(.system(size: 10, weight: .semibold))
+                    .foregroundStyle(
+                        appState.realtimePreviewIsTranslation ? .purple : .blue
+                    )
+                    Text(preview)
+                        .font(.system(size: 10.5))
+                        .foregroundStyle(.secondary)
+                        .lineLimit(4)
+                        .textSelection(.enabled)
+                }
             }
 
             MenuBarCard(tint: .indigo) {
@@ -236,20 +279,25 @@ struct MenuBarView: View {
                     .help("Gérer les styles")
                 }
 
-                LazyVGrid(
-                    columns: Array(
-                        repeating: GridItem(.flexible(), spacing: 6),
-                        count: 3
-                    ),
-                    spacing: 6
-                ) {
-                    ForEach(modes.visibleModes) { mode in
-                        ModeChoiceButton(
-                            mode: mode,
-                            isSelected: mode.id == selectedMode.id
-                        ) {
-                            modes.selectedModeID = mode.id
+                HStack(spacing: 8) {
+                    Picker("Style de rédaction", selection: selectedModeBinding) {
+                        ForEach(modes.visibleModes) { mode in
+                            Label(mode.name, systemImage: mode.symbolName)
+                                .tag(mode.id)
                         }
+                    }
+                    .labelsHidden()
+                    .frame(maxWidth: .infinity)
+
+                    if selectedMode.id == NativeModeCatalog.translationID,
+                       selectedOpenAIProfile == .live,
+                       transcriptionEngineValue == .openAI {
+                        Label("Live", systemImage: "bolt.fill")
+                            .font(.system(size: 8.5, weight: .bold))
+                            .foregroundStyle(.purple)
+                            .padding(.horizontal, 7)
+                            .padding(.vertical, 4)
+                            .background(.purple.opacity(0.12), in: Capsule())
                     }
                 }
             }
@@ -325,6 +373,81 @@ struct MenuBarView: View {
                     Label("Aucune dictée pour le moment", systemImage: "waveform")
                         .font(.system(size: 11))
                         .foregroundStyle(.secondary)
+                }
+            }
+
+            if let latency = lastLatencySummary {
+                MenuBarCard(tint: .blue) {
+                    HStack {
+                        Label(
+                            "Dernière performance",
+                            systemImage: "speedometer"
+                        )
+                        .font(.system(size: 11, weight: .semibold))
+                        .foregroundStyle(.blue)
+                        Spacer()
+                        Text("après Fn · (durationLabel(latency.afterRelease))")
+                            .font(.system(size: 9, weight: .semibold, design: .rounded))
+                            .foregroundStyle(.blue)
+                    }
+                    HStack(spacing: 15) {
+                        latencyValue(
+                            "Transcription",
+                            seconds: latency.transcription
+                        )
+                        if latency.processing > 0.01 {
+                            latencyValue(
+                                "Style",
+                                seconds: latency.processing
+                            )
+                        }
+                        latencyValue(
+                            "Collage",
+                            seconds: latency.insertion
+                        )
+                    }
+                    Text("Mesure locale de la dernière dictée · aucun contenu enregistré dans cette carte.")
+                        .font(.system(size: 8.5))
+                        .foregroundStyle(.tertiary)
+                }
+            }
+
+            MenuBarCard(tint: .green) {
+                HStack {
+                    Label("API OpenAI · estimation", systemImage: "dollarsign.circle.fill")
+                        .font(.system(size: 11, weight: .semibold))
+                        .foregroundStyle(.green)
+                    Spacer()
+                    if let model = appState.lastTranscriptionModel {
+                        Text(shortModelName(model))
+                            .font(.system(size: 8.5, design: .monospaced))
+                            .foregroundStyle(.tertiary)
+                    }
+                }
+
+                HStack(spacing: 18) {
+                    usageAmount(
+                        title: "Aujourd’hui",
+                        summary: todayAPIUsage
+                    )
+                    usageAmount(
+                        title: "30 jours",
+                        summary: thirtyDayAPIUsage
+                    )
+                }
+
+                HStack {
+                    Text(
+                        "Calcul local · tarifs du \(OpenAICostEstimator.pricingDate)"
+                    )
+                    .font(.system(size: 8.5))
+                    .foregroundStyle(.tertiary)
+                    Spacer()
+                    Link(
+                        "Montant réel ↗",
+                        destination: URL(string: "https://platform.openai.com/usage")!
+                    )
+                    .font(.system(size: 9, weight: .medium))
                 }
             }
 
@@ -532,6 +655,108 @@ struct MenuBarView: View {
             .fixedSize(horizontal: false, vertical: true)
     }
 
+    private var todayAPIUsage: APIUsageSummary {
+        apiUsage.summary(since: Calendar.current.startOfDay(for: Date()))
+    }
+
+    private var thirtyDayAPIUsage: APIUsageSummary {
+        apiUsage.summary(
+            since: Calendar.current.date(
+                byAdding: .day,
+                value: -30,
+                to: Date()
+            ) ?? .distantPast
+        )
+    }
+
+    private func usageAmount(
+        title: String,
+        summary: APIUsageSummary
+    ) -> some View {
+        VStack(alignment: .leading, spacing: 2) {
+            Text(title)
+                .font(.system(size: 9))
+                .foregroundStyle(.secondary)
+            Text(estimatedUSD(summary.estimatedUSD))
+                .font(.system(size: 14, weight: .bold, design: .rounded))
+            Text(
+                "\(summary.requestCount) appel\(summary.requestCount > 1 ? "s" : "") · \(String(format: "%.1f", summary.audioMinutes)) min"
+            )
+            .font(.system(size: 8.5))
+            .foregroundStyle(.tertiary)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    private func estimatedUSD(_ value: Double) -> String {
+        if value == 0 { return "$0.0000" }
+        return value < 0.01
+            ? String(format: "$%.4f", value)
+            : String(format: "$%.2f", value)
+    }
+
+    private var lastLatencySummary: (
+        afterRelease: TimeInterval,
+        transcription: TimeInterval,
+        processing: TimeInterval,
+        insertion: TimeInterval
+    )? {
+        guard let session = appState.sessionCoordinator.lastSession,
+              let captureEnded = session.timings.captureEndedAt,
+              let deliveryEnded = session.timings.deliveryEndedAt else {
+            return nil
+        }
+        return (
+            afterRelease: max(0, deliveryEnded.timeIntervalSince(captureEnded)),
+            transcription: elapsed(
+                session.timings.transcriptionStartedAt,
+                session.timings.transcriptionEndedAt
+            ),
+            processing: elapsed(
+                session.timings.transcriptionEndedAt,
+                session.timings.processingEndedAt
+            ),
+            insertion: elapsed(
+                session.timings.processingEndedAt,
+                session.timings.deliveryEndedAt
+            )
+        )
+    }
+
+    private func elapsed(_ start: Date?, _ end: Date?) -> TimeInterval {
+        guard let start, let end else { return 0 }
+        return max(0, end.timeIntervalSince(start))
+    }
+
+    private func latencyValue(
+        _ title: String,
+        seconds: TimeInterval
+    ) -> some View {
+        VStack(alignment: .leading, spacing: 2) {
+            Text(title)
+                .font(.system(size: 8.5))
+                .foregroundStyle(.secondary)
+            Text(durationLabel(seconds))
+                .font(.system(size: 11, weight: .semibold, design: .rounded))
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    private func durationLabel(_ seconds: TimeInterval) -> String {
+        seconds < 1
+            ? "\(Int((seconds * 1_000).rounded())) ms"
+            : String(format: "%.1f s", seconds)
+    }
+
+    private func shortModelName(_ model: String) -> String {
+        switch model {
+        case "gpt-4o-mini-transcribe": "Mini"
+        case "gpt-live-transcribe": "Live"
+        case "gpt-realtime-translate": "Translate Live"
+        default: model
+        }
+    }
+
     private var footer: some View {
         VStack(spacing: 1) {
             Button(action: showSettings) {
@@ -600,6 +825,17 @@ struct MenuBarView: View {
     private var selectedMode: ModeDefinition {
         modes.mode(withID: modes.selectedModeID)
             ?? NativeModeCatalog.visibleModes[0]
+    }
+
+    private var selectedModeBinding: Binding<UUID> {
+        Binding(
+            get: { selectedMode.id },
+            set: { modes.selectedModeID = $0 }
+        )
+    }
+
+    private var selectedOpenAIProfile: OpenAITranscriptionProfile {
+        OpenAITranscriptionProfile(rawValue: openAIProfile) ?? .live
     }
 
     private var transcriptionEngineValue: TranscriptionEngine {

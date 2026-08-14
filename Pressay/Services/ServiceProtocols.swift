@@ -128,11 +128,39 @@ protocol SpeechTranscribing: AnyObject {
     func transcribe(audioURL: URL) async throws -> TranscriptionResult
 }
 
+enum RealtimeSpeechPurpose: Equatable, Sendable {
+    case transcription
+    case translation(targetLanguage: String)
+
+    var modelIdentifier: String {
+        switch self {
+        case .transcription: "gpt-live-transcribe"
+        case .translation: "gpt-realtime-translate"
+        }
+    }
+
+    var isTranslation: Bool {
+        if case .translation = self { return true }
+        return false
+    }
+}
+
 protocol RealtimeSpeechTranscribing: SpeechTranscribing {
-    func startRealtimeTranscription() async throws
+    var realtimeEnabled: Bool { get }
+    func setRealtimeTranscriptHandler(_ handler: ((String, Bool) -> Void)?)
+    func startRealtimeTranscription(purpose: RealtimeSpeechPurpose) async throws
     func appendRealtimeAudio(_ data: Data)
     func finishRealtimeTranscription() async throws -> TranscriptionResult
     func cancelRealtimeTranscription()
+}
+
+extension RealtimeSpeechTranscribing {
+    var realtimeEnabled: Bool { true }
+    func setRealtimeTranscriptHandler(_ handler: ((String, Bool) -> Void)?) {}
+
+    func startRealtimeTranscription() async throws {
+        try await startRealtimeTranscription(purpose: .transcription)
+    }
 }
 
 extension SpeechTranscribing {
@@ -150,16 +178,24 @@ struct TextProcessingResult: Equatable {
     let text: String
     let providerIdentifier: String
     let networkMetrics: NetworkRequestMetrics?
+    let tokenUsage: OpenAITokenUsage?
 
     init(
         text: String,
         providerIdentifier: String,
-        networkMetrics: NetworkRequestMetrics? = nil
+        networkMetrics: NetworkRequestMetrics? = nil,
+        tokenUsage: OpenAITokenUsage? = nil
     ) {
         self.text = text
         self.providerIdentifier = providerIdentifier
         self.networkMetrics = networkMetrics
+        self.tokenUsage = tokenUsage
     }
+}
+
+struct OpenAITokenUsage: Codable, Equatable, Sendable {
+    let inputTokens: Int
+    let outputTokens: Int
 }
 
 protocol TextProcessing: AnyObject {
@@ -583,6 +619,7 @@ protocol HUDPresenting: AnyObject {
     var onUndo: (() -> Void)? { get set }
     var isUndoAvailable: Bool { get set }
     func updateAudioLevel(_ level: Float)
+    func updateTranscriptPreview(_ text: String?, isTranslation: Bool)
     func show(_ state: HUDState, detail: String?, autoHide: Bool)
     func hide()
     func configureResultActions(
@@ -603,6 +640,7 @@ protocol HUDPresenting: AnyObject {
 }
 
 extension HUDPresenting {
+    func updateTranscriptPreview(_ text: String?, isTranslation: Bool) {}
     func configureResultActions(
         canRetranscribe: Bool,
         retranscribeLabel: String,

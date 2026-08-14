@@ -28,6 +28,7 @@ enum Constants {
     static let openAIResponsesURL = "https://api.openai.com/v1/responses"
     static let transcriptionLanguageKey = "transcription-language"
     static let transcriptionModelKey = "transcription-model"
+    static let openAITranscriptionProfileKey = "openai-transcription-profile-v2"
     static let technicalVocabularyKey = "technical-vocabulary"
     static let vocabularyProfileKey = "vocabulary-profile"
     static let shortcutKey = "dictation-shortcut"
@@ -53,6 +54,7 @@ enum Constants {
     static let migratedPreferenceKeys = [
         transcriptionLanguageKey,
         transcriptionModelKey,
+        openAITranscriptionProfileKey,
         technicalVocabularyKey,
         vocabularyProfileKey,
         shortcutKey,
@@ -77,6 +79,7 @@ enum Constants {
     static let defaultTranscriptionLanguage = "fr"
     static let defaultActivationMode = ActivationMode.hold.rawValue
     static let defaultTranscriptionModel = "gpt-4o-mini-transcribe"
+    static let defaultOpenAITranscriptionProfile = OpenAITranscriptionProfile.live.rawValue
     static let defaultProcessingModel = "gpt-5.6-luna"
     static let defaultTechnicalVocabulary = """
     API, SDK, GitHub, TypeScript, JavaScript, React, Node.js, Python, Claude, GPT, LLM, MCP, STT, TTS, Whisper, Pressay, OpenAI, Anthropic, Convex, Vercel, Next.js, SwiftUI, Xcode, iOS, macOS
@@ -93,7 +96,6 @@ enum Constants {
     static let maximumAdaptiveThreshold: Float = -32
     static let noiseMargin: Float = 10
     static let lowConfidenceLogProbability = -0.85
-    static let handsFreeDoublePressInterval: TimeInterval = 0.28
 }
 
 enum HUDPosition: String, CaseIterable, Identifiable {
@@ -157,6 +159,68 @@ enum TranscriptionModel: String, CaseIterable, Identifiable {
         case .fast: return "Rapide"
         case .accurate: return "Précision maximale"
         }
+    }
+}
+
+enum OpenAITranscriptionProfile: String, CaseIterable, Identifiable {
+    case mini
+    case live
+
+    var id: String { rawValue }
+
+    var label: String {
+        switch self {
+        case .mini: "Rapide — Mini"
+        case .live: "Direct — Live"
+        }
+    }
+
+    var shortLabel: String {
+        switch self {
+        case .mini: "Mini"
+        case .live: "Live"
+        }
+    }
+
+    var detail: String {
+        switch self {
+        case .mini:
+            "Stable et économique · transcription après le relâchement."
+        case .live:
+            "Aperçu progressif · finalisation prioritaire au relâchement."
+        }
+    }
+
+    var primaryModel: String {
+        switch self {
+        case .mini: "gpt-4o-mini-transcribe"
+        case .live: "gpt-live-transcribe"
+        }
+    }
+
+    var batchFallbackModel: String { "gpt-4o-mini-transcribe" }
+    var usesRealtime: Bool { self == .live }
+
+    static func current(in defaults: UserDefaults = .standard) -> Self {
+        if let value = defaults.string(
+            forKey: Constants.openAITranscriptionProfileKey
+        ), let profile = Self(rawValue: value) {
+            return profile
+        }
+
+        // One-version compatibility bridge for the model picker shipped
+        // before profiles. Only an explicitly stored legacy value is mapped;
+        // a fresh installation still starts with Direct — Live.
+        let legacy = defaults.object(
+            forKey: Constants.transcriptionModelKey
+        ) as? String
+        let migrated: Self = switch legacy {
+        case "fast", "gpt-4o-mini-transcribe": .mini
+        case "accurate", "gpt-4o-transcribe": .live
+        default: .live
+        }
+        defaults.set(migrated.rawValue, forKey: Constants.openAITranscriptionProfileKey)
+        return migrated
     }
 }
 

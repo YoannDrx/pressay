@@ -171,7 +171,7 @@ Dans les préférences, tu peux choisir le français, l'anglais ou la détection
 ### Dictée flexible
 Le raccourci peut être Fn/Globe, Option droite ou Commande droite. Le mode
 « Maintenir » convient aux messages courts ; le mode « Bascule » permet les longues
-dictées. Une double pression active la capture mains libres. Un HUD discret
+dictées sans garder la touche enfoncée. Un HUD discret
 indique le niveau micro, la durée, la langue et le mode.
 
 ### Annulation et délai maximum
