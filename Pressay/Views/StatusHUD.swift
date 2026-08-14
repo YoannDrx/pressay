@@ -16,7 +16,7 @@ enum HUDState: Equatable {
         case .transcribing: return "Transcription…"
         case .processing: return "Transformation…"
         case .delivering: return "Insertion…"
-        case .success: return "Texte inséré"
+        case .success: return "Texte envoyé"
         case .copied: return "Texte copié"
         case .cancelled: return "Annulé"
         }

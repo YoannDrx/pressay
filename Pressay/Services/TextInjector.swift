@@ -142,7 +142,21 @@ final class TextInjector: TextDelivering {
         guard pasteboard.setString(cleanText, forType: .string) else {
             return fail(.clipboardPasteFailed)
         }
-        let didPaste = Self.postPasteShortcut()
+
+        // NSPasteboard writes are handed to the shared pasteboard server. Give
+        // it one short scheduling window before asking Electron/WebKit to read
+        // the new value, then emit a real key-down/key-up gesture instead of
+        // posting both events in the same run-loop instant.
+        do {
+            try await Task.sleep(for: .milliseconds(35))
+        } catch {
+            return fail(.clipboardPasteFailed)
+        }
+        guard NSWorkspace.shared.frontmostApplication?.processIdentifier
+                == target.processIdentifier else {
+            return fail(.targetApplicationNotFrontmost)
+        }
+        let didPaste = await Self.postPasteShortcut()
         lastDeliveryStrategy = didPaste ? .paste : .copied
         logger.notice(
             "Simple dictation paste posted: success=\(didPaste, privacy: .public), pid=\(target.processIdentifier, privacy: .public)"
@@ -150,7 +164,7 @@ final class TextInjector: TextDelivering {
         return didPaste ? true : fail(.clipboardPasteFailed)
     }
 
-    private static func postPasteShortcut() -> Bool {
+    private static func postPasteShortcut() async -> Bool {
         guard let source = CGEventSource(stateID: .hidSystemState),
               let keyDown = CGEvent(
                   keyboardEventSource: source,
@@ -167,6 +181,9 @@ final class TextInjector: TextDelivering {
         keyDown.flags = .maskCommand
         keyUp.flags = .maskCommand
         keyDown.post(tap: .cghidEventTap)
+        // Always emit key-up, including if the parent task is cancelled while
+        // the gesture is in flight, so Command can never remain logically held.
+        try? await Task.sleep(for: .milliseconds(15))
         keyUp.post(tap: .cghidEventTap)
         return true
     }
