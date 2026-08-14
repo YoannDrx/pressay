@@ -2476,6 +2476,24 @@ final class DeliveryPreferencePolicyTests: XCTestCase {
         )
     }
 
+    func testInstantDictationUsesApplicationMenuInElectronApp() {
+        XCTAssertTrue(
+            DeliveryPreferencePolicy.shouldUseApplicationMenuPaste(
+                prefersPaste: true,
+                isInstantDictation: true
+            )
+        )
+    }
+
+    func testTransformationDoesNotUseApplicationMenuPaste() {
+        XCTAssertFalse(
+            DeliveryPreferencePolicy.shouldUseApplicationMenuPaste(
+                prefersPaste: true,
+                isInstantDictation: false
+            )
+        )
+    }
+
     func testTransformationKeepsPastePreferenceForElectronApp() {
         XCTAssertFalse(
             DeliveryPreferencePolicy.shouldUseAccessibilityReplacement(
@@ -2585,7 +2603,7 @@ final class TargetActivationPolicyTests: XCTestCase {
 final class MissingAccessibilityTargetPolicyTests: XCTestCase {
     func testCodexInstantDictationCanUseMenuWhenComposerIsNotExposed() {
         XCTAssertTrue(
-            MissingAccessibilityTargetPolicy.canUseTargetedPaste(
+            MissingAccessibilityTargetPolicy.canUseApplicationMenuPaste(
                 bundleIdentifier: "com.openai.codex",
                 isInstantDictation: true,
                 prefersPaste: true,
@@ -2597,7 +2615,7 @@ final class MissingAccessibilityTargetPolicyTests: XCTestCase {
 
     func testFallbackDoesNotApplyToUnknownElectronApps() {
         XCTAssertFalse(
-            MissingAccessibilityTargetPolicy.canUseTargetedPaste(
+            MissingAccessibilityTargetPolicy.canUseApplicationMenuPaste(
                 bundleIdentifier: "com.example.electron",
                 isInstantDictation: true,
                 prefersPaste: true,
@@ -2609,7 +2627,7 @@ final class MissingAccessibilityTargetPolicyTests: XCTestCase {
 
     func testChromeInstantDictationCanUseMenuWhenWebEditorIsNotExposed() {
         XCTAssertTrue(
-            MissingAccessibilityTargetPolicy.canUseTargetedPaste(
+            MissingAccessibilityTargetPolicy.canUseApplicationMenuPaste(
                 bundleIdentifier: "com.google.Chrome",
                 isInstantDictation: true,
                 prefersPaste: true,
@@ -2621,7 +2639,7 @@ final class MissingAccessibilityTargetPolicyTests: XCTestCase {
 
     func testFallbackNeverBypassesSecureOrExistingAccessibilityTargets() {
         XCTAssertFalse(
-            MissingAccessibilityTargetPolicy.canUseTargetedPaste(
+            MissingAccessibilityTargetPolicy.canUseApplicationMenuPaste(
                 bundleIdentifier: "com.openai.codex",
                 isInstantDictation: true,
                 prefersPaste: true,
@@ -2630,7 +2648,7 @@ final class MissingAccessibilityTargetPolicyTests: XCTestCase {
             )
         )
         XCTAssertFalse(
-            MissingAccessibilityTargetPolicy.canUseTargetedPaste(
+            MissingAccessibilityTargetPolicy.canUseApplicationMenuPaste(
                 bundleIdentifier: "com.openai.codex",
                 isInstantDictation: true,
                 prefersPaste: true,
@@ -2642,7 +2660,7 @@ final class MissingAccessibilityTargetPolicyTests: XCTestCase {
 
     func testFallbackIsLimitedToInstantPasteDelivery() {
         XCTAssertFalse(
-            MissingAccessibilityTargetPolicy.canUseTargetedPaste(
+            MissingAccessibilityTargetPolicy.canUseApplicationMenuPaste(
                 bundleIdentifier: "com.openai.codex",
                 isInstantDictation: false,
                 prefersPaste: true,
@@ -2651,7 +2669,7 @@ final class MissingAccessibilityTargetPolicyTests: XCTestCase {
             )
         )
         XCTAssertFalse(
-            MissingAccessibilityTargetPolicy.canUseTargetedPaste(
+            MissingAccessibilityTargetPolicy.canUseApplicationMenuPaste(
                 bundleIdentifier: "com.openai.codex",
                 isInstantDictation: true,
                 prefersPaste: false,
@@ -2665,7 +2683,7 @@ final class MissingAccessibilityTargetPolicyTests: XCTestCase {
 final class BrowserFocusLossPastePolicyTests: XCTestCase {
     func testChromeInstantDictationCanUseMenuAfterTransientFocusLoss() {
         XCTAssertTrue(
-            BrowserFocusLossPastePolicy.canUseTargetedPaste(
+            BrowserFocusLossPastePolicy.canUseApplicationMenuPaste(
                 bundleIdentifier: "com.google.Chrome",
                 isInstantDictation: true,
                 prefersPaste: true,
@@ -2677,7 +2695,7 @@ final class BrowserFocusLossPastePolicyTests: XCTestCase {
 
     func testFallbackUsesCapturedBrowserFocusWhenAXEditabilityIsIncomplete() {
         XCTAssertTrue(
-            BrowserFocusLossPastePolicy.canUseTargetedPaste(
+            BrowserFocusLossPastePolicy.canUseApplicationMenuPaste(
                 bundleIdentifier: "com.google.Chrome",
                 isInstantDictation: true,
                 prefersPaste: true,
@@ -2689,7 +2707,7 @@ final class BrowserFocusLossPastePolicyTests: XCTestCase {
 
     func testFallbackRequiresCapturedFocusAndANonSecureTarget() {
         XCTAssertFalse(
-            BrowserFocusLossPastePolicy.canUseTargetedPaste(
+            BrowserFocusLossPastePolicy.canUseApplicationMenuPaste(
                 bundleIdentifier: "com.google.Chrome",
                 isInstantDictation: true,
                 prefersPaste: true,
@@ -2698,7 +2716,7 @@ final class BrowserFocusLossPastePolicyTests: XCTestCase {
             )
         )
         XCTAssertFalse(
-            BrowserFocusLossPastePolicy.canUseTargetedPaste(
+            BrowserFocusLossPastePolicy.canUseApplicationMenuPaste(
                 bundleIdentifier: "com.google.Chrome",
                 isInstantDictation: true,
                 prefersPaste: true,
@@ -2710,7 +2728,7 @@ final class BrowserFocusLossPastePolicyTests: XCTestCase {
 
     func testFallbackDoesNotApplyToUnknownElectronAppsOrTransformations() {
         XCTAssertFalse(
-            BrowserFocusLossPastePolicy.canUseTargetedPaste(
+            BrowserFocusLossPastePolicy.canUseApplicationMenuPaste(
                 bundleIdentifier: "com.example.electron",
                 isInstantDictation: true,
                 prefersPaste: true,
@@ -2719,7 +2737,7 @@ final class BrowserFocusLossPastePolicyTests: XCTestCase {
             )
         )
         XCTAssertFalse(
-            BrowserFocusLossPastePolicy.canUseTargetedPaste(
+            BrowserFocusLossPastePolicy.canUseApplicationMenuPaste(
                 bundleIdentifier: "com.google.Chrome",
                 isInstantDictation: false,
                 prefersPaste: true,
