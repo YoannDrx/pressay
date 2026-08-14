@@ -20,12 +20,6 @@ final class AppState: ObservableObject {
     var pendingCount: Int { sessionCoordinator.pendingCount }
     var lastError: String? { sessionCoordinator.lastError }
     var lastNotice: String? { sessionCoordinator.lastNotice }
-    var realtimeTranscriptPreview: String? {
-        sessionCoordinator.realtimeTranscriptPreview
-    }
-    var realtimePreviewIsTranslation: Bool {
-        sessionCoordinator.realtimePreviewIsTranslation
-    }
     var lastTranscriptionModel: String? {
         sessionCoordinator.lastTranscriptionModel
     }

@@ -6,7 +6,10 @@ struct SessionTimeoutPolicy {
     var localTranscription: TimeInterval = 75
     // Direct gets a very short chance to finalize. A slow or unhealthy socket
     // must never hold the stable Mini path hostage after Fn is released.
-    var realtimeFinalization: TimeInterval = 1.25
+    // The real OpenAI smoke corpus finalizes Live around 0.8 s on a healthy
+    // connection. Keep enough scheduling headroom to avoid a false Mini
+    // fallback while still bounding a genuinely unhealthy socket.
+    var realtimeFinalization: TimeInterval = 2
     var textProcessing: TimeInterval = 45
 }
 
@@ -21,8 +24,6 @@ final class SessionCoordinator: ObservableObject {
     @Published private(set) var lastError: String?
     @Published private(set) var lastNotice: String?
     @Published private(set) var lastDeliveryReceipt: DeliveryReceipt?
-    @Published private(set) var realtimeTranscriptPreview: String?
-    @Published private(set) var realtimePreviewIsTranslation = false
     @Published private(set) var lastTranscriptionModel: String?
 
     var isRecording: Bool { captureSession?.state == .capturing }
@@ -289,17 +290,10 @@ final class SessionCoordinator: ObservableObject {
            audioCapturer is PCMChunkProviding {
             realtime.cancelRealtimeTranscription()
             let purpose = realtimePurpose(for: mode)
-            realtime.setRealtimeTranscriptHandler { [weak self] text, isTranslation in
-                Task { @MainActor [weak self] in
-                    guard let self else { return }
-                    self.realtimeTranscriptPreview = text
-                    self.realtimePreviewIsTranslation = isTranslation
-                    self.hud.updateTranscriptPreview(
-                        text,
-                        isTranslation: isTranslation
-                    )
-                }
-            }
+            // Live stays an internal acceleration path. Provisional text is
+            // intentionally not rendered: only the validated final result is
+            // delivered after Fn is released.
+            realtime.setRealtimeTranscriptHandler(nil)
             captureRealtimeTranscriber = realtime
             captureRealtimeStartTask = Task {
                 try await realtime.startRealtimeTranscription(purpose: purpose)
@@ -328,9 +322,6 @@ final class SessionCoordinator: ObservableObject {
             captureSession = session
             lastError = nil
             lastNotice = nil
-            realtimeTranscriptPreview = nil
-            realtimePreviewIsTranslation = false
-            hud.updateTranscriptPreview(nil, isTranslation: false)
             sounds.playStartSound()
             hud.show(
                 .listening,
@@ -412,8 +403,6 @@ final class SessionCoordinator: ObservableObject {
             audioCapturer.cleanup(url: audio.url)
             _ = session.transition(to: .cancelled)
             lastSession = session
-            realtimeTranscriptPreview = nil
-            hud.updateTranscriptPreview(nil, isTranslation: false)
             lastError = nil
             lastNotice = "Aucune parole détectée — rien n’a été collé"
             hud.show(.cancelled, detail: lastNotice, autoHide: true)
@@ -477,9 +466,6 @@ final class SessionCoordinator: ObservableObject {
             captureRealtimeTranscriber?.cancelRealtimeTranscription()
             captureRealtimeTranscriber = nil
             (audioCapturer as? PCMChunkProviding)?.onPCMChunk = nil
-            realtimeTranscriptPreview = nil
-            realtimePreviewIsTranslation = false
-            hud.updateTranscriptPreview(nil, isTranslation: false)
         }
         captureMode = mode
         session.modeIdentifier = mode.id
@@ -508,7 +494,6 @@ final class SessionCoordinator: ObservableObject {
             preparingIntent = nil
             lastError = nil
             lastNotice = "Capture annulée"
-            clearRealtimePreview()
             hud.show(.cancelled, detail: lastNotice, autoHide: true)
             return
         }
@@ -524,7 +509,6 @@ final class SessionCoordinator: ObservableObject {
             captureDeliveryPolicy = nil
             _ = session.transition(to: .cancelled)
             lastSession = session
-            clearRealtimePreview()
             lastError = nil
             lastNotice = "Dictée annulée"
             hud.show(.cancelled, detail: lastNotice, autoHide: true)
@@ -540,7 +524,6 @@ final class SessionCoordinator: ObservableObject {
     func cancelProcessing() {
         guard processingTask != nil else { return }
         processingTask?.cancel()
-        clearRealtimePreview()
         lastNotice = "Traitement annulé"
         lastError = nil
         hud.show(.cancelled, detail: lastNotice, autoHide: true)
@@ -549,12 +532,6 @@ final class SessionCoordinator: ObservableObject {
     func clearMessages() {
         lastError = nil
         lastNotice = nil
-    }
-
-    private func clearRealtimePreview() {
-        realtimeTranscriptPreview = nil
-        realtimePreviewIsTranslation = false
-        hud.updateTranscriptPreview(nil, isTranslation: false)
     }
 
     func undoLastInsertion() {
@@ -1370,7 +1347,6 @@ final class SessionCoordinator: ObservableObject {
         )
         networkMetricsBySession.removeValue(forKey: session.id)
         lastSession = session
-        clearRealtimePreview()
         let undoDeadline = inserted && textDeliverer.canUndoLastInsertion
             ? Date().addingTimeInterval(8)
             : nil
@@ -1567,7 +1543,6 @@ final class SessionCoordinator: ObservableObject {
             )
         }
         lastSession = item.session
-        clearRealtimePreview()
         networkMetricsBySession.removeValue(forKey: item.session.id)
         let canRetry = replayBuffer.audio(for: item.session.id) != nil
         hud.configureResultActions(

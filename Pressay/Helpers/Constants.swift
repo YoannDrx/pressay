@@ -163,8 +163,8 @@ enum TranscriptionModel: String, CaseIterable, Identifiable {
 }
 
 enum OpenAITranscriptionProfile: String, CaseIterable, Identifiable {
-    case mini
     case live
+    case mini
 
     var id: String { rawValue }
 

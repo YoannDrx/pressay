@@ -112,7 +112,60 @@ final class TextInjector: TextDelivering {
     }
 
     func injectDictation(text: String, target: TextInjectionTarget?) async -> Bool {
-        await deliver(text: text, target: target, isInstantDictation: true)
+        let cleanText = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !cleanText.isEmpty else { return fail(.emptyText) }
+        guard TextInjector.hasAccessibilityPermission() else {
+            return fail(.accessibilityNotGranted)
+        }
+        guard let target else { return fail(.missingTarget) }
+        guard !target.snapshot.isSecure else { return fail(.secureTarget) }
+        guard let app = NSRunningApplication(
+            processIdentifier: target.processIdentifier
+        ), !app.isTerminated else {
+            return fail(.targetApplicationUnavailable)
+        }
+
+        lastUndoToken = nil
+        lastDeliveryStrategy = .copied
+        lastDeliveryFailure = nil
+        guard NSWorkspace.shared.frontmostApplication?.processIdentifier
+                == target.processIdentifier else {
+            return fail(.targetApplicationNotFrontmost)
+        }
+
+        // Keep the default Fn path identical to the original fast Pressay
+        // behavior: publish the result and post one global Cmd+V. No AX menu
+        // traversal, target mutation, verification loop or clipboard wait is
+        // allowed between the final transcript and the target application.
+        let pasteboard = NSPasteboard.general
+        pasteboard.clearContents()
+        guard pasteboard.setString(cleanText, forType: .string) else {
+            return fail(.clipboardPasteFailed)
+        }
+        let didPaste = Self.postPasteShortcut()
+        lastDeliveryStrategy = didPaste ? .paste : .copied
+        return didPaste ? true : fail(.clipboardPasteFailed)
+    }
+
+    private static func postPasteShortcut() -> Bool {
+        guard let source = CGEventSource(stateID: .hidSystemState),
+              let keyDown = CGEvent(
+                  keyboardEventSource: source,
+                  virtualKey: CGKeyCode(kVK_ANSI_V),
+                  keyDown: true
+              ),
+              let keyUp = CGEvent(
+                  keyboardEventSource: source,
+                  virtualKey: CGKeyCode(kVK_ANSI_V),
+                  keyDown: false
+              ) else {
+            return false
+        }
+        keyDown.flags = .maskCommand
+        keyUp.flags = .maskCommand
+        keyDown.post(tap: .cghidEventTap)
+        keyUp.post(tap: .cghidEventTap)
+        return true
     }
 
     private func deliver(
@@ -159,12 +212,7 @@ final class TextInjector: TextDelivering {
         guard windowStillMatches(target) else {
             return fail(.targetWindowChanged)
         }
-        let usesApplicationMenuPaste = DeliveryPreferencePolicy
-            .shouldUseApplicationMenuPaste(
-                prefersPaste: prefersPaste,
-                isInstantDictation: isInstantDictation
-            )
-        if MissingAccessibilityTargetPolicy.canUseApplicationMenuPaste(
+        if MissingAccessibilityTargetPolicy.canUseTargetedPaste(
             bundleIdentifier: target.snapshot.bundleIdentifier,
             isInstantDictation: isInstantDictation,
             prefersPaste: prefersPaste,
@@ -172,10 +220,10 @@ final class TextInjector: TextDelivering {
             hasFocusedElement: target.focusedElement != nil
         ) {
             logger.info(
-                "Using application-menu compatibility delivery for accessibility-limited target"
+                "Using targeted keyboard delivery for accessibility-limited target"
             )
             let didPaste = await ClipboardTransactionCoordinator.shared
-                .pasteDictationUsingApplicationMenu(
+                .pasteDictation(
                     cleanText,
                     processIdentifier: target.processIdentifier
                 )
@@ -185,7 +233,7 @@ final class TextInjector: TextDelivering {
         guard let currentFocusedElement = currentFocusedElement(
             processIdentifier: target.processIdentifier
         ) else {
-            if BrowserFocusLossPastePolicy.canUseApplicationMenuPaste(
+            if BrowserFocusLossPastePolicy.canUseTargetedPaste(
                 bundleIdentifier: target.snapshot.bundleIdentifier,
                 isInstantDictation: isInstantDictation,
                 prefersPaste: prefersPaste,
@@ -193,10 +241,10 @@ final class TextInjector: TextDelivering {
                 isSecure: target.snapshot.isSecure
             ) {
                 logger.info(
-                    "Using browser focus-loss compatibility delivery"
+                    "Using targeted keyboard delivery after browser focus loss"
                 )
                 let didPaste = await ClipboardTransactionCoordinator.shared
-                    .pasteDictationUsingApplicationMenu(
+                    .pasteDictation(
                         cleanText,
                         processIdentifier: target.processIdentifier
                     )
@@ -220,35 +268,6 @@ final class TextInjector: TextDelivering {
             expectedValue(afterInserting: cleanText, in: $0)
         }
 
-        if usesApplicationMenuPaste,
-           await ClipboardTransactionCoordinator.shared
-            .pasteDictationUsingApplicationMenu(
-                cleanText,
-                processIdentifier: activeTarget.processIdentifier
-            ) {
-            if let element = activeTarget.focusedElement,
-               let expectedPastedValue,
-               !(await value(of: element, becomes: expectedPastedValue.value)) {
-                guard ApplicationMenuPasteVerificationPolicy
-                    .allowsStaleAccessibilityValue(
-                        bundleIdentifier: activeTarget.snapshot.bundleIdentifier
-                    ) else {
-                    return fail(.clipboardPasteFailed)
-                }
-                // Codex applies the menu paste immediately but can keep
-                // publishing its pre-paste AXValue. Treating that stale value
-                // as a delivery failure causes the coordinator to copy the
-                // dictation permanently, overwriting the clipboard that the
-                // transaction has just restored.
-                logger.debug(
-                    "Application menu accepted paste before AXValue caught up"
-                )
-            }
-            rememberUndo(for: activeTarget, insertedText: cleanText)
-            lastDeliveryStrategy = .paste
-            return true
-        }
-
         if DeliveryPreferencePolicy.shouldUseAccessibilityReplacement(
             canWriteSelectedText: activeTarget.snapshot.canWriteSelectedText,
             prefersPaste: prefersPaste,
@@ -264,7 +283,10 @@ final class TextInjector: TextDelivering {
         }
 
         let pasteWasPosted = if isInstantDictation {
-            await ClipboardTransactionCoordinator.shared.pasteDictation(cleanText)
+            await ClipboardTransactionCoordinator.shared.pasteDictation(
+                cleanText,
+                processIdentifier: activeTarget.processIdentifier
+            )
         } else {
             await ClipboardTransactionCoordinator.shared.paste(cleanText)
         }
@@ -946,16 +968,10 @@ enum DeliveryPreferencePolicy {
         canWriteSelectedText && !prefersPaste
     }
 
-    static func shouldUseApplicationMenuPaste(
-        prefersPaste: Bool,
-        isInstantDictation: Bool
-    ) -> Bool {
-        prefersPaste && isInstantDictation
-    }
 }
 
 enum BrowserFocusLossPastePolicy {
-    static func canUseApplicationMenuPaste(
+    static func canUseTargetedPaste(
         bundleIdentifier: String?,
         isInstantDictation: Bool,
         prefersPaste: Bool,
@@ -989,7 +1005,7 @@ enum MissingAccessibilityTargetPolicy {
     // instead of applying it to every Electron application.
     private static let compatibleBundleIdentifiers: Set<String> = ["com.openai.codex"]
 
-    static func canUseApplicationMenuPaste(
+    static func canUseTargetedPaste(
         bundleIdentifier: String?,
         isInstantDictation: Bool,
         prefersPaste: Bool,
@@ -1010,19 +1026,6 @@ enum MissingAccessibilityTargetPolicy {
     }
 }
 
-enum ApplicationMenuPasteVerificationPolicy {
-    private static let staleAccessibilityValueBundleIdentifiers: Set<String> = [
-        "com.openai.codex"
-    ]
-
-    static func allowsStaleAccessibilityValue(
-        bundleIdentifier: String?
-    ) -> Bool {
-        bundleIdentifier.map(
-            staleAccessibilityValueBundleIdentifiers.contains
-        ) == true
-    }
-}
 #endif
 
 struct AccessibilityValueReplacement: Equatable {

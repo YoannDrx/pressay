@@ -156,6 +156,21 @@ struct MenuBarView: View {
 
     private var dictateTab: some View {
         VStack(alignment: .leading, spacing: 11) {
+            if let message = appState.lastError ?? appState.lastNotice {
+                Label(
+                    message,
+                    systemImage: appState.lastError == nil
+                        ? "checkmark.circle.fill"
+                        : "exclamationmark.triangle.fill"
+                )
+                .font(.system(size: 10.5, weight: .medium))
+                .foregroundStyle(appState.lastError == nil ? .green : .orange)
+                .fixedSize(horizontal: false, vertical: true)
+                .padding(10)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .background(.secondary.opacity(0.06), in: RoundedRectangle(cornerRadius: 9))
+            }
+
             MenuBarCard(tint: statusColor) {
                 HStack(alignment: .top, spacing: 10) {
                     Image(systemName: statusIcon)
@@ -231,62 +246,36 @@ struct MenuBarView: View {
             }
 
 
-            if let preview = appState.realtimeTranscriptPreview,
-               !preview.isEmpty {
-                MenuBarCard(
-                    tint: appState.realtimePreviewIsTranslation ? .purple : .blue
-                ) {
-                    Label(
-                        appState.realtimePreviewIsTranslation
-                            ? "Traduction en direct"
-                            : "Texte en direct",
-                        systemImage: appState.realtimePreviewIsTranslation
-                            ? "character.book.closed.fill"
-                            : "text.bubble.fill"
-                    )
-                    .font(.system(size: 10, weight: .semibold))
-                    .foregroundStyle(
-                        appState.realtimePreviewIsTranslation ? .purple : .blue
-                    )
-                    Text(preview)
-                        .font(.system(size: 10.5))
-                        .foregroundStyle(.secondary)
-                        .lineLimit(4)
-                        .textSelection(.enabled)
-                }
-            }
-
             MenuBarCard(tint: .indigo) {
-                HStack {
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text("Style de rédaction")
-                            .font(.system(size: 11, weight: .semibold))
-                        Text("\(modes.visibleModes.count) styles disponibles")
-                            .font(.system(size: 9.5))
-                            .foregroundStyle(.secondary)
-                    }
-                    Spacer()
-                    Button {
-                        onRequestClose()
-                        ModesWindowController.shared.show(
-                            shortcutRouter: appState.keyboardService
-                        )
-                    } label: {
-                        Image(systemName: "ellipsis.circle")
-                    }
-                    .buttonStyle(.plain)
-                    .foregroundStyle(.secondary)
-                    .help("Gérer les styles")
-                }
-
                 HStack(spacing: 8) {
-                    Picker("Style de rédaction", selection: selectedModeBinding) {
+                    Text("Style")
+                        .font(.system(size: 11, weight: .semibold))
+                    Menu {
                         ForEach(modes.visibleModes) { mode in
-                            Label(mode.name, systemImage: mode.symbolName)
-                                .tag(mode.id)
+                            Button {
+                                modes.selectedModeID = mode.id
+                            } label: {
+                                if mode.id == selectedMode.id {
+                                    Label(mode.name, systemImage: "checkmark")
+                                } else {
+                                    Label(mode.name, systemImage: mode.symbolName)
+                                }
+                            }
                         }
+                    } label: {
+                        HStack(spacing: 8) {
+                            Label(selectedMode.name, systemImage: selectedMode.symbolName)
+                                .lineLimit(1)
+                            Spacer()
+                            Image(systemName: "chevron.up.chevron.down")
+                                .font(.system(size: 8, weight: .semibold))
+                                .foregroundStyle(.secondary)
+                        }
+                        .padding(.horizontal, 10)
+                        .frame(height: 28)
+                        .background(.primary.opacity(0.055), in: RoundedRectangle(cornerRadius: 7))
                     }
-                    .labelsHidden()
+                    .menuStyle(.borderlessButton)
                     .frame(maxWidth: .infinity)
 
                     if selectedMode.id == NativeModeCatalog.translationID,
@@ -299,6 +288,18 @@ struct MenuBarView: View {
                             .padding(.vertical, 4)
                             .background(.purple.opacity(0.12), in: Capsule())
                     }
+
+                    Button {
+                        onRequestClose()
+                        ModesWindowController.shared.show(
+                            shortcutRouter: appState.keyboardService
+                        )
+                    } label: {
+                        Image(systemName: "ellipsis.circle")
+                    }
+                    .buttonStyle(.plain)
+                    .foregroundStyle(.secondary)
+                    .help("Gérer les styles")
                 }
             }
 
@@ -311,21 +312,6 @@ struct MenuBarView: View {
                 .font(.system(size: 10))
                 .foregroundStyle(.secondary)
                 .padding(.horizontal, 3)
-            }
-
-            if let message = appState.lastError ?? appState.lastNotice {
-                Label(
-                    message,
-                    systemImage: appState.lastError == nil
-                        ? "checkmark.circle.fill"
-                        : "exclamationmark.triangle.fill"
-                )
-                .font(.system(size: 10.5, weight: .medium))
-                .foregroundStyle(appState.lastError == nil ? .green : .orange)
-                .fixedSize(horizontal: false, vertical: true)
-                .padding(10)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .background(.secondary.opacity(0.06), in: RoundedRectangle(cornerRadius: 9))
             }
 
             if appState.isTranscribing {
@@ -342,7 +328,14 @@ struct MenuBarView: View {
             if let latest = history.entries.first {
                 MenuBarCard(tint: .purple) {
                     HStack {
-                        Label("Dernière dictée", systemImage: "quote.bubble.fill")
+                        Label(
+                            latest.deliveryStatus == .copied
+                                ? "Texte copié"
+                                : "Dernier texte",
+                            systemImage: latest.deliveryStatus == .copied
+                                ? "doc.on.clipboard.fill"
+                                : "quote.bubble.fill"
+                        )
                             .font(.system(size: 11, weight: .semibold))
                             .foregroundStyle(.purple)
                         Spacer()
@@ -386,7 +379,7 @@ struct MenuBarView: View {
                         .font(.system(size: 11, weight: .semibold))
                         .foregroundStyle(.blue)
                         Spacer()
-                        Text("après Fn · (durationLabel(latency.afterRelease))")
+                        Text("après Fn · \(durationLabel(latency.afterRelease))")
                             .font(.system(size: 9, weight: .semibold, design: .rounded))
                             .foregroundStyle(.blue)
                     }
@@ -412,44 +405,7 @@ struct MenuBarView: View {
                 }
             }
 
-            MenuBarCard(tint: .green) {
-                HStack {
-                    Label("API OpenAI · estimation", systemImage: "dollarsign.circle.fill")
-                        .font(.system(size: 11, weight: .semibold))
-                        .foregroundStyle(.green)
-                    Spacer()
-                    if let model = appState.lastTranscriptionModel {
-                        Text(shortModelName(model))
-                            .font(.system(size: 8.5, design: .monospaced))
-                            .foregroundStyle(.tertiary)
-                    }
-                }
-
-                HStack(spacing: 18) {
-                    usageAmount(
-                        title: "Aujourd’hui",
-                        summary: todayAPIUsage
-                    )
-                    usageAmount(
-                        title: "30 jours",
-                        summary: thirtyDayAPIUsage
-                    )
-                }
-
-                HStack {
-                    Text(
-                        "Calcul local · tarifs du \(OpenAICostEstimator.pricingDate)"
-                    )
-                    .font(.system(size: 8.5))
-                    .foregroundStyle(.tertiary)
-                    Spacer()
-                    Link(
-                        "Montant réel ↗",
-                        destination: URL(string: "https://platform.openai.com/usage")!
-                    )
-                    .font(.system(size: 9, weight: .medium))
-                }
-            }
+            openAIUsageCard
 
             HStack(spacing: 8) {
                 ActivityCounter(
@@ -494,62 +450,97 @@ struct MenuBarView: View {
 
     @ViewBuilder
     private var accountTab: some View {
-        MenuBarCard(tint: .green) {
-            VStack(alignment: .leading, spacing: 11) {
-                switch account.state {
-                case .unavailable:
-                    accountMessage(
-                        "Le compte n’est pas disponible dans cette version.",
-                        icon: "wrench.and.screwdriver.fill",
-                        color: .secondary
-                    )
-                case .signedOut:
-                    accountMessage(
-                        "Connecte-toi pour retrouver ta formule et gérer tes Mac.",
-                        icon: "person.crop.circle.badge.plus",
-                        color: .blue
-                    )
-                    Button("Se connecter avec Google") {
-                        Task { await account.signIn() }
+        VStack(alignment: .leading, spacing: 11) {
+            MenuBarCard(tint: .green) {
+                VStack(alignment: .leading, spacing: 11) {
+                    switch account.state {
+                    case .unavailable:
+                        accountMessage(
+                            "Le compte n’est pas disponible dans cette version.",
+                            icon: "wrench.and.screwdriver.fill",
+                            color: .secondary
+                        )
+                    case .signedOut:
+                        accountMessage(
+                            "Connecte-toi pour retrouver ta formule et gérer tes Mac.",
+                            icon: "person.crop.circle.badge.plus",
+                            color: .blue
+                        )
+                        Button("Se connecter avec Google") {
+                            Task { await account.signIn() }
+                        }
+                        .buttonStyle(.borderedProminent)
+                        .controlSize(.regular)
+                    case .signingIn:
+                        accountMessage(
+                            "Connexion sécurisée dans le navigateur…",
+                            icon: "safari.fill",
+                            color: .blue
+                        )
+                    case .loading:
+                        HStack(spacing: 9) {
+                            ProgressView().controlSize(.small)
+                            Text("Vérification du compte…")
+                                .font(.system(size: 11))
+                        }
+                    case .failed(let message):
+                        accountMessage(
+                            message,
+                            icon: "exclamationmark.triangle.fill",
+                            color: .orange
+                        )
+                        if let requestID = account.requestID {
+                            Text("Référence : \(requestID)")
+                                .font(.system(size: 8, design: .monospaced))
+                                .foregroundStyle(.tertiary)
+                                .textSelection(.enabled)
+                        }
+                        Button("Réessayer") { Task { await account.refresh() } }
+                    case .signedIn:
+                        signedInAccount
                     }
-                    .buttonStyle(.borderedProminent)
-                    .controlSize(.regular)
-                case .signingIn:
-                    accountMessage(
-                        "Connexion sécurisée dans le navigateur…",
-                        icon: "safari.fill",
-                        color: .blue
+                    Divider().opacity(0.4)
+                    Label(
+                        "Ni l’audio, ni les transcriptions, ni ta clé OpenAI ne sont envoyés au compte Pressay.",
+                        systemImage: "lock.shield.fill"
                     )
-                case .loading:
-                    HStack(spacing: 9) {
-                        ProgressView().controlSize(.small)
-                        Text("Vérification du compte…")
-                            .font(.system(size: 11))
-                    }
-                case .failed(let message):
-                    accountMessage(
-                        message,
-                        icon: "exclamationmark.triangle.fill",
-                        color: .orange
-                    )
-                    if let requestID = account.requestID {
-                        Text("Référence : \(requestID)")
-                            .font(.system(size: 8, design: .monospaced))
-                            .foregroundStyle(.tertiary)
-                            .textSelection(.enabled)
-                    }
-                    Button("Réessayer") { Task { await account.refresh() } }
-                case .signedIn:
-                    signedInAccount
+                    .font(.system(size: 9))
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
                 }
-                Divider().opacity(0.4)
-                Label(
-                    "Ni l’audio, ni les transcriptions, ni ta clé OpenAI ne sont envoyés au compte Pressay.",
-                    systemImage: "lock.shield.fill"
+            }
+        }
+    }
+
+    private var openAIUsageCard: some View {
+        MenuBarCard(tint: .green) {
+            HStack {
+                Label("Clé OpenAI · estimation", systemImage: "dollarsign.circle.fill")
+                    .font(.system(size: 11, weight: .semibold))
+                    .foregroundStyle(.green)
+                Spacer()
+                if let model = appState.lastTranscriptionModel {
+                    Text(shortModelName(model))
+                        .font(.system(size: 8.5, design: .monospaced))
+                        .foregroundStyle(.tertiary)
+                }
+            }
+
+            HStack(spacing: 18) {
+                usageAmount(title: "Aujourd’hui", summary: todayAPIUsage)
+                usageAmount(title: "30 jours", summary: thirtyDayAPIUsage)
+            }
+
+            HStack {
+                Text("Calcul local · tarifs du \(OpenAICostEstimator.pricingDate)")
+                    .font(.system(size: 8.5))
+                    .foregroundStyle(.tertiary)
+                Spacer()
+                Link(
+                    "Montant réel ↗",
+                    destination: URL(string: "https://platform.openai.com/usage")!
                 )
-                .font(.system(size: 9))
-                .foregroundStyle(.secondary)
-                .fixedSize(horizontal: false, vertical: true)
+                .font(.system(size: 9, weight: .medium))
             }
         }
     }
@@ -825,13 +816,6 @@ struct MenuBarView: View {
     private var selectedMode: ModeDefinition {
         modes.mode(withID: modes.selectedModeID)
             ?? NativeModeCatalog.visibleModes[0]
-    }
-
-    private var selectedModeBinding: Binding<UUID> {
-        Binding(
-            get: { selectedMode.id },
-            set: { modes.selectedModeID = $0 }
-        )
     }
 
     private var selectedOpenAIProfile: OpenAITranscriptionProfile {

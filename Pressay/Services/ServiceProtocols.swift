@@ -619,7 +619,6 @@ protocol HUDPresenting: AnyObject {
     var onUndo: (() -> Void)? { get set }
     var isUndoAvailable: Bool { get set }
     func updateAudioLevel(_ level: Float)
-    func updateTranscriptPreview(_ text: String?, isTranslation: Bool)
     func show(_ state: HUDState, detail: String?, autoHide: Bool)
     func hide()
     func configureResultActions(
@@ -640,7 +639,6 @@ protocol HUDPresenting: AnyObject {
 }
 
 extension HUDPresenting {
-    func updateTranscriptPreview(_ text: String?, isTranslation: Bool) {}
     func configureResultActions(
         canRetranscribe: Bool,
         retranscribeLabel: String,

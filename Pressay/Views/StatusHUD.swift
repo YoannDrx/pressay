@@ -55,8 +55,6 @@ final class StatusHUDController: ObservableObject {
     @Published private(set) var detail: String?
     @Published private(set) var listeningStartedAt: Date?
     @Published private(set) var audioLevel: Float = 0
-    @Published private(set) var transcriptPreview: String?
-    @Published private(set) var previewIsTranslation = false
     @Published var isUndoAvailable = false
     @Published private(set) var canRetranscribe = false
     @Published private(set) var retranscribeLabel = "Retranscrire"
@@ -119,15 +117,6 @@ final class StatusHUDController: ObservableObject {
         audioLevel = max(0, min(1, level))
     }
 
-    func updateTranscriptPreview(_ text: String?, isTranslation: Bool) {
-        let cleanText = text?.trimmingCharacters(in: .whitespacesAndNewlines)
-        transcriptPreview = cleanText?.isEmpty == false ? cleanText : nil
-        previewIsTranslation = isTranslation
-        guard let panel, panel.isVisible else { return }
-        panel.setContentSize(panelSize)
-        position(panel)
-    }
-
     func hide() {
         hideTask?.cancel()
         hideTask = nil
@@ -140,6 +129,12 @@ final class StatusHUDController: ObservableObject {
 
     func setPointerInside(_ isInside: Bool) {
         pointerIsInside = isInside
+        // A terminal result is informational: hovering it must not leave the
+        // HUD pinned on screen after the text has already been delivered.
+        if state == .success || state == .copied || state == .cancelled {
+            scheduleAutoHideIfNeeded()
+            return
+        }
         if isInside {
             hideTask?.cancel()
             hideTask = nil
@@ -219,7 +214,9 @@ final class StatusHUDController: ObservableObject {
     private func scheduleAutoHideIfNeeded() {
         guard autoHideRequested else { return }
         scheduleTerminalHardHideIfNeeded()
-        guard !pointerIsInside else { return }
+        let isTerminal = state == .success || state == .copied
+            || state == .cancelled
+        guard isTerminal || !pointerIsInside else { return }
         hideTask?.cancel()
         hideTask = Task { [weak self] in
             let delay: Duration
@@ -246,7 +243,7 @@ final class StatusHUDController: ObservableObject {
         // must never remain stuck forever because an enter/exit event was
         // missed while the panel was resized or repositioned.
         terminalHardHideTask = Task { [weak self] in
-            try? await Task.sleep(for: .seconds(8))
+            try? await Task.sleep(for: .seconds(3))
             guard !Task.isCancelled else { return }
             self?.hide()
         }
@@ -298,11 +295,10 @@ final class StatusHUDController: ObservableObject {
     }
 
     fileprivate var panelSize: NSSize {
-        let hasPreview = transcriptPreview?.isEmpty == false
         if hudSize == .compact {
-            return NSSize(width: 380, height: hasPreview ? 76 : 52)
+            return NSSize(width: 380, height: 52)
         }
-        return NSSize(width: 430, height: hasPreview ? 88 : 60)
+        return NSSize(width: 430, height: 60)
     }
 
     private func refreshPreferences() {
@@ -412,35 +408,6 @@ private struct StatusHUDView: View {
                     )
                 }
 
-                if let preview = controller.transcriptPreview,
-                   !preview.isEmpty {
-                    HStack(alignment: .firstTextBaseline, spacing: 4) {
-                        Image(
-                            systemName: controller.previewIsTranslation
-                                ? "character.book.closed.fill"
-                                : "text.bubble.fill"
-                        )
-                        .foregroundStyle(
-                            controller.previewIsTranslation ? .purple : .blue
-                        )
-                        Text(preview)
-                            .lineLimit(2)
-                            .truncationMode(.head)
-                    }
-                    .font(
-                        .system(
-                            size: controller.hudSize == .compact ? 8 : 9,
-                            weight: .medium
-                        )
-                    )
-                    .foregroundStyle(.secondary)
-                    .accessibilityLabel(
-                        controller.previewIsTranslation
-                            ? "Traduction provisoire"
-                            : "Transcription provisoire"
-                    )
-                    .accessibilityValue(preview)
-                }
             }
             Spacer(minLength: 0)
             if controller.state == .listening,
