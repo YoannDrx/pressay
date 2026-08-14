@@ -78,8 +78,8 @@ enum Constants {
     ]
     static let defaultTranscriptionLanguage = "fr"
     static let defaultActivationMode = ActivationMode.hold.rawValue
-    static let defaultTranscriptionModel = "gpt-4o-mini-transcribe"
-    static let defaultOpenAITranscriptionProfile = OpenAITranscriptionProfile.live.rawValue
+    static let defaultTranscriptionModel = "gpt-transcribe"
+    static let defaultOpenAITranscriptionProfile = OpenAITranscriptionProfile.transcribe.rawValue
     static let defaultProcessingModel = "gpt-5.6-luna"
     static let defaultTechnicalVocabulary = """
     API, SDK, GitHub, TypeScript, JavaScript, React, Node.js, Python, Claude, GPT, LLM, MCP, STT, TTS, Whisper, Pressay, OpenAI, Anthropic, Convex, Vercel, Next.js, SwiftUI, Xcode, iOS, macOS
@@ -163,64 +163,47 @@ enum TranscriptionModel: String, CaseIterable, Identifiable {
 }
 
 enum OpenAITranscriptionProfile: String, CaseIterable, Identifiable {
-    case live
-    case mini
+    case transcribe
 
     var id: String { rawValue }
 
     var label: String {
-        switch self {
-        case .mini: "Rapide — Mini"
-        case .live: "Direct — Live"
-        }
+        "GPT Transcribe"
     }
 
-    var shortLabel: String {
-        switch self {
-        case .mini: "Mini"
-        case .live: "Live"
-        }
-    }
+    var shortLabel: String { "Transcribe" }
 
     var detail: String {
-        switch self {
-        case .mini:
-            "Stable et économique · transcription après le relâchement."
-        case .live:
-            "Aperçu progressif · finalisation prioritaire au relâchement."
-        }
+        "Transcription finale après le relâchement · précise et fiable."
     }
 
-    var primaryModel: String {
-        switch self {
-        case .mini: "gpt-4o-mini-transcribe"
-        case .live: "gpt-live-transcribe"
-        }
-    }
+    var primaryModel: String { "gpt-transcribe" }
 
-    var batchFallbackModel: String { "gpt-4o-mini-transcribe" }
-    var usesRealtime: Bool { self == .live }
+    var usesRealtime: Bool { false }
 
     static func current(in defaults: UserDefaults = .standard) -> Self {
         if let value = defaults.string(
             forKey: Constants.openAITranscriptionProfileKey
-        ), let profile = Self(rawValue: value) {
-            return profile
+        ) {
+            if let profile = Self(rawValue: value) {
+                return profile
+            }
+            // 1.2.8 exposed Live and Mini. Both old values now migrate to the
+            // single recommended file-transcription path.
+            if value == "live" || value == "mini" {
+                defaults.set(
+                    Self.transcribe.rawValue,
+                    forKey: Constants.openAITranscriptionProfileKey
+                )
+                return .transcribe
+            }
         }
 
-        // One-version compatibility bridge for the model picker shipped
-        // before profiles. Only an explicitly stored legacy value is mapped;
-        // a fresh installation still starts with Direct — Live.
-        let legacy = defaults.object(
-            forKey: Constants.transcriptionModelKey
-        ) as? String
-        let migrated: Self = switch legacy {
-        case "fast", "gpt-4o-mini-transcribe": .mini
-        case "accurate", "gpt-4o-transcribe": .live
-        default: .live
-        }
-        defaults.set(migrated.rawValue, forKey: Constants.openAITranscriptionProfileKey)
-        return migrated
+        defaults.set(
+            Self.transcribe.rawValue,
+            forKey: Constants.openAITranscriptionProfileKey
+        )
+        return .transcribe
     }
 }
 

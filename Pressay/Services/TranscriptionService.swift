@@ -156,6 +156,9 @@ final class TranscriptionService: SpeechTranscribing {
         }
         self.apiKeyProvider = apiKeyProvider
         self.defaults = defaults
+        // Normalize the short-lived Live/Mini preference as soon as the
+        // service is created, rather than waiting for the user's next dictation.
+        _ = OpenAITranscriptionProfile.current(in: defaults)
     }
 
     private struct TranscriptionResponse: Decodable {
@@ -206,11 +209,11 @@ final class TranscriptionService: SpeechTranscribing {
         let language = defaults.string(forKey: Constants.transcriptionLanguageKey)
             ?? Constants.defaultTranscriptionLanguage
         let vocabulary = Self.selectedVocabulary(preferences: defaults)
-        // Batch transcription is deliberately always Mini. In Direct mode it
-        // is the bounded safety net; in Mini mode it is the selected path.
-        // This prevents an unnoticed switch to a more expensive model.
+        // Pressay deliberately uses one completed-file request after Fn is
+        // released. This avoids a Realtime socket, finalization handshake and
+        // fallback race for a UI that never exposes provisional live text.
         let model = OpenAITranscriptionProfile.current(in: defaults)
-            .batchFallbackModel
+            .primaryModel
         let prepared = try await Task.detached(priority: .userInitiated) {
             try Self.prepareRequest(
                 audioURL: audioURL,
@@ -758,6 +761,7 @@ final class TranscriptionService: SpeechTranscribing {
             audioURL: audioURL,
             model: model,
             language: language,
+            vocabulary: vocabulary,
             prompt: prompt
         )
 
@@ -790,10 +794,11 @@ final class TranscriptionService: SpeechTranscribing {
         }
     }
 
-    private static func makeBody(
+    static func makeBody(
         audioURL: URL,
         model: String,
         language: String,
+        vocabulary: String,
         prompt: String?
     ) throws -> (data: Data, boundary: String) {
         let boundary = UUID().uuidString
@@ -821,12 +826,30 @@ final class TranscriptionService: SpeechTranscribing {
                 value: "logprobs"
             )
         }
-        if !language.isEmpty {
+        if !language.isEmpty,
+           TranscriptionRequestPolicy.supportsMultipleLanguageHints(
+               model: model
+           ) {
+            data.appendMultipartField(
+                boundary: boundary,
+                name: "languages[]",
+                value: language
+            )
+        } else if !language.isEmpty {
             data.appendMultipartField(
                 boundary: boundary,
                 name: "language",
                 value: language
             )
+        }
+        if TranscriptionRequestPolicy.supportsKeywords(model: model) {
+            for keyword in sanitizedKeywords(from: vocabulary) {
+                data.appendMultipartField(
+                    boundary: boundary,
+                    name: "keywords[]",
+                    value: keyword
+                )
+            }
         }
         if let prompt {
             data.appendMultipartField(
@@ -1008,6 +1031,14 @@ enum TranscriptionRequestPolicy {
         model.hasPrefix("gpt-4o-")
             && model.contains("transcribe")
             && !model.contains("diarize")
+    }
+
+    static func supportsMultipleLanguageHints(model: String) -> Bool {
+        model == "gpt-transcribe"
+    }
+
+    static func supportsKeywords(model: String) -> Bool {
+        model == "gpt-transcribe"
     }
 }
 

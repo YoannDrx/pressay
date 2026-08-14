@@ -12,7 +12,6 @@ struct MenuBarView: View {
     @ObservedObject private var apiUsage = APIUsageLedger.shared
     @AppStorage(Constants.activationModeKey) private var activationMode = Constants.defaultActivationMode
     @AppStorage(Constants.transcriptionEngineKey) private var transcriptionEngine = TranscriptionEngine.openAI.rawValue
-    @AppStorage(Constants.openAITranscriptionProfileKey) private var openAIProfile = Constants.defaultOpenAITranscriptionProfile
     @State private var selectedTab = MenuBarTab.dictate
     private let onRequestClose: () -> Void
 
@@ -231,14 +230,18 @@ struct MenuBarView: View {
 
                 if transcriptionEngineValue == .openAI, !requiresAPIKey {
                     Divider().opacity(0.4)
-                    Picker("Transcription OpenAI", selection: $openAIProfile) {
-                        ForEach(OpenAITranscriptionProfile.allCases) { profile in
-                            Text(profile.shortLabel).tag(profile.rawValue)
-                        }
+                    HStack(spacing: 8) {
+                        Label(
+                            "GPT Transcribe",
+                            systemImage: "waveform.badge.magnifyingglass"
+                        )
+                        .font(.system(size: 10, weight: .semibold))
+                        Spacer()
+                        Text("Après Fn")
+                            .font(.system(size: 9.5))
+                            .foregroundStyle(.secondary)
                     }
-                    .pickerStyle(.segmented)
-                    .labelsHidden()
-                    Text(selectedOpenAIProfile.detail)
+                    Text(OpenAITranscriptionProfile.transcribe.detail)
                         .font(.system(size: 9.5))
                         .foregroundStyle(.secondary)
                         .fixedSize(horizontal: false, vertical: true)
@@ -277,17 +280,6 @@ struct MenuBarView: View {
                     }
                     .menuStyle(.borderlessButton)
                     .frame(maxWidth: .infinity)
-
-                    if selectedMode.id == NativeModeCatalog.translationID,
-                       selectedOpenAIProfile == .live,
-                       transcriptionEngineValue == .openAI {
-                        Label("Live", systemImage: "bolt.fill")
-                            .font(.system(size: 8.5, weight: .bold))
-                            .foregroundStyle(.purple)
-                            .padding(.horizontal, 7)
-                            .padding(.vertical, 4)
-                            .background(.purple.opacity(0.12), in: Capsule())
-                    }
 
                     Button {
                         onRequestClose()
@@ -741,6 +733,7 @@ struct MenuBarView: View {
 
     private func shortModelName(_ model: String) -> String {
         switch model {
+        case "gpt-transcribe": "GPT Transcribe"
         case "gpt-4o-mini-transcribe": "Mini"
         case "gpt-live-transcribe": "Live"
         case "gpt-realtime-translate": "Translate Live"
@@ -816,10 +809,6 @@ struct MenuBarView: View {
     private var selectedMode: ModeDefinition {
         modes.mode(withID: modes.selectedModeID)
             ?? NativeModeCatalog.visibleModes[0]
-    }
-
-    private var selectedOpenAIProfile: OpenAITranscriptionProfile {
-        OpenAITranscriptionProfile(rawValue: openAIProfile) ?? .live
     }
 
     private var transcriptionEngineValue: TranscriptionEngine {

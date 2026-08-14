@@ -73,10 +73,10 @@ bêta recevront aussi cette version stable.
 
 La stable `v1.2.7` (build `12106`) remplace Clerk par l’identité Pressay
 auto-hébergée, conserve Google, ajoute passkeys et TOTP, et sécurise la connexion
-macOS avec OAuth 2.1 + PKCE. Elle inclut aussi les améliorations réseau de 1.2.6 :
-transcription temps réel, repli batch sûr et relance sans réenregistrer. La matrice
-interapplications, le test Intel réel et sept jours sans P0/P1 restent des
-preuves QA à compléter après publication.
+macOS avec OAuth 2.1 + PKCE. La version en développement utilise une requête
+`gpt-transcribe` bornée après le relâchement de Fn, sans session Realtime. La
+matrice interapplications, le test Intel réel et sept jours sans P0/P1 restent
+des preuves QA à compléter avant la prochaine publication.
 
 ### Compiler depuis les sources
 
@@ -242,10 +242,10 @@ L'app a besoin de ces permissions pour fonctionner :
 Dans les réglages, choisis un seul moteur de transcription :
 
 1. **OpenAI** : colle une clé de projet `sk-…`. Pressay la valide avant de
-   l’enregistrer dans le Trousseau macOS. Après détection locale de la voix, des
-   blocs PCM 24 kHz alimentent `gpt-live-transcribe` pendant la dictée. Si le
-   canal temps réel ne finalise pas, le fichier local est envoyé à
-   `gpt-4o-mini-transcribe` comme repli batch.
+   l’enregistrer dans le Trousseau macOS. Après détection locale de la voix,
+   l’enregistrement est finalisé au relâchement de Fn puis envoyé une seule fois
+   à `gpt-transcribe`. Pressay n’ouvre aucune session Realtime et ne dépend donc
+   d’aucune finalisation WebSocket avant le collage.
 2. **WhisperKit local** : télécharge le modèle Small une seule fois. L’audio et
    la transcription restent ensuite sur le Mac, même hors ligne. Le modèle est
    préchargé à la sélection du moteur et pendant la capture si nécessaire.
@@ -265,9 +265,9 @@ gratuit mais occupe de l’espace disque.
 3. L’audio PCM 16 bits, mono, 24 kHz est analysé localement. Les blocs restent
    en mémoire jusqu’à ce que la détection locale confirme de la parole ; un
    silence pur n’est pas diffusé.
-4. Avec OpenAI, la transcription temps réel commence pendant la parole. Le WAV
-   temporaire sert de repli batch si la WebSocket échoue. WhisperKit reste un
-   chemin local séparé, sans fallback cloud.
+4. Avec OpenAI, le WAV temporaire est envoyé à `gpt-transcribe` dès le
+   relâchement de Fn. WhisperKit reste un chemin local séparé, sans fallback
+   cloud.
 5. Le mode résolu choisit entre restitution fidèle et transformation via la
    Responses API avec `store: false`.
 6. Une transformation de sélection attend un aperçu éditable.

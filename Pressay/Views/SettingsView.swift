@@ -20,8 +20,6 @@ struct SettingsView: View {
 
     @AppStorage(Constants.transcriptionLanguageKey)
     private var language = Constants.defaultTranscriptionLanguage
-    @AppStorage(Constants.openAITranscriptionProfileKey)
-    private var openAIProfile = Constants.defaultOpenAITranscriptionProfile
     @AppStorage(Constants.processingModelKey)
     private var processingModel = Constants.defaultProcessingModel
     @AppStorage(Constants.transcriptionEngineKey)
@@ -281,7 +279,7 @@ struct SettingsView: View {
                 VStack(alignment: .leading, spacing: 2) {
                     Text("OpenAI")
                         .font(.system(size: 12, weight: .semibold))
-                    Text("gpt-4o-mini-transcribe · rapide et fiable")
+                    Text("gpt-transcribe · précis et fiable")
                         .font(.system(size: 10))
                         .foregroundStyle(.secondary)
                 }
@@ -389,19 +387,22 @@ struct SettingsView: View {
                 }
                 Divider().opacity(0.45)
                 if transcriptionEngine == TranscriptionEngine.openAI.rawValue {
-                    settingPicker(
-                        title: "Transcription OpenAI",
-                        detail: "Live privilégie la latence ; Mini privilégie stabilité et coût.",
-                        selection: $openAIProfile
-                    ) {
-                        ForEach(OpenAITranscriptionProfile.allCases) { profile in
-                            Text(profile.label).tag(profile.rawValue)
+                    HStack {
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text("Transcription OpenAI")
+                                .font(.system(size: 12, weight: .medium))
+                            Text(
+                                "Un seul appel après le relâchement de Fn, sans session Live."
+                            )
+                            .font(.system(size: 10))
+                            .foregroundStyle(.secondary)
                         }
+                        Spacer()
+                        Text("GPT Transcribe")
+                            .font(.system(size: 11, weight: .semibold))
+                            .foregroundStyle(.blue)
                     }
-                    Text(
-                        (OpenAITranscriptionProfile(rawValue: openAIProfile) ?? .live)
-                            .detail
-                    )
+                    Text(OpenAITranscriptionProfile.transcribe.detail)
                     .font(.system(size: 9.5))
                     .foregroundStyle(.secondary)
                     Link(

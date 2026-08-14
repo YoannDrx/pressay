@@ -347,8 +347,12 @@ final class TranscriptionResponseValidatorTests: XCTestCase {
 }
 
 final class TranscriptionRequestPolicyTests: XCTestCase {
-    func testLiveIsTheFirstProfileShownInTheToggle() {
-        XCTAssertEqual(OpenAITranscriptionProfile.allCases, [.live, .mini])
+    func testGPTTranscribeIsTheOnlyOpenAIProfile() {
+        XCTAssertEqual(OpenAITranscriptionProfile.allCases, [.transcribe])
+        XCTAssertEqual(
+            OpenAITranscriptionProfile.transcribe.primaryModel,
+            "gpt-transcribe"
+        )
     }
 
     func testGPT4oMiniTranscribeSupportsLogProbabilities() {
@@ -367,78 +371,91 @@ final class TranscriptionRequestPolicyTests: XCTestCase {
         )
     }
 
-    func testFreshPreferenceUsesLiveProfile() throws {
+    func testGPTTranscribeDoesNotRequestLegacyLogProbabilities() {
+        XCTAssertFalse(
+            TranscriptionRequestPolicy.supportsLogProbabilities(
+                model: "gpt-transcribe"
+            )
+        )
+    }
+
+    func testFreshPreferenceUsesGPTTranscribeProfile() throws {
         let suite = "OpenAIProfile.fresh.\(UUID().uuidString)"
         let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
         defer { defaults.removePersistentDomain(forName: suite) }
 
-        XCTAssertEqual(OpenAITranscriptionProfile.current(in: defaults), .live)
+        XCTAssertEqual(
+            OpenAITranscriptionProfile.current(in: defaults),
+            .transcribe
+        )
         XCTAssertEqual(
             defaults.string(forKey: Constants.openAITranscriptionProfileKey),
-            OpenAITranscriptionProfile.live.rawValue
+            OpenAITranscriptionProfile.transcribe.rawValue
         )
     }
 
-    func testLegacyFastPreferenceMigratesToMini() throws {
-        let suite = "OpenAIProfile.fast.\(UUID().uuidString)"
+    func testLegacyLivePreferenceMigratesToGPTTranscribe() throws {
+        let suite = "OpenAIProfile.live.\(UUID().uuidString)"
         let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
         defer { defaults.removePersistentDomain(forName: suite) }
-        defaults.set("gpt-4o-mini-transcribe", forKey: Constants.transcriptionModelKey)
+        defaults.set("live", forKey: Constants.openAITranscriptionProfileKey)
 
-        XCTAssertEqual(OpenAITranscriptionProfile.current(in: defaults), .mini)
+        XCTAssertEqual(
+            OpenAITranscriptionProfile.current(in: defaults),
+            .transcribe
+        )
         XCTAssertEqual(
             defaults.string(forKey: Constants.openAITranscriptionProfileKey),
-            OpenAITranscriptionProfile.mini.rawValue
+            OpenAITranscriptionProfile.transcribe.rawValue
         )
     }
 
-    func testLegacyAccuratePreferenceMigratesToLive() throws {
-        let suite = "OpenAIProfile.accurate.\(UUID().uuidString)"
-        let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
-        defer { defaults.removePersistentDomain(forName: suite) }
-        defaults.set("gpt-4o-transcribe", forKey: Constants.transcriptionModelKey)
-
-        XCTAssertEqual(OpenAITranscriptionProfile.current(in: defaults), .live)
-    }
-
-    func testMiniProfileNeverEnablesRealtime() throws {
+    func testLegacyMiniPreferenceMigratesToGPTTranscribe() throws {
         let suite = "OpenAIProfile.mini.\(UUID().uuidString)"
         let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
         defer { defaults.removePersistentDomain(forName: suite) }
+        defaults.set("mini", forKey: Constants.openAITranscriptionProfileKey)
+
+        XCTAssertEqual(
+            OpenAITranscriptionProfile.current(in: defaults),
+            .transcribe
+        )
+    }
+
+    func testGPTTranscribeProfileNeverEnablesRealtime() throws {
+        let suite = "OpenAIProfile.transcribe.\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
         defaults.set(
-            OpenAITranscriptionProfile.mini.rawValue,
+            OpenAITranscriptionProfile.transcribe.rawValue,
             forKey: Constants.openAITranscriptionProfileKey
         )
 
         XCTAssertFalse(TranscriptionService(defaults: defaults).realtimeEnabled)
     }
 
-    func testRealtimePayloadUsesOnlyLiveCapabilities() throws {
-        let suite = "RealtimePayload.\(UUID().uuidString)"
-        let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
-        defer { defaults.removePersistentDomain(forName: suite) }
-        defaults.set("fr", forKey: Constants.transcriptionLanguageKey)
-        defaults.set("Pressay, API\nPressay, <interdit>", forKey: Constants.technicalVocabularyKey)
-
-        let service = TranscriptionService(defaults: defaults)
-        let data = Data(try service.realtimeSessionUpdate().utf8)
-        let root = try XCTUnwrap(
-            JSONSerialization.jsonObject(with: data) as? [String: Any]
+    func testGPTTranscribeMultipartUsesOnlySupportedHints() throws {
+        let body = try multipartBody(
+            model: "gpt-transcribe",
+            vocabulary: "Pressay, API\nPressay, <interdit>"
         )
-        let session = try XCTUnwrap(root["session"] as? [String: Any])
-        let audio = try XCTUnwrap(session["audio"] as? [String: Any])
-        let input = try XCTUnwrap(audio["input"] as? [String: Any])
-        let transcription = try XCTUnwrap(
-            input["transcription"] as? [String: Any]
-        )
+        XCTAssertTrue(body.contains("name=\"model\"\r\n\r\ngpt-transcribe"))
+        XCTAssertTrue(body.contains("name=\"languages[]\"\r\n\r\nfr"))
+        XCTAssertTrue(body.contains("name=\"keywords[]\"\r\n\r\nPressay"))
+        XCTAssertFalse(body.contains("name=\"language\""))
+        XCTAssertFalse(body.contains("name=\"include[]\""))
+        XCTAssertFalse(body.contains("<interdit>"))
+    }
 
-        XCTAssertEqual(transcription["model"] as? String, "gpt-live-transcribe")
-        XCTAssertEqual(transcription["delay"] as? String, "minimal")
-        XCTAssertEqual(transcription["languages"] as? [String], ["fr"])
-        XCTAssertNil(transcription["language"])
-        XCTAssertFalse((transcription["keywords"] as? [String] ?? []).contains {
-            $0.contains("<") || $0.contains("\n")
-        })
+    func testMiniMultipartKeepsLegacySingularLanguageAndLogProbabilities() throws {
+        let body = try multipartBody(
+            model: "gpt-4o-mini-transcribe",
+            vocabulary: "Pressay"
+        )
+        XCTAssertTrue(body.contains("name=\"language\"\r\n\r\nfr"))
+        XCTAssertTrue(body.contains("name=\"include[]\"\r\n\r\nlogprobs"))
+        XCTAssertFalse(body.contains("name=\"languages[]\""))
+        XCTAssertFalse(body.contains("name=\"keywords[]\""))
     }
 
     func testTranslationPayloadDoesNotMixTranscriptionFields() throws {
@@ -455,6 +472,24 @@ final class TranscriptionRequestPolicyTests: XCTestCase {
 
         XCTAssertEqual(output["language"] as? String, "en")
         XCTAssertNil(audio["input"])
+    }
+
+    private func multipartBody(
+        model: String,
+        vocabulary: String
+    ) throws -> String {
+        let audioURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("pressay-request-\(UUID().uuidString).wav")
+        try Data("test-audio".utf8).write(to: audioURL)
+        defer { try? FileManager.default.removeItem(at: audioURL) }
+        let body = try TranscriptionService.makeBody(
+            audioURL: audioURL,
+            model: model,
+            language: "fr",
+            vocabulary: vocabulary,
+            prompt: "Contexte de test"
+        )
+        return String(decoding: body.data, as: UTF8.self)
     }
 
 }
@@ -481,15 +516,17 @@ final class OpenAICostEstimatorTests: XCTestCase {
     }
 }
 
-final class OpenAILiveSmokeTests: XCTestCase {
-    func testBatchRealtimeAndResponsesAgainstOpenAI() async throws {
+final class OpenAISmokeTests: XCTestCase {
+    func testGPTTranscribeAndResponsesAgainstOpenAI() async throws {
         let environment = ProcessInfo.processInfo.environment
         let defaultAudioPath = "/private/tmp/pressay-openai-smoke.wav"
         let audioPath = environment["PRESSAY_LIVE_AUDIO_PATH"] ?? defaultAudioPath
+#if !OPENAI_SMOKE
         try XCTSkipUnless(
-            environment["PRESSAY_RUN_LIVE_OPENAI_TESTS"] == "1",
+            environment["PRESSAY_RUN_OPENAI_TESTS"] == "1",
             "Test OpenAI réel désactivé"
         )
+#endif
         let audioURL = URL(fileURLWithPath: audioPath)
         XCTAssertTrue(FileManager.default.fileExists(atPath: audioURL.path))
 
@@ -511,29 +548,6 @@ final class OpenAILiveSmokeTests: XCTestCase {
         let batch = try await transcriber.transcribe(audioURL: audioURL)
         XCTAssertTrue(Self.looksLikeSmokeTranscript(batch.text), batch.text)
         XCTAssertNotNil(batch.networkMetrics)
-
-        let realtimePCM = try Self.pcmPayload(fromWAV: audioURL)
-        do {
-            try await transcriber.startRealtimeTranscription()
-        } catch {
-            XCTFail("Démarrage Realtime: \(error)")
-            throw error
-        }
-        for chunkStart in stride(from: 0, to: realtimePCM.count, by: 4_800) {
-            let chunkEnd = min(chunkStart + 4_800, realtimePCM.count)
-            transcriber.appendRealtimeAudio(
-                realtimePCM.subdata(in: chunkStart..<chunkEnd)
-            )
-            try await Task.sleep(for: .milliseconds(100))
-        }
-        let realtime: TranscriptionResult
-        do {
-            realtime = try await transcriber.finishRealtimeTranscription()
-        } catch {
-            XCTFail("Finalisation Realtime: \(error)")
-            throw error
-        }
-        XCTAssertTrue(Self.looksLikeSmokeTranscript(realtime.text), realtime.text)
 
         let processor = OpenAITextProcessingService(defaults: defaults)
         let cleanMode = try XCTUnwrap(
@@ -559,35 +573,6 @@ final class OpenAILiveSmokeTests: XCTestCase {
     private static func looksLikeSmokeTranscript(_ text: String) -> Bool {
         let normalized = TranscriptionResponseValidator.normalized(text)
         return normalized.contains("bonjour") && normalized.contains("test")
-    }
-
-    private static func pcmPayload(fromWAV url: URL) throws -> Data {
-        let wav = try Data(contentsOf: url)
-        guard wav.count >= 12,
-              String(decoding: wav[0..<4], as: UTF8.self) == "RIFF",
-              String(decoding: wav[8..<12], as: UTF8.self) == "WAVE" else {
-            throw LiveSmokeError.invalidWAV
-        }
-
-        var offset = 12
-        while offset + 8 <= wav.count {
-            let name = String(decoding: wav[offset..<(offset + 4)], as: UTF8.self)
-            let sizeRange = (offset + 4)..<(offset + 8)
-            let size = wav[sizeRange].enumerated().reduce(0) { partial, item in
-                partial | (Int(item.element) << (item.offset * 8))
-            }
-            let payloadStart = offset + 8
-            let payloadEnd = payloadStart + size
-            guard payloadEnd <= wav.count else { throw LiveSmokeError.invalidWAV }
-            if name == "data" { return wav.subdata(in: payloadStart..<payloadEnd) }
-            offset = payloadEnd + (size % 2)
-        }
-        throw LiveSmokeError.missingPCMPayload
-    }
-
-    private enum LiveSmokeError: Error {
-        case invalidWAV
-        case missingPCMPayload
     }
 }
 
