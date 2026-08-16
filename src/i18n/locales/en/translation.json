@@ -10,6 +10,7 @@
     "secureInputWarning": "⚠ Shortcuts blocked by Secure Input"
   },
   "sidebar": {
+    "home": "Home",
     "general": "General",
     "models": "Models",
     "advanced": "Advanced",

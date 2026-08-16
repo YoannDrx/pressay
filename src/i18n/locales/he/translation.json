@@ -10,6 +10,7 @@
     "secureInputWarning": "⚠ קיצורי המקשים חסומים על ידי Secure Input"
   },
   "sidebar": {
+    "home": "Home",
     "general": "כללי",
     "models": "מודלים",
     "advanced": "מתקדם",

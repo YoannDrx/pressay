@@ -10,6 +10,7 @@
     "secureInputWarning": "⚠ Tastenkürzel durch Secure Input blockiert"
   },
   "sidebar": {
+    "home": "Home",
     "general": "Allgemein",
     "models": "Modelle",
     "advanced": "Erweitert",

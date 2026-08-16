@@ -37,8 +37,7 @@ function App() {
   // Track if this is a returning user who just needs to grant permissions
   // (vs a new user who needs full onboarding including model selection)
   const [isReturningUser, setIsReturningUser] = useState(false);
-  const [currentSection, setCurrentSection] =
-    useState<SidebarSection>("general");
+  const [currentSection, setCurrentSection] = useState<SidebarSection>("home");
   const { settings, updateSetting } = useSettings();
   const direction = getLanguageDirection(i18n.language);
   const refreshAudioDevices = useSettingsStore(
@@ -333,29 +332,26 @@ function App() {
     content = <Onboarding onModelSelected={handleModelSelected} />;
   } else {
     content = (
-      <div
-        dir={direction}
-        className="h-screen flex flex-col select-none cursor-default"
-      >
+      <div dir={direction} className="product-shell select-none cursor-default">
         <ErrorBoundary context="What's New">
           <WhatsNewGate />
         </ErrorBoundary>
         {/* Main content area that takes remaining space */}
-        <div className="flex-1 flex overflow-hidden">
+        <div className="product-shell-main">
           <Sidebar
             activeSection={currentSection}
             onSectionChange={setCurrentSection}
           />
           {/* Scrollable content area */}
-          <div className="flex-1 flex flex-col overflow-hidden">
-            <div className="flex-1 overflow-y-auto">
-              <div className="flex flex-col items-center p-4 gap-4">
+          <main className="product-content">
+            <div className="product-scroll-region">
+              <div className="product-content-inner">
                 <AccessibilityPermissions />
                 <SecureInputWarning />
                 {renderSettingsContent(currentSection)}
               </div>
             </div>
-          </div>
+          </main>
         </div>
         {/* Fixed footer at bottom */}
         <Footer />

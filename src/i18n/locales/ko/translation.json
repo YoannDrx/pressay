@@ -10,6 +10,7 @@
     "secureInputWarning": "⚠ Secure Input으로 단축키가 차단됨"
   },
   "sidebar": {
+    "home": "Home",
     "general": "일반",
     "models": "모델",
     "advanced": "고급",

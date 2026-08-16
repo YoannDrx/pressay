@@ -1,5 +1,6 @@
 import i18n from "i18next";
 import { initReactI18next } from "react-i18next";
+import { isTauri } from "@tauri-apps/api/core";
 import { locale } from "@tauri-apps/plugin-os";
 import { LANGUAGE_METADATA } from "./languages";
 import { commands } from "@/bindings";
@@ -122,7 +123,9 @@ export const syncLanguageFromSettings = async () => {
 };
 
 // Run language sync on init
-syncLanguageFromSettings();
+if (isTauri()) {
+  syncLanguageFromSettings();
+}
 
 // Listen for language changes to update HTML dir and lang attributes
 i18n.on("languageChanged", (lng) => {

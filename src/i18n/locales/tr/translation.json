@@ -10,6 +10,7 @@
     "secureInputWarning": "⚠ Kısayollar Secure Input tarafından engelleniyor"
   },
   "sidebar": {
+    "home": "Home",
     "general": "Genel",
     "models": "Modeller",
     "advanced": "Gelişmiş",

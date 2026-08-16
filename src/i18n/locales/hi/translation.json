@@ -10,6 +10,7 @@
     "secureInputWarning": "⚠ Secure Input ने शॉर्टकट ब्लॉक किए हैं"
   },
   "sidebar": {
+    "home": "Home",
     "general": "सामान्य",
     "models": "मॉडल",
     "advanced": "ऐडवांस",

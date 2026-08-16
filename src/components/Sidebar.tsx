@@ -1,6 +1,14 @@
 import React from "react";
 import { useTranslation } from "react-i18next";
-import { Cog, FlaskConical, History, Info, Sparkles, Cpu } from "lucide-react";
+import {
+  Cog,
+  FlaskConical,
+  History,
+  House,
+  Info,
+  Sparkles,
+  Cpu,
+} from "lucide-react";
 import PressayWordmark from "./icons/PressayWordmark";
 import PressayMark from "./icons/PressayMark";
 import { useSettings } from "../hooks/useSettings";
@@ -13,6 +21,7 @@ import {
   PostProcessingSettings,
   ModelsSettings,
 } from "./settings";
+import { HomeDashboard } from "./dashboard/HomeDashboard";
 
 export type SidebarSection = keyof typeof SECTIONS_CONFIG;
 
@@ -32,6 +41,12 @@ interface SectionConfig {
 }
 
 export const SECTIONS_CONFIG = {
+  home: {
+    labelKey: "sidebar.home",
+    icon: House,
+    component: HomeDashboard,
+    enabled: () => true,
+  },
   general: {
     labelKey: "sidebar.general",
     icon: PressayMark,
@@ -42,7 +57,7 @@ export const SECTIONS_CONFIG = {
     labelKey: "sidebar.history",
     icon: History,
     component: HistorySettings,
-    enabled: () => true,
+    enabled: (settings) => settings?.history_enabled ?? false,
   },
   models: {
     labelKey: "sidebar.models",
@@ -94,34 +109,32 @@ export const Sidebar: React.FC<SidebarProps> = ({
     .map(([id, config]) => ({ id: id as SidebarSection, ...config }));
 
   return (
-    <div className="flex flex-col w-40 h-full border-e border-mid-gray/20 items-center px-2">
-      <PressayWordmark width={120} className="m-4" />
-      <div className="flex flex-col w-full items-center gap-1 pt-2 border-t border-mid-gray/20">
+    <aside className="product-sidebar">
+      <div className="sidebar-brand">
+        <PressayWordmark width={118} />
+        <span className="beta-label">BETA</span>
+      </div>
+      <nav className="sidebar-navigation" aria-label="Primary">
         {availableSections.map((section) => {
           const Icon = section.icon;
           const isActive = activeSection === section.id;
 
           return (
-            <div
+            <button
+              type="button"
               key={section.id}
-              className={`flex gap-2 items-center p-2 w-full rounded-lg cursor-pointer transition-colors ${
-                isActive
-                  ? "bg-logo-primary/80"
-                  : "hover:bg-mid-gray/20 hover:opacity-100 opacity-85"
-              }`}
+              className={`sidebar-item ${isActive ? "is-active" : ""}`}
               onClick={() => onSectionChange(section.id)}
+              aria-current={isActive ? "page" : undefined}
             >
-              <Icon width={24} height={24} className="shrink-0" />
-              <p
-                className="text-sm font-medium truncate"
-                title={t(section.labelKey)}
-              >
+              <Icon width={18} height={18} className="shrink-0" />
+              <span className="truncate" title={t(section.labelKey)}>
                 {t(section.labelKey)}
-              </p>
-            </div>
+              </span>
+            </button>
           );
         })}
-      </div>
-    </div>
+      </nav>
+    </aside>
   );
 };

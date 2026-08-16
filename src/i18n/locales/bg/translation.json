@@ -10,6 +10,7 @@
     "secureInputWarning": "⚠ Бързите клавиши са блокирани от Secure Input"
   },
   "sidebar": {
+    "home": "Home",
     "general": "Общи",
     "models": "Модели",
     "advanced": "Разширени",

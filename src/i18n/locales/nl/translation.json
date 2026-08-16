@@ -10,6 +10,7 @@
     "secureInputWarning": "⚠ Sneltoetsen geblokkeerd door Secure Input"
   },
   "sidebar": {
+    "home": "Home",
     "general": "Algemeen",
     "models": "Modellen",
     "advanced": "Geavanceerd",

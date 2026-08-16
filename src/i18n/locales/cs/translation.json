@@ -10,6 +10,7 @@
     "secureInputWarning": "⚠ Zkratky blokuje Secure Input"
   },
   "sidebar": {
+    "home": "Home",
     "general": "Obecné",
     "models": "Modely",
     "advanced": "Pokročilé",

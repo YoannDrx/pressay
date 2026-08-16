@@ -10,6 +10,7 @@
     "secureInputWarning": "⚠ Secure Input でショートカットがブロック中"
   },
   "sidebar": {
+    "home": "Home",
     "general": "一般",
     "models": "モデル",
     "advanced": "詳細設定",

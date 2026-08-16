@@ -10,6 +10,7 @@
     "secureInputWarning": "⚠ Комбінації клавіш заблоковано Secure Input"
   },
   "sidebar": {
+    "home": "Home",
     "general": "Загальні",
     "models": "Моделі",
     "advanced": "Розширені",

@@ -10,6 +10,7 @@
     "secureInputWarning": "⚠ Scorciatoie bloccate da Secure Input"
   },
   "sidebar": {
+    "home": "Home",
     "general": "Generale",
     "models": "Modelli",
     "advanced": "Avanzate",

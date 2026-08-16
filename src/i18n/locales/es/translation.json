@@ -10,6 +10,7 @@
     "secureInputWarning": "⚠ Atajos bloqueados por Secure Input"
   },
   "sidebar": {
+    "home": "Home",
     "general": "General",
     "models": "Modelos",
     "advanced": "Avanzado",

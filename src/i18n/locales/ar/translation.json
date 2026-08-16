@@ -10,6 +10,7 @@
     "secureInputWarning": "⚠ الاختصارات محجوبة بواسطة Secure Input"
   },
   "sidebar": {
+    "home": "Home",
     "general": "عام",
     "advanced": "متقدم",
     "postProcessing": "معالجة لاحقة",

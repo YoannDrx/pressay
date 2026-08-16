@@ -26,10 +26,13 @@
   --color-background-ui: #121419;
   --color-text-stroke: #f3f4f6;
   --color-mid-gray: #9298a3;
+  --color-muted: #9298a3;
+  --color-accent: #5668ff;
   --color-surface: #ffffff;
   --color-surface-raised: #ffffff;
   --color-border: #d9dbe1;
   --color-success: #16865c;
+  --color-focus-ring: #5668ff;
 
   /* Active palette — defaults to light, follows the OS via the media query
      below, or is forced by `data-theme` (see the overrides below). */

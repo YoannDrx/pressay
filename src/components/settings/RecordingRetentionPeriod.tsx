@@ -18,19 +18,19 @@ export const RecordingRetentionPeriodSelector: React.FC<RecordingRetentionPeriod
 
     const options = [
       {
-        value: "hours24",
+        value: "hours_24",
         label: t("settings.historyPolicy.hours24", {
           defaultValue: "After 24 hours",
         }),
       },
       {
-        value: "days7",
+        value: "days_7",
         label: t("settings.historyPolicy.days7", {
           defaultValue: "After 7 days",
         }),
       },
       {
-        value: "days30",
+        value: "days_30",
         label: t("settings.historyPolicy.days30", {
           defaultValue: "After 30 days",
         }),

@@ -10,6 +10,7 @@
     "secureInputWarning": "⚠ Genveje blokeret af Secure Input"
   },
   "sidebar": {
+    "home": "Home",
     "general": "Generelt",
     "models": "Modeller",
     "advanced": "Avanceret",
