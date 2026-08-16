@@ -4,17 +4,32 @@ on: pull_request
 
 jobs:
   build-test:
+    runs-on: macos-26
     permissions:
       contents: read
-    uses: ./.github/workflows/build.yml
-    with:
-      platform: "macos-26"
-      target: "aarch64-apple-darwin"
-      build-args: "--target aarch64-apple-darwin --bundles app"
-      sign-binaries: false
-      asset-prefix: "pressay-pr-${{ github.event.pull_request.number }}"
-      upload-artifacts: true
-      ref: ${{ github.event.pull_request.head.sha }}
+    steps:
+      - uses: actions/checkout@v5
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version-file: ".bun-version"
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-apple-darwin
+      - uses: swatinem/rust-cache@v2
+        with:
+          workspaces: "./src-tauri -> target"
+          key: pressay-pr-arm64
+      - run: bun install --frozen-lockfile
+      - name: Build unsigned Apple Silicon app
+        run: >-
+          bun tauri build
+          --target aarch64-apple-darwin
+          --bundles app
+      - uses: actions/upload-artifact@v7
+        with:
+          name: pressay-pr-${{ github.event.pull_request.number }}-arm64
+          path: src-tauri/target/aarch64-apple-darwin/release/bundle/macos/Pressay.app
+          retention-days: 14
 
   comment-on-pr:
     needs: build-test

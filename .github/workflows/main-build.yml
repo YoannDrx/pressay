@@ -10,13 +10,26 @@ concurrency:
 
 jobs:
   build:
+    runs-on: macos-26
     permissions:
       contents: read
-    uses: ./.github/workflows/build.yml
-    with:
-      platform: "macos-26"
-      target: "aarch64-apple-darwin"
-      build-args: "--target aarch64-apple-darwin --bundles app"
-      upload-artifacts: true
-      sign-binaries: false
-      asset-prefix: "pressay-main"
+    steps:
+      - uses: actions/checkout@v5
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version-file: ".bun-version"
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-apple-darwin
+      - uses: swatinem/rust-cache@v2
+        with:
+          workspaces: "./src-tauri -> target"
+          key: pressay-main-arm64
+      - run: bun install --frozen-lockfile
+      - name: Build unsigned Apple Silicon app
+        run: bun tauri build --target aarch64-apple-darwin --bundles app
+      - uses: actions/upload-artifact@v7
+        with:
+          name: pressay-main-arm64
+          path: src-tauri/target/aarch64-apple-darwin/release/bundle/macos/Pressay.app
+          retention-days: 14
