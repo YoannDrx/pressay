@@ -1,7 +1,9 @@
 #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
 use crate::apple_intelligence;
 use crate::audio_feedback::{play_feedback_sound, play_feedback_sound_blocking, SoundType};
-use crate::audio_toolkit::{is_microphone_access_denied, is_no_input_device_error, VadPolicy};
+use crate::audio_toolkit::{
+    is_effectively_silent, is_microphone_access_denied, is_no_input_device_error, VadPolicy,
+};
 use crate::managers::audio::AudioRecordingManager;
 use crate::managers::history::HistoryManager;
 use crate::managers::model::ModelManager;
@@ -36,6 +38,19 @@ const TRANSCRIPTION_SAMPLE_RATE: u64 = 16_000;
 struct RecordingErrorEvent {
     error_type: String,
     detail: Option<String>,
+}
+
+fn emit_silent_input_warning(app: &AppHandle) {
+    warn!("Captured input stayed below -60 dBFS peak; skipping transcription");
+    if let Err(error) = app.emit(
+        "recording-error",
+        RecordingErrorEvent {
+            error_type: "silent_input".to_string(),
+            detail: None,
+        },
+    ) {
+        warn!("Failed to emit silent-input warning: {error}");
+    }
 }
 
 #[derive(Clone, serde::Serialize)]
@@ -763,13 +778,14 @@ impl ShortcutAction for TranscribeAction {
                     return;
                 }
 
-                if samples.is_empty() {
-                    debug!("Recording produced no audio samples; skipping persistence");
+                if is_effectively_silent(&samples) {
+                    emit_silent_input_warning(&ah);
+                    debug!("Recording produced no usable audio; skipping persistence");
                     if let Some(coordinator) = ah.try_state::<TranscriptionCoordinator>() {
                         coordinator.fail(
                             operation_id,
                             PipelinePhase::Transcribing,
-                            "empty_audio",
+                            "silent_input",
                             true,
                         );
                     }

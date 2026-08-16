@@ -6,9 +6,10 @@ pub mod utils;
 pub mod vad;
 
 pub use audio::{
-    encode_wav_samples, is_microphone_access_denied, is_no_input_device_error, list_input_devices,
-    list_output_devices, read_wav_samples, read_wav_samples_from_bytes, save_wav_file,
-    verify_wav_file, AudioRecorder, CpalDeviceInfo, VadPolicy,
+    encode_wav_samples, is_effectively_silent, is_microphone_access_denied,
+    is_no_input_device_error, list_input_devices, list_output_devices, read_wav_samples,
+    read_wav_samples_from_bytes, save_wav_file, verify_wav_file, AudioRecorder, CpalDeviceInfo,
+    VadPolicy,
 };
 pub use lang_id::detect_output_language;
 pub use text::{

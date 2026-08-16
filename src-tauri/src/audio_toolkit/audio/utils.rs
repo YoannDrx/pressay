@@ -4,6 +4,17 @@ use log::debug;
 use std::io::Cursor;
 use std::path::Path;
 
+/// Peak amplitude at or below which normalized input is treated as silent
+/// (-60 dBFS). Peak level keeps the check conservative: any usable excursion
+/// above this threshold still reaches the transcription engine.
+const SILENT_INPUT_PEAK: f32 = 0.001;
+
+pub fn is_effectively_silent(samples: &[f32]) -> bool {
+    samples
+        .iter()
+        .all(|sample| sample.abs() <= SILENT_INPUT_PEAK)
+}
+
 fn wav_spec() -> WavSpec {
     WavSpec {
         channels: 1,
@@ -90,5 +101,21 @@ mod tests {
         for (actual, expected) in decoded.iter().zip(samples) {
             assert!((actual - expected).abs() < 0.0001);
         }
+    }
+
+    #[test]
+    fn empty_and_near_zero_input_are_silent() {
+        assert!(is_effectively_silent(&[]));
+        assert!(is_effectively_silent(&[
+            0.0,
+            SILENT_INPUT_PEAK / 2.0,
+            -SILENT_INPUT_PEAK,
+        ]));
+    }
+
+    #[test]
+    fn quiet_but_usable_input_is_not_silent() {
+        assert!(!is_effectively_silent(&[0.0, SILENT_INPUT_PEAK * 1.1,]));
+        assert!(!is_effectively_silent(&[0.0, -0.1, 0.25]));
     }
 }

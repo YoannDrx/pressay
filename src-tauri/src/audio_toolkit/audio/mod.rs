@@ -11,7 +11,7 @@ pub use recorder::{
 };
 pub use resampler::FrameResampler;
 pub use utils::{
-    encode_wav_samples, read_wav_samples, read_wav_samples_from_bytes, save_wav_file,
-    verify_wav_file,
+    encode_wav_samples, is_effectively_silent, read_wav_samples, read_wav_samples_from_bytes,
+    save_wav_file, verify_wav_file,
 };
 pub use visualizer::AudioVisualiser;

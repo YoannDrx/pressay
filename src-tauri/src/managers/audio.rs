@@ -7,18 +7,25 @@ use crate::audio_toolkit::{
     AudioRecorder, SileroVad, VadPolicy,
 };
 use crate::helpers::clamshell;
+use crate::managers::audio_device_refresh::should_reopen_default_microphone;
 use crate::managers::transcription::StreamRouter;
-use crate::settings::{get_settings, AppSettings};
+use crate::settings::{get_settings, write_settings, AppSettings};
 use crate::utils;
+use cpal::traits::{DeviceTrait, HostTrait};
 use log::{debug, error, info, trace, warn};
 use std::path::Path;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{mpsc, Arc, Mutex};
 use std::time::{Duration, Instant};
-use tauri::Manager;
+use tauri::{Emitter, Manager};
 
 const STREAM_IDLE_TIMEOUT: Duration = Duration::from_secs(30);
 const VAD_THRESHOLD: f32 = 0.3;
+
+struct DeviceResolution {
+    device: Option<cpal::Device>,
+    explicit_device_missing: bool,
+}
 
 fn set_mute(mute: bool) {
     // Expected behavior:
@@ -421,12 +428,15 @@ impl AudioRecordingManager {
         *self.cached_device.lock().unwrap() = None;
     }
 
-    fn get_effective_microphone_device(&self, settings: &AppSettings) -> Option<cpal::Device> {
+    fn get_effective_microphone_device(&self, settings: &AppSettings) -> DeviceResolution {
         let device_name = match self.desired_device_name(settings) {
             Some(name) => name,
             None => {
                 debug!("device resolve: no mic configured -> system default");
-                return None;
+                return DeviceResolution {
+                    device: None,
+                    explicit_device_missing: false,
+                };
             }
         };
 
@@ -435,20 +445,26 @@ impl AudioRecordingManager {
         if let Some((cached_name, device)) = self.cached_device.lock().unwrap().as_ref() {
             if *cached_name == device_name {
                 debug!("device resolve: cache hit for '{}'", device_name);
-                return Some(device.clone());
+                return DeviceResolution {
+                    device: Some(device.clone()),
+                    explicit_device_missing: false,
+                };
             }
         }
 
         // Find the device by name
         let enumerate_started = Instant::now();
-        let device = match list_input_devices() {
-            Ok(devices) => devices
-                .into_iter()
-                .find(|d| d.name == device_name)
-                .map(|d| d.device),
+        let (device, enumeration_succeeded) = match list_input_devices() {
+            Ok(devices) => (
+                devices
+                    .into_iter()
+                    .find(|d| d.name == device_name)
+                    .map(|d| d.device),
+                true,
+            ),
             Err(e) => {
                 debug!("Failed to list devices, using default: {}", e);
-                None
+                (None, false)
             }
         };
         debug!(
@@ -459,7 +475,63 @@ impl AudioRecordingManager {
         if let Some(d) = &device {
             *self.cached_device.lock().unwrap() = Some((device_name, d.clone()));
         }
-        device
+        DeviceResolution {
+            explicit_device_missing: enumeration_succeeded && device.is_none(),
+            device,
+        }
+    }
+
+    fn fall_back_from_missing_selected_device(
+        &self,
+        settings: &mut AppSettings,
+        explicit_device_missing: bool,
+    ) {
+        if !explicit_device_missing {
+            return;
+        }
+        let Some(selected) = settings.selected_microphone.clone() else {
+            return;
+        };
+        if self.desired_device_name(settings).as_deref() != Some(selected.as_str()) {
+            return;
+        }
+
+        warn!("Selected microphone is unavailable; falling back to the system default");
+        settings.selected_microphone = None;
+        write_settings(&self.app_handle, settings.clone());
+        let _ = self.app_handle.emit(
+            "settings-changed",
+            serde_json::json!({
+                "setting": "selected_microphone",
+                "value": "default"
+            }),
+        );
+    }
+
+    /// Checks whether an open stream that follows the system default is still
+    /// attached to the device the OS currently reports as default.
+    fn default_stream_device_changed(&self) -> bool {
+        let settings = get_settings(&self.app_handle);
+        if settings.selected_microphone.is_some() || settings.clamshell_microphone.is_some() {
+            return false;
+        }
+        let active_device_name = self
+            .recorder
+            .lock()
+            .unwrap()
+            .as_ref()
+            .and_then(AudioRecorder::active_device_name);
+        let current_default_name = crate::audio_toolkit::get_cpal_host()
+            .default_input_device()
+            .and_then(|device| device.name().ok());
+
+        should_reopen_default_microphone(
+            true,
+            true,
+            None,
+            active_device_name.as_deref(),
+            current_default_name.as_deref(),
+        )
     }
 
     fn schedule_lazy_close(&self) {
@@ -559,14 +631,15 @@ impl AudioRecordingManager {
             // the caller a dead recorder: it captures nothing, then fails in
             // stop() on the closed channel, and stays wedged until the
             // on-demand close timeout eventually resets the manager.
-            let worker_dead = self
+            let needs_reopen = self
                 .recorder
                 .lock()
                 .unwrap()
                 .as_ref()
-                .is_some_and(|rec| rec.is_capture_worker_dead());
+                .is_some_and(AudioRecorder::needs_reopen);
+            let default_device_changed = !needs_reopen && self.default_stream_device_changed();
 
-            if !worker_dead {
+            if !needs_reopen && !default_device_changed {
                 // trace, not debug: with the aliveness check in
                 // try_start_recording this now fires on every keypress in
                 // always-on mode.
@@ -574,7 +647,11 @@ impl AudioRecordingManager {
                 return Ok(());
             }
 
-            warn!("Microphone stream is no longer running (device disconnected?); reopening");
+            if needs_reopen {
+                warn!("Microphone stream is no longer running (device disconnected?); reopening");
+            } else {
+                info!("System default microphone changed; reopening stream before recording");
+            }
 
             // Torn down inline rather than via stop_microphone_stream(), which
             // takes the `is_open` lock we are already holding.
@@ -586,12 +663,11 @@ impl AudioRecordingManager {
                 }
             }
             if let Some(rec) = self.recorder.lock().unwrap().as_mut() {
-                // Skipping rec.stop() here: the worker is gone, so the command
-                // would only fail on the closed channel.
                 let _ = rec.close();
             }
             *self.is_recording.lock().unwrap() = false;
             *open_flag = false;
+            self.invalidate_device_cache();
             // Fall through and open a fresh stream.
         }
 
@@ -614,9 +690,13 @@ impl AudioRecordingManager {
         // recorder resolves the system default itself, and a machine with no
         // input devices at all fails inside open() with the same
         // "No input device found" error this used to check for.
-        let settings = get_settings(&self.app_handle);
+        let mut settings = get_settings(&self.app_handle);
         let resolve_started = Instant::now();
         let selected_device = self.get_effective_microphone_device(&settings);
+        self.fall_back_from_missing_selected_device(
+            &mut settings,
+            selected_device.explicit_device_missing,
+        );
         let resolve_elapsed = resolve_started.elapsed();
 
         // Ensure VAD is loaded if it wasn't for whatever reason
@@ -627,14 +707,18 @@ impl AudioRecordingManager {
         let open_started = Instant::now();
         let mut recorder_opt = self.recorder.lock().unwrap();
         if let Some(rec) = recorder_opt.as_mut() {
-            if let Err(first_err) = rec.open(selected_device.clone()) {
+            if let Err(first_err) = rec.open(selected_device.device.clone()) {
                 // A cached device or config may have gone stale (unplugged,
                 // rate/format changed). Re-resolve from a fresh enumeration and
                 // retry once before surfacing the error.
                 warn!("Recorder open failed ({first_err}); re-resolving device and retrying once");
                 self.invalidate_device_cache();
                 let fresh_device = self.get_effective_microphone_device(&settings);
-                rec.open(fresh_device)
+                self.fall_back_from_missing_selected_device(
+                    &mut settings,
+                    fresh_device.explicit_device_missing,
+                );
+                rec.open(fresh_device.device)
                     .map_err(|e| anyhow::anyhow!("Failed to open recorder: {}", e))?;
             }
         }
@@ -783,6 +867,45 @@ impl AudioRecordingManager {
             self.start_microphone_stream()?;
         }
         Ok(())
+    }
+
+    /// Reconciles an open system-default stream with the default device found
+    /// by a UI refresh. Always-on capture otherwise stays attached to the
+    /// device that was default when the stream first opened.
+    pub fn refresh_default_device_if_changed(
+        &self,
+        current_default_name: Option<&str>,
+    ) -> Result<bool, anyhow::Error> {
+        let state = self.state.lock().unwrap();
+        let recording_is_idle = matches!(*state, RecordingState::Idle);
+        let settings = get_settings(&self.app_handle);
+        let desired_device_name = self.desired_device_name(&settings);
+        let stream_is_open = *self.is_open.lock().unwrap();
+        let active_device_name = self
+            .recorder
+            .lock()
+            .unwrap()
+            .as_ref()
+            .and_then(AudioRecorder::active_device_name);
+
+        if !should_reopen_default_microphone(
+            stream_is_open,
+            recording_is_idle,
+            desired_device_name.as_deref(),
+            active_device_name.as_deref(),
+            current_default_name,
+        ) {
+            return Ok(false);
+        }
+
+        info!(
+            "System default microphone changed from {:?} to {:?}; reopening stream",
+            active_device_name, current_default_name
+        );
+        self.close_generation.fetch_add(1, Ordering::SeqCst);
+        self.stop_microphone_stream();
+        self.start_microphone_stream()?;
+        Ok(true)
     }
 
     pub fn update_selected_channel(

@@ -117,6 +117,16 @@ function App() {
         toast.error(t("errors.noInputDeviceTitle"), {
           description: t("errors.noInputDevice"),
         });
+      } else if (error_type === "silent_input") {
+        toast.warning(
+          t("errors.silentInputTitle", { defaultValue: "No audio detected" }),
+          {
+            description: t("errors.silentInput", {
+              defaultValue:
+                "Check the selected microphone or input device and try again.",
+            }),
+          },
+        );
       } else {
         toast.error(
           t("errors.recordingFailed", { error: detail ?? "Unknown error" }),
