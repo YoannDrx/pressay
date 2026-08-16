@@ -5,8 +5,10 @@ use rusqlite::{params, Connection, OptionalExtension};
 use rusqlite_migration::{Migrations, M};
 use serde::{Deserialize, Serialize};
 use specta::Type;
-use std::fs;
-use std::path::PathBuf;
+use std::fs::{self, OpenOptions};
+use std::io::Write;
+use std::path::{Component, Path, PathBuf};
+use std::sync::Mutex;
 use tauri::AppHandle;
 use tauri_specta::Event;
 
@@ -31,7 +33,27 @@ static MIGRATIONS: &[M] = &[
     M::up("ALTER TABLE transcription_history ADD COLUMN post_processed_text TEXT;"),
     M::up("ALTER TABLE transcription_history ADD COLUMN post_process_prompt TEXT;"),
     M::up("ALTER TABLE transcription_history ADD COLUMN post_process_requested BOOLEAN NOT NULL DEFAULT 0;"),
+    M::up(
+        "ALTER TABLE transcription_history ADD COLUMN transcription_ciphertext BLOB;
+         ALTER TABLE transcription_history ADD COLUMN post_processed_ciphertext BLOB;
+         ALTER TABLE transcription_history ADD COLUMN post_process_prompt_ciphertext BLOB;
+         ALTER TABLE transcription_history ADD COLUMN encryption_version INTEGER NOT NULL DEFAULT 0;
+         ALTER TABLE transcription_history ADD COLUMN audio_available BOOLEAN NOT NULL DEFAULT 1;
+         ALTER TABLE transcription_history ADD COLUMN audio_saved BOOLEAN NOT NULL DEFAULT 0;",
+    ),
 ];
+
+const ENCRYPTION_VERSION: i64 = 1;
+const HISTORY_COLUMNS: &str = "id, file_name, timestamp, saved, title, post_process_requested, \
+    transcription_ciphertext, post_processed_ciphertext, post_process_prompt_ciphertext, \
+    encryption_version, audio_available, audio_saved";
+
+fn is_safe_audio_identifier(file_name: &str, encrypted_only: bool) -> bool {
+    let mut components = Path::new(file_name).components();
+    let is_single_file =
+        matches!(components.next(), Some(Component::Normal(_))) && components.next().is_none();
+    is_single_file && (!encrypted_only || file_name.ends_with(".enc"))
+}
 
 #[derive(Clone, Debug, Serialize, Deserialize, Type)]
 pub struct PaginatedHistory {
@@ -63,12 +85,30 @@ pub struct HistoryEntry {
     pub post_processed_text: Option<String>,
     pub post_process_prompt: Option<String>,
     pub post_process_requested: bool,
+    pub audio_available: bool,
+    pub audio_saved: bool,
+}
+
+struct StoredHistoryEntry {
+    id: i64,
+    file_name: String,
+    timestamp: i64,
+    saved: bool,
+    title: String,
+    post_process_requested: bool,
+    transcription_ciphertext: Option<Vec<u8>>,
+    post_processed_ciphertext: Option<Vec<u8>>,
+    post_process_prompt_ciphertext: Option<Vec<u8>>,
+    encryption_version: i64,
+    audio_available: bool,
+    audio_saved: bool,
 }
 
 pub struct HistoryManager {
     app_handle: AppHandle,
     recordings_dir: PathBuf,
     db_path: PathBuf,
+    master_key: Mutex<Option<[u8; crate::history_crypto::MASTER_KEY_LEN]>>,
 }
 
 impl HistoryManager {
@@ -88,6 +128,7 @@ impl HistoryManager {
             app_handle: app_handle.clone(),
             recordings_dir,
             db_path,
+            master_key: Mutex::new(None),
         };
 
         // Initialize database and run migrations synchronously
@@ -100,6 +141,7 @@ impl HistoryManager {
         info!("Initializing database at {:?}", self.db_path);
 
         let mut conn = Connection::open(&self.db_path)?;
+        conn.pragma_update(None, "secure_delete", "ON")?;
 
         // Handle migration from tauri-plugin-sql to rusqlite_migration
         // tauri-plugin-sql used _sqlx_migrations table, rusqlite_migration uses user_version pragma
@@ -132,6 +174,14 @@ impl HistoryManager {
             debug!("Database already at latest version {}", version_after);
         }
 
+        if self.migrate_plaintext_content(&mut conn)? {
+            // Remove pages that may still contain values from the legacy
+            // plaintext schema. VACUUM runs only once, during migration.
+            conn.execute_batch("PRAGMA wal_checkpoint(TRUNCATE); VACUUM;")?;
+        }
+        self.migrate_plaintext_audio(&conn)?;
+
+        self.apply_private_permissions()?;
         Ok(())
     }
 
@@ -196,26 +246,296 @@ impl HistoryManager {
         Ok(Connection::open(&self.db_path)?)
     }
 
-    fn map_history_entry(row: &rusqlite::Row<'_>) -> rusqlite::Result<HistoryEntry> {
-        Ok(HistoryEntry {
+    fn master_key(&self) -> Result<[u8; crate::history_crypto::MASTER_KEY_LEN]> {
+        let mut cached = self
+            .master_key
+            .lock()
+            .map_err(|_| anyhow!("Unable to access history encryption"))?;
+        if let Some(key) = *cached {
+            return Ok(key);
+        }
+
+        let key = crate::secrets::get_or_create_history_master_key().map_err(anyhow::Error::msg)?;
+        *cached = Some(key);
+        Ok(key)
+    }
+
+    fn map_stored_entry(row: &rusqlite::Row<'_>) -> rusqlite::Result<StoredHistoryEntry> {
+        Ok(StoredHistoryEntry {
             id: row.get("id")?,
             file_name: row.get("file_name")?,
             timestamp: row.get("timestamp")?,
             saved: row.get("saved")?,
             title: row.get("title")?,
-            transcription_text: row.get("transcription_text")?,
-            post_processed_text: row.get("post_processed_text")?,
-            post_process_prompt: row.get("post_process_prompt")?,
             post_process_requested: row.get("post_process_requested")?,
+            transcription_ciphertext: row.get("transcription_ciphertext")?,
+            post_processed_ciphertext: row.get("post_processed_ciphertext")?,
+            post_process_prompt_ciphertext: row.get("post_process_prompt_ciphertext")?,
+            encryption_version: row.get("encryption_version")?,
+            audio_available: row.get("audio_available")?,
+            audio_saved: row.get("audio_saved")?,
         })
     }
 
-    pub fn recordings_dir(&self) -> &std::path::Path {
-        &self.recordings_dir
+    fn text_aad(id: i64, field: &str) -> Vec<u8> {
+        format!("pressay-history-v1:{id}:{field}").into_bytes()
     }
 
-    /// Save a new history entry to the database.
-    /// The WAV file should already have been written to the recordings directory.
+    fn encrypt_text(&self, id: i64, field: &str, value: &str) -> Result<Vec<u8>> {
+        crate::history_crypto::encrypt(
+            &self.master_key()?,
+            value.as_bytes(),
+            &Self::text_aad(id, field),
+        )
+    }
+
+    fn decrypt_text(&self, id: i64, field: &str, value: &[u8]) -> Result<String> {
+        let plaintext =
+            crate::history_crypto::decrypt(&self.master_key()?, value, &Self::text_aad(id, field))?;
+        String::from_utf8(plaintext).map_err(|_| anyhow!("History content is not valid UTF-8"))
+    }
+
+    fn decrypt_entry(&self, stored: StoredHistoryEntry) -> Result<HistoryEntry> {
+        if stored.encryption_version != ENCRYPTION_VERSION {
+            return Err(anyhow!("Unsupported history encryption version"));
+        }
+
+        let transcription_text = self.decrypt_text(
+            stored.id,
+            "transcription",
+            stored
+                .transcription_ciphertext
+                .as_deref()
+                .ok_or_else(|| anyhow!("Encrypted transcription is missing"))?,
+        )?;
+        let post_processed_text = stored
+            .post_processed_ciphertext
+            .as_deref()
+            .map(|value| self.decrypt_text(stored.id, "post-processed", value))
+            .transpose()?;
+        let post_process_prompt = stored
+            .post_process_prompt_ciphertext
+            .as_deref()
+            .map(|value| self.decrypt_text(stored.id, "prompt", value))
+            .transpose()?;
+
+        Ok(HistoryEntry {
+            id: stored.id,
+            file_name: stored.file_name,
+            timestamp: stored.timestamp,
+            saved: stored.saved,
+            title: stored.title,
+            transcription_text,
+            post_processed_text,
+            post_process_prompt,
+            post_process_requested: stored.post_process_requested,
+            audio_available: stored.audio_available,
+            audio_saved: stored.audio_saved,
+        })
+    }
+
+    fn migrate_plaintext_content(&self, conn: &mut Connection) -> Result<bool> {
+        let legacy_rows = {
+            let mut statement = conn.prepare(
+                "SELECT id, transcription_text, post_processed_text, post_process_prompt
+                 FROM transcription_history
+                 WHERE encryption_version = 0",
+            )?;
+            let rows = statement
+                .query_map([], |row| {
+                    Ok((
+                        row.get::<_, i64>(0)?,
+                        row.get::<_, String>(1)?,
+                        row.get::<_, Option<String>>(2)?,
+                        row.get::<_, Option<String>>(3)?,
+                    ))
+                })?
+                .collect::<std::result::Result<Vec<_>, _>>()?;
+            rows
+        };
+
+        if legacy_rows.is_empty() {
+            return Ok(false);
+        }
+
+        let transaction = conn.transaction()?;
+        for (id, transcription, processed, prompt) in legacy_rows {
+            let transcription_ciphertext =
+                self.encrypt_text(id, "transcription", &transcription)?;
+            let processed_ciphertext = processed
+                .as_deref()
+                .map(|value| self.encrypt_text(id, "post-processed", value))
+                .transpose()?;
+            let prompt_ciphertext = prompt
+                .as_deref()
+                .map(|value| self.encrypt_text(id, "prompt", value))
+                .transpose()?;
+
+            transaction.execute(
+                "UPDATE transcription_history
+                 SET transcription_text = '',
+                     post_processed_text = NULL,
+                     post_process_prompt = NULL,
+                     transcription_ciphertext = ?1,
+                     post_processed_ciphertext = ?2,
+                     post_process_prompt_ciphertext = ?3,
+                     encryption_version = ?4
+                 WHERE id = ?5",
+                params![
+                    transcription_ciphertext,
+                    processed_ciphertext,
+                    prompt_ciphertext,
+                    ENCRYPTION_VERSION,
+                    id
+                ],
+            )?;
+        }
+        transaction.commit()?;
+        info!("Encrypted legacy history content in place");
+        Ok(true)
+    }
+
+    fn migrate_plaintext_audio(&self, conn: &Connection) -> Result<()> {
+        let legacy_files = {
+            let mut statement = conn.prepare(
+                "SELECT id, file_name FROM transcription_history
+                 WHERE audio_available = 1 AND file_name != '' AND file_name NOT LIKE '%.enc'",
+            )?;
+            let rows = statement
+                .query_map([], |row| {
+                    Ok((row.get::<_, i64>(0)?, row.get::<_, String>(1)?))
+                })?
+                .collect::<std::result::Result<Vec<_>, _>>()?;
+            rows
+        };
+
+        for (id, old_name) in legacy_files {
+            let old_path = self.safe_audio_path(&old_name, false)?;
+            let new_name = format!("{old_name}.enc");
+            let new_path = self.safe_audio_path(&new_name, true)?;
+            if !old_path.exists() {
+                if new_path.exists() && self.get_audio_bytes(&new_name).is_ok() {
+                    conn.execute(
+                        "UPDATE transcription_history SET file_name = ?1 WHERE id = ?2",
+                        params![new_name, id],
+                    )?;
+                } else {
+                    conn.execute(
+                        "UPDATE transcription_history SET audio_available = 0 WHERE id = ?1",
+                        params![id],
+                    )?;
+                }
+                continue;
+            }
+
+            if new_path.exists() {
+                self.get_audio_bytes(&new_name)?;
+            } else {
+                let wav_bytes = fs::read(&old_path)?;
+                self.save_encrypted_audio_bytes(&new_name, &wav_bytes)?;
+            }
+            fs::remove_file(&old_path)?;
+            conn.execute(
+                "UPDATE transcription_history SET file_name = ?1 WHERE id = ?2",
+                params![new_name, id],
+            )?;
+        }
+
+        Ok(())
+    }
+
+    fn apply_private_permissions(&self) -> Result<()> {
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            if self.recordings_dir.exists() {
+                fs::set_permissions(&self.recordings_dir, fs::Permissions::from_mode(0o700))?;
+            }
+            if self.db_path.exists() {
+                fs::set_permissions(&self.db_path, fs::Permissions::from_mode(0o600))?;
+            }
+        }
+        Ok(())
+    }
+
+    fn safe_audio_path(&self, file_name: &str, encrypted_only: bool) -> Result<PathBuf> {
+        if !is_safe_audio_identifier(file_name, encrypted_only) {
+            return Err(anyhow!("Invalid history audio identifier"));
+        }
+        Ok(self.recordings_dir.join(file_name))
+    }
+
+    fn audio_aad(file_name: &str) -> Vec<u8> {
+        format!("pressay-history-audio-v1:{file_name}").into_bytes()
+    }
+
+    fn write_private_file(&self, path: &Path, bytes: &[u8]) -> Result<()> {
+        if path.exists() {
+            return Err(anyhow!("History audio identifier already exists"));
+        }
+        static TEMP_COUNTER: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+        let counter = TEMP_COUNTER.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        let temp_name = format!(".pressay-history-{}-{counter}.tmp", std::process::id());
+        let temp_path = self.recordings_dir.join(temp_name);
+
+        let mut options = OpenOptions::new();
+        options.write(true).create_new(true);
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::OpenOptionsExt;
+            options.mode(0o600);
+        }
+
+        let write_result = (|| -> Result<()> {
+            let mut file = options.open(&temp_path)?;
+            file.write_all(bytes)?;
+            file.sync_all()?;
+            fs::rename(&temp_path, path)?;
+            Ok(())
+        })();
+        if write_result.is_err() {
+            let _ = fs::remove_file(&temp_path);
+        }
+        write_result
+    }
+
+    fn save_encrypted_audio_bytes(&self, file_name: &str, wav_bytes: &[u8]) -> Result<()> {
+        let path = self.safe_audio_path(file_name, true)?;
+        let envelope = crate::history_crypto::encrypt(
+            &self.master_key()?,
+            wav_bytes,
+            &Self::audio_aad(file_name),
+        )?;
+        self.write_private_file(&path, &envelope)
+    }
+
+    pub fn save_audio(&self, file_name: &str, samples: &[f32]) -> Result<()> {
+        let wav_bytes = crate::audio_toolkit::encode_wav_samples(samples)?;
+        self.save_encrypted_audio_bytes(file_name, &wav_bytes)
+    }
+
+    pub fn get_audio_bytes(&self, file_name: &str) -> Result<Vec<u8>> {
+        let path = self.safe_audio_path(file_name, true)?;
+        let envelope = fs::read(path)?;
+        crate::history_crypto::decrypt(&self.master_key()?, &envelope, &Self::audio_aad(file_name))
+    }
+
+    pub fn get_audio_samples(&self, file_name: &str) -> Result<Vec<f32>> {
+        let wav_bytes = self.get_audio_bytes(file_name)?;
+        crate::audio_toolkit::read_wav_samples_from_bytes(&wav_bytes)
+    }
+
+    pub fn discard_audio(&self, file_name: &str) -> Result<()> {
+        let path = self.safe_audio_path(file_name, true)?;
+        match fs::remove_file(path) {
+            Ok(()) => Ok(()),
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(()),
+            Err(error) => Err(error.into()),
+        }
+    }
+
+    /// Save a new history entry. User content is encrypted before the database
+    /// transaction commits; the legacy plaintext columns remain empty.
     pub fn save_entry(
         &self,
         file_name: String,
@@ -227,8 +547,9 @@ impl HistoryManager {
         let timestamp = Utc::now().timestamp();
         let title = self.format_timestamp_title(timestamp);
 
-        let conn = self.get_connection()?;
-        conn.execute(
+        let mut conn = self.get_connection()?;
+        let transaction = conn.transaction()?;
+        transaction.execute(
             "INSERT INTO transcription_history (
                 file_name,
                 timestamp,
@@ -237,22 +558,44 @@ impl HistoryManager {
                 transcription_text,
                 post_processed_text,
                 post_process_prompt,
-                post_process_requested
-            ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
-            params![
-                &file_name,
-                timestamp,
-                false,
-                &title,
-                &transcription_text,
-                &post_processed_text,
-                &post_process_prompt,
                 post_process_requested,
-            ],
+                encryption_version,
+                audio_available,
+                audio_saved
+            ) VALUES (?1, ?2, ?3, ?4, '', NULL, NULL, ?5, 0, 1, 0)",
+            params![&file_name, timestamp, false, &title, post_process_requested,],
         )?;
 
+        let id = transaction.last_insert_rowid();
+        let transcription_ciphertext =
+            self.encrypt_text(id, "transcription", &transcription_text)?;
+        let post_processed_ciphertext = post_processed_text
+            .as_deref()
+            .map(|value| self.encrypt_text(id, "post-processed", value))
+            .transpose()?;
+        let post_process_prompt_ciphertext = post_process_prompt
+            .as_deref()
+            .map(|value| self.encrypt_text(id, "prompt", value))
+            .transpose()?;
+        transaction.execute(
+            "UPDATE transcription_history
+             SET transcription_ciphertext = ?1,
+                 post_processed_ciphertext = ?2,
+                 post_process_prompt_ciphertext = ?3,
+                 encryption_version = ?4
+             WHERE id = ?5",
+            params![
+                transcription_ciphertext,
+                post_processed_ciphertext,
+                post_process_prompt_ciphertext,
+                ENCRYPTION_VERSION,
+                id
+            ],
+        )?;
+        transaction.commit()?;
+
         let entry = HistoryEntry {
-            id: conn.last_insert_rowid(),
+            id,
             file_name,
             timestamp,
             saved: false,
@@ -261,6 +604,8 @@ impl HistoryManager {
             post_processed_text,
             post_process_prompt,
             post_process_requested,
+            audio_available: true,
+            audio_saved: false,
         };
 
         debug!("Saved history entry with id {}", entry.id);
@@ -288,16 +633,31 @@ impl HistoryManager {
         post_process_prompt: Option<String>,
     ) -> Result<HistoryEntry> {
         let conn = self.get_connection()?;
+        let transcription_ciphertext =
+            self.encrypt_text(id, "transcription", &transcription_text)?;
+        let post_processed_ciphertext = post_processed_text
+            .as_deref()
+            .map(|value| self.encrypt_text(id, "post-processed", value))
+            .transpose()?;
+        let post_process_prompt_ciphertext = post_process_prompt
+            .as_deref()
+            .map(|value| self.encrypt_text(id, "prompt", value))
+            .transpose()?;
         let updated = conn.execute(
             "UPDATE transcription_history
-             SET transcription_text = ?1,
-                 post_processed_text = ?2,
-                 post_process_prompt = ?3
-             WHERE id = ?4",
+             SET transcription_text = '',
+                 post_processed_text = NULL,
+                 post_process_prompt = NULL,
+                 transcription_ciphertext = ?1,
+                 post_processed_ciphertext = ?2,
+                 post_process_prompt_ciphertext = ?3,
+                 encryption_version = ?4
+             WHERE id = ?5",
             params![
-                transcription_text,
-                post_processed_text,
-                post_process_prompt,
+                transcription_ciphertext,
+                post_processed_ciphertext,
+                post_process_prompt_ciphertext,
+                ENCRYPTION_VERSION,
                 id
             ],
         )?;
@@ -306,13 +666,12 @@ impl HistoryManager {
             return Err(anyhow!("History entry {} not found", id));
         }
 
-        let entry = conn
-            .query_row(
-                "SELECT id, file_name, timestamp, saved, title, transcription_text, post_processed_text, post_process_prompt, post_process_requested
-                 FROM transcription_history WHERE id = ?1",
-                params![id],
-                Self::map_history_entry,
-            )?;
+        let stored = conn.query_row(
+            &format!("SELECT {HISTORY_COLUMNS} FROM transcription_history WHERE id = ?1"),
+            params![id],
+            Self::map_stored_entry,
+        )?;
+        let entry = self.decrypt_entry(stored)?;
 
         debug!("Updated transcription for history entry {}", id);
 
@@ -455,46 +814,46 @@ impl HistoryManager {
         let conn = self.get_connection()?;
         let limit = limit.map(|l| l.min(100));
 
-        let mut entries: Vec<HistoryEntry> = match (cursor, limit) {
+        let stored_entries: Vec<StoredHistoryEntry> = match (cursor, limit) {
             (Some(cursor_id), Some(lim)) => {
                 let fetch_count = (lim + 1) as i64;
-                let mut stmt = conn.prepare(
-                    "SELECT id, file_name, timestamp, saved, title, transcription_text, post_processed_text, post_process_prompt, post_process_requested
-                     FROM transcription_history
-                     WHERE id < ?1
-                     ORDER BY id DESC
-                     LIMIT ?2",
-                )?;
+                let sql = format!(
+                    "SELECT {HISTORY_COLUMNS} FROM transcription_history
+                     WHERE id < ?1 ORDER BY id DESC LIMIT ?2"
+                );
+                let mut stmt = conn.prepare(&sql)?;
                 let result = stmt
-                    .query_map(params![cursor_id, fetch_count], Self::map_history_entry)?
+                    .query_map(params![cursor_id, fetch_count], Self::map_stored_entry)?
                     .collect::<std::result::Result<Vec<_>, _>>()?;
                 result
             }
             (None, Some(lim)) => {
                 let fetch_count = (lim + 1) as i64;
-                let mut stmt = conn.prepare(
-                    "SELECT id, file_name, timestamp, saved, title, transcription_text, post_processed_text, post_process_prompt, post_process_requested
-                     FROM transcription_history
-                     ORDER BY id DESC
-                     LIMIT ?1",
-                )?;
+                let sql = format!(
+                    "SELECT {HISTORY_COLUMNS} FROM transcription_history
+                     ORDER BY id DESC LIMIT ?1"
+                );
+                let mut stmt = conn.prepare(&sql)?;
                 let result = stmt
-                    .query_map(params![fetch_count], Self::map_history_entry)?
+                    .query_map(params![fetch_count], Self::map_stored_entry)?
                     .collect::<std::result::Result<Vec<_>, _>>()?;
                 result
             }
             (_, None) => {
-                let mut stmt = conn.prepare(
-                    "SELECT id, file_name, timestamp, saved, title, transcription_text, post_processed_text, post_process_prompt, post_process_requested
-                     FROM transcription_history
-                     ORDER BY id DESC",
-                )?;
+                let sql =
+                    format!("SELECT {HISTORY_COLUMNS} FROM transcription_history ORDER BY id DESC");
+                let mut stmt = conn.prepare(&sql)?;
                 let result = stmt
-                    .query_map([], Self::map_history_entry)?
+                    .query_map([], Self::map_stored_entry)?
                     .collect::<std::result::Result<Vec<_>, _>>()?;
                 result
             }
         };
+
+        let mut entries = stored_entries
+            .into_iter()
+            .map(|entry| self.decrypt_entry(entry))
+            .collect::<Result<Vec<_>>>()?;
 
         let has_more = limit.is_some_and(|lim| entries.len() > lim);
         if has_more {
@@ -504,54 +863,22 @@ impl HistoryManager {
         Ok(PaginatedHistory { entries, has_more })
     }
 
-    #[cfg(test)]
-    fn get_latest_entry_with_conn(conn: &Connection) -> Result<Option<HistoryEntry>> {
-        let mut stmt = conn.prepare(
-            "SELECT
-                id,
-                file_name,
-                timestamp,
-                saved,
-                title,
-                transcription_text,
-                post_processed_text,
-                post_process_prompt,
-                post_process_requested
-             FROM transcription_history
-             ORDER BY timestamp DESC
-             LIMIT 1",
-        )?;
-
-        let entry = stmt.query_row([], Self::map_history_entry).optional()?;
-        Ok(entry)
-    }
-
     /// Get the latest entry with non-empty transcription text.
     pub fn get_latest_completed_entry(&self) -> Result<Option<HistoryEntry>> {
         let conn = self.get_connection()?;
-        Self::get_latest_completed_entry_with_conn(&conn)
-    }
-
-    fn get_latest_completed_entry_with_conn(conn: &Connection) -> Result<Option<HistoryEntry>> {
-        let mut stmt = conn.prepare(
-            "SELECT
-                id,
-                file_name,
-                timestamp,
-                saved,
-                title,
-                transcription_text,
-                post_processed_text,
-                post_process_prompt,
-                post_process_requested
-             FROM transcription_history
-             WHERE transcription_text != ''
-             ORDER BY timestamp DESC
-             LIMIT 1",
-        )?;
-
-        let entry = stmt.query_row([], Self::map_history_entry).optional()?;
-        Ok(entry)
+        let sql =
+            format!("SELECT {HISTORY_COLUMNS} FROM transcription_history ORDER BY timestamp DESC");
+        let mut statement = conn.prepare(&sql)?;
+        let stored = statement
+            .query_map([], Self::map_stored_entry)?
+            .collect::<std::result::Result<Vec<_>, _>>()?;
+        for entry in stored {
+            let entry = self.decrypt_entry(entry)?;
+            if !entry.transcription_text.is_empty() {
+                return Ok(Some(entry));
+            }
+        }
+        Ok(None)
     }
 
     pub async fn toggle_saved_status(&self, id: i64) -> Result<()> {
@@ -581,30 +908,14 @@ impl HistoryManager {
         Ok(())
     }
 
-    pub fn get_audio_file_path(&self, file_name: &str) -> PathBuf {
-        self.recordings_dir.join(file_name)
-    }
-
     pub async fn get_entry_by_id(&self, id: i64) -> Result<Option<HistoryEntry>> {
         let conn = self.get_connection()?;
-        let mut stmt = conn.prepare(
-            "SELECT
-                id,
-                file_name,
-                timestamp,
-                saved,
-                title,
-                transcription_text,
-                post_processed_text,
-                post_process_prompt,
-                post_process_requested
-             FROM transcription_history
-             WHERE id = ?1",
-        )?;
+        let sql = format!("SELECT {HISTORY_COLUMNS} FROM transcription_history WHERE id = ?1");
+        let mut stmt = conn.prepare(&sql)?;
 
-        let entry = stmt.query_row([id], Self::map_history_entry).optional()?;
+        let stored = stmt.query_row([id], Self::map_stored_entry).optional()?;
 
-        Ok(entry)
+        stored.map(|entry| self.decrypt_entry(entry)).transpose()
     }
 
     pub async fn delete_entry(&self, id: i64) -> Result<()> {
@@ -613,11 +924,13 @@ impl HistoryManager {
         // Get the entry to find the file name
         if let Some(entry) = self.get_entry_by_id(id).await? {
             // Delete the audio file first
-            let file_path = self.get_audio_file_path(&entry.file_name);
-            if file_path.exists() {
-                if let Err(e) = fs::remove_file(&file_path) {
-                    error!("Failed to delete audio file {}: {}", entry.file_name, e);
-                    // Continue with database deletion even if file deletion fails
+            if entry.audio_available && !entry.file_name.is_empty() {
+                let file_path = self.safe_audio_path(&entry.file_name, true)?;
+                if file_path.exists() {
+                    if let Err(e) = fs::remove_file(&file_path) {
+                        error!("Failed to delete encrypted audio file: {}", e);
+                        // Continue with database deletion even if file deletion fails
+                    }
                 }
             }
         }
@@ -652,86 +965,37 @@ impl HistoryManager {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use rusqlite::{params, Connection};
 
-    fn setup_conn() -> Connection {
-        let conn = Connection::open_in_memory().expect("open in-memory db");
-        conn.execute_batch(
-            "CREATE TABLE transcription_history (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                file_name TEXT NOT NULL,
-                timestamp INTEGER NOT NULL,
-                saved BOOLEAN NOT NULL DEFAULT 0,
-                title TEXT NOT NULL,
-                transcription_text TEXT NOT NULL,
-                post_processed_text TEXT,
-                post_process_prompt TEXT,
-                post_process_requested BOOLEAN NOT NULL DEFAULT 0
-            );",
-        )
-        .expect("create transcription_history table");
-        conn
-    }
+    #[test]
+    fn migrations_create_encrypted_history_columns() {
+        let mut connection = Connection::open_in_memory().unwrap();
+        Migrations::new(MIGRATIONS.to_vec())
+            .to_latest(&mut connection)
+            .unwrap();
 
-    fn insert_entry(conn: &Connection, timestamp: i64, text: &str, post_processed: Option<&str>) {
-        conn.execute(
-            "INSERT INTO transcription_history (
-                file_name,
-                timestamp,
-                saved,
-                title,
-                transcription_text,
-                post_processed_text,
-                post_process_prompt,
-                post_process_requested
-            ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
-            params![
-                format!("handy-{}.wav", timestamp),
-                timestamp,
-                false,
-                format!("Recording {}", timestamp),
-                text,
-                post_processed,
-                Option::<String>::None,
-                false,
-            ],
-        )
-        .expect("insert history entry");
+        let columns = connection
+            .prepare("PRAGMA table_info(transcription_history)")
+            .unwrap()
+            .query_map([], |row| row.get::<_, String>(1))
+            .unwrap()
+            .collect::<std::result::Result<Vec<_>, _>>()
+            .unwrap();
+        assert!(columns.contains(&"transcription_ciphertext".to_string()));
+        assert!(columns.contains(&"encryption_version".to_string()));
+        assert!(columns.contains(&"audio_available".to_string()));
     }
 
     #[test]
-    fn get_latest_entry_returns_none_when_empty() {
-        let conn = setup_conn();
-        let entry = HistoryManager::get_latest_entry_with_conn(&conn).expect("fetch latest entry");
-        assert!(entry.is_none());
-    }
-
-    #[test]
-    fn get_latest_entry_returns_newest_entry() {
-        let conn = setup_conn();
-        insert_entry(&conn, 100, "first", None);
-        insert_entry(&conn, 200, "second", Some("processed"));
-
-        let entry = HistoryManager::get_latest_entry_with_conn(&conn)
-            .expect("fetch latest entry")
-            .expect("entry exists");
-
-        assert_eq!(entry.timestamp, 200);
-        assert_eq!(entry.transcription_text, "second");
-        assert_eq!(entry.post_processed_text.as_deref(), Some("processed"));
-    }
-
-    #[test]
-    fn get_latest_completed_entry_skips_empty_entries() {
-        let conn = setup_conn();
-        insert_entry(&conn, 100, "completed", None);
-        insert_entry(&conn, 200, "", None);
-
-        let entry = HistoryManager::get_latest_completed_entry_with_conn(&conn)
-            .expect("fetch latest completed entry")
-            .expect("completed entry exists");
-
-        assert_eq!(entry.timestamp, 100);
-        assert_eq!(entry.transcription_text, "completed");
+    fn encrypted_audio_identifiers_cannot_escape_recordings_directory() {
+        assert!(is_safe_audio_identifier("pressay-1.wav.enc", true));
+        for invalid in [
+            "pressay-1.wav",
+            "../pressay-1.wav.enc",
+            "/tmp/pressay-1.wav.enc",
+            "folder/pressay-1.wav.enc",
+            "",
+        ] {
+            assert!(!is_safe_audio_identifier(invalid, true));
+        }
     }
 }

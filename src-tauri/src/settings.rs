@@ -1612,7 +1612,10 @@ mod tests {
 
         assert_eq!(
             legacy_api_keys(&raw),
-            Some(vec![("openai".to_string(), "test-secret-value".to_string())])
+            Some(vec![(
+                "openai".to_string(),
+                "test-secret-value".to_string()
+            )])
         );
     }
 

@@ -713,16 +713,16 @@ impl ShortcutAction for TranscribeAction {
                     change_tray_icon(&ah, TrayIconState::Idle);
                 } else {
                     // History is opt-in. When disabled, keep the entire audio and
-                    // transcript pipeline in memory and never create a WAV file.
+                    // transcript pipeline in memory and never create an audio file.
                     let history_enabled = crate::settings::get_history_limit(&ah) > 0;
-                    let sample_count = samples.len();
-                    let file_name = format!("pressay-{}.wav", chrono::Utc::now().timestamp());
-                    let wav_path = hm.recordings_dir().join(&file_name);
-                    let wav_path_for_verify = wav_path.clone();
-                    let samples_for_wav = samples.clone();
-                    let wav_handle = history_enabled.then(|| {
+                    let file_name =
+                        format!("pressay-{}.wav.enc", chrono::Utc::now().timestamp_millis());
+                    let samples_for_history = samples.clone();
+                    let history_manager = Arc::clone(&hm);
+                    let history_file_name = file_name.clone();
+                    let audio_handle = history_enabled.then(|| {
                         tauri::async_runtime::spawn_blocking(move || {
-                            crate::audio_toolkit::save_wav_file(&wav_path, &samples_for_wav)
+                            history_manager.save_audio(&history_file_name, &samples_for_history)
                         })
                     });
 
@@ -742,28 +742,18 @@ impl ShortcutAction for TranscribeAction {
                         Err(err) => Err(err),
                     };
 
-                    // Await WAV save and verify
-                    let wav_saved = match wav_handle {
+                    // The WAV representation is created in memory, encrypted, and
+                    // only then persisted. No plaintext recording touches disk.
+                    let audio_saved = match audio_handle {
                         None => false,
                         Some(handle) => match handle.await {
-                            Ok(Ok(())) => {
-                                match crate::audio_toolkit::verify_wav_file(
-                                    &wav_path_for_verify,
-                                    sample_count,
-                                ) {
-                                    Ok(()) => true,
-                                    Err(e) => {
-                                        error!("WAV verification failed: {}", e);
-                                        false
-                                    }
-                                }
-                            }
+                            Ok(Ok(())) => true,
                             Ok(Err(e)) => {
-                                error!("Failed to save WAV file: {}", e);
+                                error!("Failed to save encrypted history audio: {}", e);
                                 false
                             }
                             Err(e) => {
-                                error!("WAV save task panicked: {}", e);
+                                error!("History audio task panicked: {}", e);
                                 false
                             }
                         },
@@ -771,6 +761,9 @@ impl ShortcutAction for TranscribeAction {
 
                     if rm.was_cancelled_since(cancel_generation) {
                         debug!("Transcription operation cancelled before output handling");
+                        if audio_saved {
+                            let _ = hm.discard_audio(&file_name);
+                        }
                         utils::hide_recording_overlay(&ah);
                         change_tray_icon(&ah, TrayIconState::Idle);
                         return;
@@ -798,6 +791,9 @@ impl ShortcutAction for TranscribeAction {
                             .await
                             else {
                                 debug!("Transcription operation cancelled during output handling");
+                                if audio_saved {
+                                    let _ = hm.discard_audio(&file_name);
+                                }
                                 utils::hide_recording_overlay(&ah);
                                 change_tray_icon(&ah, TrayIconState::Idle);
                                 return;
@@ -805,21 +801,25 @@ impl ShortcutAction for TranscribeAction {
 
                             if rm.was_cancelled_since(cancel_generation) {
                                 debug!("Transcription operation cancelled before paste");
+                                if audio_saved {
+                                    let _ = hm.discard_audio(&file_name);
+                                }
                                 utils::hide_recording_overlay(&ah);
                                 change_tray_icon(&ah, TrayIconState::Idle);
                                 return;
                             }
 
-                            // Save to history if WAV was saved
-                            if wav_saved {
+                            // Save encrypted text only when encrypted audio exists.
+                            if audio_saved {
                                 if let Err(err) = hm.save_entry(
-                                    file_name,
+                                    file_name.clone(),
                                     transcription,
                                     post_process,
                                     processed.post_processed_text.clone(),
                                     processed.post_process_prompt.clone(),
                                 ) {
                                     error!("Failed to save history entry: {}", err);
+                                    let _ = hm.discard_audio(&file_name);
                                 }
                             }
 
@@ -874,15 +874,16 @@ impl ShortcutAction for TranscribeAction {
                             // The categorized error is also written to pressay.log.
                             let _ = ah.emit("transcription-error", err.to_string());
                             // Save entry with empty text so user can retry
-                            if wav_saved {
+                            if audio_saved {
                                 if let Err(save_err) = hm.save_entry(
-                                    file_name,
+                                    file_name.clone(),
                                     String::new(),
                                     post_process,
                                     None,
                                     None,
                                 ) {
                                     error!("Failed to save failed history entry: {}", save_err);
+                                    let _ = hm.discard_audio(&file_name);
                                 }
                             }
                             utils::hide_recording_overlay(&ah);

@@ -1,4 +1,6 @@
 const BYOK_SERVICE: &str = "app.pressay.desktop.byok";
+const HISTORY_SERVICE: &str = "app.pressay.desktop.history";
+const HISTORY_MASTER_KEY_ACCOUNT: &str = "master-key-v1";
 
 fn validate_provider_id(provider_id: &str) -> Result<(), String> {
     if provider_id.is_empty()
@@ -14,7 +16,7 @@ fn validate_provider_id(provider_id: &str) -> Result<(), String> {
 
 #[cfg(target_os = "macos")]
 mod platform {
-    use super::{validate_provider_id, BYOK_SERVICE};
+    use super::{validate_provider_id, BYOK_SERVICE, HISTORY_MASTER_KEY_ACCOUNT, HISTORY_SERVICE};
     use keyring_core::{Entry, Error};
     use std::sync::OnceLock;
 
@@ -37,15 +39,14 @@ mod platform {
             .clone()
     }
 
-    fn entry(provider_id: &str) -> Result<Entry, String> {
-        validate_provider_id(provider_id)?;
+    fn entry(service: &str, account: &str) -> Result<Entry, String> {
         initialize_store()?;
-        Entry::new(BYOK_SERVICE, provider_id)
-            .map_err(|_| "Unable to access the macOS Keychain".to_string())
+        Entry::new(service, account).map_err(|_| "Unable to access the macOS Keychain".to_string())
     }
 
     pub fn get_provider_api_key(provider_id: &str) -> Result<Option<String>, String> {
-        match entry(provider_id)?.get_password() {
+        validate_provider_id(provider_id)?;
+        match entry(BYOK_SERVICE, provider_id)?.get_password() {
             Ok(secret) => Ok(Some(secret)),
             Err(Error::NoEntry) => Ok(None),
             Err(_) => Err("Unable to read the API key from the macOS Keychain".to_string()),
@@ -53,7 +54,8 @@ mod platform {
     }
 
     pub fn set_provider_api_key(provider_id: &str, api_key: &str) -> Result<(), String> {
-        let entry = entry(provider_id)?;
+        validate_provider_id(provider_id)?;
+        let entry = entry(BYOK_SERVICE, provider_id)?;
         if api_key.is_empty() {
             return match entry.delete_credential() {
                 Ok(()) | Err(Error::NoEntry) => Ok(()),
@@ -64,6 +66,23 @@ mod platform {
         entry
             .set_password(api_key)
             .map_err(|_| "Unable to save the API key in the macOS Keychain".to_string())
+    }
+
+    pub fn get_history_master_key() -> Result<Option<[u8; 32]>, String> {
+        match entry(HISTORY_SERVICE, HISTORY_MASTER_KEY_ACCOUNT)?.get_secret() {
+            Ok(secret) => secret
+                .try_into()
+                .map(Some)
+                .map_err(|_| "The history encryption key has an invalid format".to_string()),
+            Err(Error::NoEntry) => Ok(None),
+            Err(_) => Err("Unable to read the history key from the macOS Keychain".to_string()),
+        }
+    }
+
+    pub fn set_history_master_key(key: &[u8; 32]) -> Result<(), String> {
+        entry(HISTORY_SERVICE, HISTORY_MASTER_KEY_ACCOUNT)?
+            .set_secret(key)
+            .map_err(|_| "Unable to save the history key in the macOS Keychain".to_string())
     }
 }
 
@@ -80,9 +99,29 @@ mod platform {
         validate_provider_id(provider_id)?;
         Err("Secure BYOK storage is only available in the supported macOS build".to_string())
     }
+
+    pub fn get_history_master_key() -> Result<Option<[u8; 32]>, String> {
+        Err("Encrypted history is only available in the supported macOS build".to_string())
+    }
+
+    pub fn set_history_master_key(_key: &[u8; 32]) -> Result<(), String> {
+        Err("Encrypted history is only available in the supported macOS build".to_string())
+    }
 }
 
-pub use platform::{get_provider_api_key, set_provider_api_key};
+pub use platform::{
+    get_history_master_key, get_provider_api_key, set_history_master_key, set_provider_api_key,
+};
+
+pub fn get_or_create_history_master_key() -> Result<[u8; 32], String> {
+    if let Some(key) = get_history_master_key()? {
+        return Ok(key);
+    }
+
+    let key = crate::history_crypto::generate_master_key();
+    set_history_master_key(&key)?;
+    Ok(key)
+}
 
 #[cfg(test)]
 mod tests {
