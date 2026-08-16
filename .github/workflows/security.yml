@@ -23,7 +23,7 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
       - run: bun install --frozen-lockfile
       - name: Audit JavaScript dependencies
-        run: bun audit --production
+        run: bun audit --json
       - name: Install cargo-audit
         uses: taiki-e/install-action@cargo-audit
       - name: Audit Rust dependencies
