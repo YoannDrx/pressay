@@ -45,6 +45,7 @@ const AccessibilityOnboarding: React.FC<AccessibilityOnboardingProps> = ({
   const timeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const errorCountRef = useRef<number>(0);
   const MAX_POLLING_ERRORS = 3;
+  const MAX_PERMISSION_WAIT_MS = 60_000;
 
   const isMacOS = permissionPlatform === "macos";
   const isWindows = permissionPlatform === "windows";
@@ -162,6 +163,25 @@ const AccessibilityOnboarding: React.FC<AccessibilityOnboardingProps> = ({
   const startPolling = useCallback(() => {
     if (pollingRef.current || permissionPlatform === null) return;
 
+    if (timeoutRef.current) {
+      clearTimeout(timeoutRef.current);
+    }
+    timeoutRef.current = setTimeout(() => {
+      if (pollingRef.current) {
+        clearInterval(pollingRef.current);
+        pollingRef.current = null;
+      }
+      setPermissions((current) => ({
+        accessibility:
+          current.accessibility === "waiting"
+            ? "needed"
+            : current.accessibility,
+        microphone:
+          current.microphone === "waiting" ? "needed" : current.microphone,
+      }));
+      toast.error(t("onboarding.permissions.errors.checkFailed"));
+    }, MAX_PERMISSION_WAIT_MS);
+
     pollingRef.current = setInterval(async () => {
       try {
         if (permissionPlatform === "windows") {
@@ -173,6 +193,10 @@ const AccessibilityOnboarding: React.FC<AccessibilityOnboardingProps> = ({
             if (pollingRef.current) {
               clearInterval(pollingRef.current);
               pollingRef.current = null;
+            }
+            if (timeoutRef.current) {
+              clearTimeout(timeoutRef.current);
+              timeoutRef.current = null;
             }
 
             await completeOnboarding();
@@ -214,6 +238,10 @@ const AccessibilityOnboarding: React.FC<AccessibilityOnboardingProps> = ({
             clearInterval(pollingRef.current);
             pollingRef.current = null;
           }
+          if (timeoutRef.current) {
+            clearTimeout(timeoutRef.current);
+            timeoutRef.current = null;
+          }
           await completeOnboarding();
         }
 
@@ -228,6 +256,10 @@ const AccessibilityOnboarding: React.FC<AccessibilityOnboardingProps> = ({
           if (pollingRef.current) {
             clearInterval(pollingRef.current);
             pollingRef.current = null;
+          }
+          if (timeoutRef.current) {
+            clearTimeout(timeoutRef.current);
+            timeoutRef.current = null;
           }
           toast.error(t("onboarding.permissions.errors.checkFailed"));
         }

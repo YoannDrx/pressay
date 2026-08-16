@@ -34,4 +34,21 @@ test.describe("Pressay App", () => {
     await expect(page.getByText("Local", { exact: true })).toHaveCount(2);
     await expect(page.getByText("Private by default")).toBeVisible();
   });
+
+  test("presents local-first onboarding before permissions", async ({
+    page,
+  }) => {
+    await page.goto("/?screen=welcome");
+
+    await expect(
+      page.getByRole("heading", { name: "Your voice, without the trade-off." }),
+    ).toBeVisible();
+    await expect(page.getByText("Free · Offline · No account")).toBeVisible();
+    await expect(
+      page.getByRole("button", { name: "Continue locally" }),
+    ).toBeVisible();
+    await expect(
+      page.getByRole("list", { name: "Onboarding progress" }),
+    ).toBeVisible();
+  });
 });

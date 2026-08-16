@@ -12,7 +12,12 @@ import "./App.css";
 import AccessibilityPermissions from "./components/AccessibilityPermissions";
 import SecureInputWarning from "./components/SecureInputWarning";
 import Footer from "./components/footer";
-import Onboarding, { AccessibilityOnboarding } from "./components/onboarding";
+import Onboarding, {
+  AccessibilityOnboarding,
+  OnboardingProgress,
+  ShortcutOnboarding,
+  WelcomeOnboarding,
+} from "./components/onboarding";
 import { ErrorBoundary } from "./components/ErrorBoundary";
 import { Sidebar, SidebarSection, SECTIONS_CONFIG } from "./components/Sidebar";
 import { WhatsNewGate } from "./components/whats-new";
@@ -21,7 +26,8 @@ import { useSettingsStore } from "./stores/settingsStore";
 import { commands } from "@/bindings";
 import { getLanguageDirection, initializeRTL } from "@/lib/utils/rtl";
 
-type OnboardingStep = "accessibility" | "model" | "done";
+type OnboardingStep =
+  "welcome" | "accessibility" | "shortcut" | "model" | "done";
 
 const renderSettingsContent = (section: SidebarSection) => {
   const ActiveComponent =
@@ -274,19 +280,26 @@ function App() {
       } else {
         // New user - start full onboarding
         setIsReturningUser(false);
-        setOnboardingStep("accessibility");
+        setOnboardingStep("welcome");
       }
     } catch (error) {
       console.error("Failed to check onboarding status:", error);
-      setOnboardingStep("accessibility");
+      setOnboardingStep("welcome");
     }
   };
 
   const handleAccessibilityComplete = () => {
     // Returning users already have models, skip to main app
     // New users need to select a model
-    setOnboardingStep(isReturningUser ? "done" : "model");
+    setOnboardingStep(isReturningUser ? "done" : "shortcut");
   };
+
+  const onboardingProgress = {
+    welcome: 1,
+    accessibility: 2,
+    shortcut: 3,
+    model: 4,
+  } as const;
 
   const handleModelSelected = () => {
     // Transition to main app - user has started a download
@@ -324,9 +337,19 @@ function App() {
   // stable wrapper around this node, so crossing between onboarding steps and
   // the main app never remounts it (which would drop any in-flight toast).
   let content: ReactNode;
-  if (onboardingStep === "accessibility") {
+  if (onboardingStep === "welcome") {
+    content = (
+      <WelcomeOnboarding
+        onComplete={() => setOnboardingStep("accessibility")}
+      />
+    );
+  } else if (onboardingStep === "accessibility") {
     content = (
       <AccessibilityOnboarding onComplete={handleAccessibilityComplete} />
+    );
+  } else if (onboardingStep === "shortcut") {
+    content = (
+      <ShortcutOnboarding onComplete={() => setOnboardingStep("model")} />
     );
   } else if (onboardingStep === "model") {
     content = <Onboarding onModelSelected={handleModelSelected} />;
@@ -362,6 +385,9 @@ function App() {
   return (
     <>
       {toaster}
+      {onboardingStep !== "done" ? (
+        <OnboardingProgress current={onboardingProgress[onboardingStep]} />
+      ) : null}
       {content}
     </>
   );
