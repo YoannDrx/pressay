@@ -6,6 +6,8 @@ use std::collections::HashMap;
 use tauri::AppHandle;
 use tauri_plugin_store::StoreExt;
 
+use crate::productivity::{builtin_modes, AppProfile, DictionaryEntry, PressayMode};
+
 pub const APPLE_INTELLIGENCE_PROVIDER_ID: &str = "apple_intelligence";
 pub const APPLE_INTELLIGENCE_DEFAULT_MODEL_ID: &str = "Apple Intelligence";
 
@@ -377,6 +379,14 @@ pub struct AppSettings {
     pub log_level: LogLevel,
     #[serde(default)]
     pub custom_words: Vec<String>,
+    #[serde(default = "builtin_modes")]
+    pub pressay_modes: Vec<PressayMode>,
+    #[serde(default = "default_active_mode_id")]
+    pub active_mode_id: String,
+    #[serde(default)]
+    pub app_profiles: Vec<AppProfile>,
+    #[serde(default)]
+    pub dictionary_entries: Vec<DictionaryEntry>,
     #[serde(default)]
     pub model_unload_timeout: ModelUnloadTimeout,
     #[serde(default = "default_word_correction_threshold")]
@@ -469,10 +479,14 @@ fn default_model() -> String {
     "".to_string()
 }
 
-const CURRENT_SETTINGS_SCHEMA_VERSION: u32 = 3;
+const CURRENT_SETTINGS_SCHEMA_VERSION: u32 = 4;
 
 fn default_settings_schema_version() -> u32 {
     CURRENT_SETTINGS_SCHEMA_VERSION
+}
+
+fn default_active_mode_id() -> String {
+    "faithful".to_string()
 }
 
 fn default_push_to_talk() -> bool {
@@ -879,6 +893,10 @@ pub fn get_default_settings() -> AppSettings {
         debug_mode: false,
         log_level: default_log_level(),
         custom_words: Vec::new(),
+        pressay_modes: builtin_modes(),
+        active_mode_id: default_active_mode_id(),
+        app_profiles: Vec::new(),
+        dictionary_entries: Vec::new(),
         model_unload_timeout: ModelUnloadTimeout::default(),
         word_correction_threshold: default_word_correction_threshold(),
         history_limit: default_history_limit(),
@@ -1211,6 +1229,28 @@ fn apply_settings_migrations(
         // Preserve the old opt-in semantics once: a positive legacy limit meant
         // that the user had explicitly enabled history.
         settings.history_enabled = settings.history_limit > 0;
+        updated = true;
+    }
+
+    // Built-ins are immutable product definitions. Re-add any missing entry
+    // while preserving every custom mode from the store.
+    let mut known_mode_ids = settings
+        .pressay_modes
+        .iter()
+        .map(|mode| mode.id.clone())
+        .collect::<std::collections::HashSet<_>>();
+    for builtin in builtin_modes() {
+        if known_mode_ids.insert(builtin.id.clone()) {
+            settings.pressay_modes.push(builtin);
+            updated = true;
+        }
+    }
+    if !settings
+        .pressay_modes
+        .iter()
+        .any(|mode| mode.id == settings.active_mode_id)
+    {
+        settings.active_mode_id = default_active_mode_id();
         updated = true;
     }
 
@@ -1689,6 +1729,20 @@ mod tests {
     }
 
     #[test]
+    fn productivity_defaults_start_in_faithful_local_mode() {
+        let settings = get_default_settings();
+        assert_eq!(settings.active_mode_id, "faithful");
+        assert_eq!(settings.pressay_modes.len(), 5);
+        assert!(settings
+            .pressay_modes
+            .iter()
+            .find(|mode| mode.id == "faithful")
+            .is_some_and(|mode| mode.route == crate::productivity::ProcessingRoute::Local));
+        assert!(settings.app_profiles.is_empty());
+        assert!(settings.dictionary_entries.is_empty());
+    }
+
+    #[test]
     fn legacy_positive_history_limit_migrates_to_enabled() {
         let mut settings = get_default_settings();
         settings.history_limit = 25;
@@ -1702,6 +1756,6 @@ mod tests {
 
         assert!(apply_settings_migrations(&mut settings, &raw));
         assert!(settings.history_enabled);
-        assert_eq!(settings.settings_schema_version, 3);
+        assert_eq!(settings.settings_schema_version, 4);
     }
 }

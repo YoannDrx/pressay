@@ -17,6 +17,7 @@ mod memory;
 mod overlay;
 mod paste_tx;
 pub mod portable;
+pub mod productivity;
 mod secrets;
 mod secure_input;
 mod settings;
@@ -734,6 +735,13 @@ pub fn run(cli_args: CliArgs) {
             commands::history::update_history_audio_retention,
             commands::history::delete_all_history,
             commands::history::update_recording_retention_period,
+            commands::productivity::get_productivity_config,
+            commands::productivity::upsert_pressay_mode,
+            commands::productivity::delete_pressay_mode,
+            commands::productivity::set_active_pressay_mode,
+            commands::productivity::replace_dictionary_entries,
+            commands::productivity::upsert_app_profile,
+            commands::productivity::delete_app_profile,
             transcription_coordinator::get_pipeline_state,
             helpers::clamshell::is_laptop,
         ])
