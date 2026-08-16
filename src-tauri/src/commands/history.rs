@@ -114,6 +114,7 @@ pub async fn retry_history_entry_transcription(
         entry.post_process_requested,
         None,
         None,
+        None,
     )
     .await
     .map_err(|failure| format!("Transformation failed: {}", failure.code))?;

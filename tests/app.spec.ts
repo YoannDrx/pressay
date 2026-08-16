@@ -45,6 +45,20 @@ test.describe("Pressay App", () => {
     ).toBeVisible();
     await expect(page.getByText("Application profiles")).toBeVisible();
 
+    await page.getByRole("button", { name: "Add profile" }).click();
+    await expect(page.getByLabel("Profile language")).toBeVisible();
+    await expect(page.getByLabel("Profile model")).toBeVisible();
+    await expect(page.getByLabel("Profile microphone")).toBeVisible();
+    await expect(
+      page.getByText("Default language", { exact: true }),
+    ).toBeVisible();
+    await expect(
+      page.getByText("Default model", { exact: true }),
+    ).toBeVisible();
+    await expect(
+      page.getByText("Default microphone", { exact: true }),
+    ).toBeVisible();
+
     await page.getByRole("button", { name: "New mode" }).click();
     await expect(page.getByLabel("Custom mode editor")).toBeVisible();
     await expect(page.getByText("Transformation instruction")).toHaveCount(0);

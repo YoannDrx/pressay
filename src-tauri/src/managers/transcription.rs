@@ -273,6 +273,7 @@ pub struct TranscriptionManager {
     watcher_handle: Arc<Mutex<Option<thread::JoinHandle<()>>>>,
     is_loading: Arc<Mutex<bool>>,
     loading_condvar: Arc<Condvar>,
+    requested_model_id: Arc<Mutex<Option<String>>>,
     reload_model_on_next_use: Arc<AtomicBool>,
     /// Routes real-time audio frames to the active streaming worker; see
     /// [`StreamRouter`]. Shared with the audio recorder so per-frame feeds skip
@@ -302,6 +303,15 @@ pub struct TranscriptionManager {
     next_cancel_id: Arc<AtomicU64>,
 }
 
+fn requested_model_requires_load(
+    current_model: Option<&str>,
+    requested_model: &str,
+    model_is_loaded: bool,
+    force_reload: bool,
+) -> bool {
+    force_reload || !model_is_loaded || current_model != Some(requested_model)
+}
+
 impl TranscriptionManager {
     pub fn new(app_handle: &AppHandle, model_manager: Arc<ModelManager>) -> Result<Self> {
         let manager = Self {
@@ -314,6 +324,7 @@ impl TranscriptionManager {
             watcher_handle: Arc::new(Mutex::new(None)),
             is_loading: Arc::new(Mutex::new(false)),
             loading_condvar: Arc::new(Condvar::new()),
+            requested_model_id: Arc::new(Mutex::new(None)),
             reload_model_on_next_use: Arc::new(AtomicBool::new(false)),
             router: Arc::new(StreamRouter::new()),
             stream_active: Arc::new(AtomicBool::new(false)),
@@ -772,31 +783,71 @@ impl TranscriptionManager {
 
     /// Kicks off the model loading in a background thread if it's not already loaded
     pub fn initiate_model_load(&self) {
+        let settings = get_settings(&self.app_handle);
+        self.initiate_model_load_for(&settings.selected_model);
+    }
+
+    /// Loads a model for the next invocation without changing the persisted
+    /// selection. A newer request received while a load is running wins; the
+    /// worker completes the in-flight load, then switches again before waking
+    /// transcription waiters.
+    pub fn initiate_model_load_for(&self, model_id: &str) {
         let mut is_loading = self.is_loading.lock().unwrap();
+        *self.requested_model_id.lock().unwrap() = Some(model_id.to_string());
         if *is_loading {
             return;
         }
 
         let reload_pending = self.reload_model_on_next_use.load(Ordering::Acquire);
-        if !reload_pending && self.is_model_loaded() {
+        if !reload_pending
+            && self.is_model_loaded()
+            && self.get_current_model().as_deref() == Some(model_id)
+        {
+            *self.requested_model_id.lock().unwrap() = None;
             return;
         }
 
         *is_loading = true;
         let self_clone = self.clone();
         thread::spawn(move || {
-            if reload_pending {
+            let mut requested_model = self_clone.requested_model_id.lock().unwrap().take();
+            if requested_model.is_none() {
+                let mut loading = self_clone.is_loading.lock().unwrap();
+                *loading = false;
+                self_clone.loading_condvar.notify_all();
+                return;
+            }
+            let mut force_reload = reload_pending;
+            while let Some(model_id) = requested_model.take() {
                 self_clone
                     .reload_model_on_next_use
                     .store(false, Ordering::Release);
+                let current_model = self_clone.get_current_model();
+                if requested_model_requires_load(
+                    current_model.as_deref(),
+                    &model_id,
+                    self_clone.is_model_loaded(),
+                    force_reload,
+                ) {
+                    if let Err(error) = self_clone.load_model(&model_id) {
+                        error!("Failed to load requested model: {}", error);
+                    }
+                }
+                force_reload = false;
+
+                let mut loading = self_clone.is_loading.lock().unwrap();
+                let next = self_clone.requested_model_id.lock().unwrap().take();
+                if next.as_deref().is_some_and(|next_model| {
+                    self_clone.get_current_model().as_deref() != Some(next_model)
+                }) {
+                    requested_model = next;
+                    drop(loading);
+                    continue;
+                }
+                *loading = false;
+                self_clone.loading_condvar.notify_all();
+                break;
             }
-            let settings = get_settings(&self_clone.app_handle);
-            if let Err(e) = self_clone.load_model(&settings.selected_model) {
-                error!("Failed to load model: {}", e);
-            }
-            let mut is_loading = self_clone.is_loading.lock().unwrap();
-            *is_loading = false;
-            self_clone.loading_condvar.notify_all();
         });
     }
 
@@ -841,7 +892,7 @@ impl TranscriptionManager {
     /// model can't stream, the worker idles until finalize/cancel and reports
     /// `None` so the caller falls back to batch transcription. Frames sent
     /// before the stream begins queue on the channel and are not lost.
-    pub fn start_stream(&self) {
+    pub fn start_stream_with_language(&self, language_override: Option<String>) {
         if self.router.is_open() || self.active_stream_worker.load(Ordering::Acquire) != 0 {
             warn!("start_stream called while a stream worker is already active");
             return;
@@ -859,10 +910,15 @@ impl TranscriptionManager {
         self.stream_active.store(false, Ordering::Release);
 
         let manager = self.clone();
-        thread::spawn(move || manager.run_stream_worker(rx, worker_id));
+        thread::spawn(move || manager.run_stream_worker(rx, worker_id, language_override));
     }
 
-    fn run_stream_worker(&self, rx: mpsc::Receiver<StreamCmd>, worker_id: u64) {
+    fn run_stream_worker(
+        &self,
+        rx: mpsc::Receiver<StreamCmd>,
+        worker_id: u64,
+        language_override: Option<String>,
+    ) {
         let _worker = StreamWorkerGuard {
             worker_id,
             active_stream_worker: Arc::clone(&self.active_stream_worker),
@@ -964,7 +1020,8 @@ impl TranscriptionManager {
 
         // Build run options mirroring the offline transcribe-cpp path: task +
         // language gated against what the model actually advertises.
-        let settings = get_settings(&self.app_handle);
+        let mut settings = get_settings(&self.app_handle);
+        apply_language_override(&mut settings, language_override.as_deref());
         let effective_language =
             effective_language_for_model(&settings, self.model_manager.as_ref(), &model_id);
         let run_plan = transcribe_cpp_run_plan(
@@ -1218,6 +1275,14 @@ impl TranscriptionManager {
     }
 
     pub fn transcribe(&self, audio: Vec<f32>) -> Result<String> {
+        self.transcribe_with_language(audio, None)
+    }
+
+    pub fn transcribe_with_language(
+        &self,
+        audio: Vec<f32>,
+        language_override: Option<&str>,
+    ) -> Result<String> {
         #[cfg(debug_assertions)]
         if std::env::var("HANDY_FORCE_TRANSCRIPTION_FAILURE").is_ok() {
             return Err(anyhow::anyhow!(
@@ -1254,7 +1319,8 @@ impl TranscriptionManager {
         }
 
         // Get current settings for configuration
-        let settings = get_settings(&self.app_handle);
+        let mut settings = get_settings(&self.app_handle);
+        apply_language_override(&mut settings, language_override);
 
         // Validate selected language against the model's supported languages.
         // If the language isn't supported, fall back to "auto" to prevent errors.
@@ -1710,6 +1776,12 @@ fn normalize_cjk_language(language: &str) -> &str {
 
 fn base_language_code(language: &str) -> &str {
     language.split(&['-', '_'][..]).next().unwrap_or(language)
+}
+
+fn apply_language_override(settings: &mut AppSettings, language_override: Option<&str>) {
+    if let Some(language) = language_override.filter(|language| !language.trim().is_empty()) {
+        settings.selected_language = language.to_string();
+    }
 }
 
 /// Resolve the persisted language intent into the language a specific model can
@@ -2573,6 +2645,50 @@ mod tests {
         assert!(matches!(plan.task, Task::Transcribe));
         assert_eq!(plan.language.as_deref(), Some("es"));
         assert_eq!(plan.target_language, None);
+    }
+
+    #[test]
+    fn invocation_language_override_is_ephemeral_and_ignores_blank_values() {
+        let original = AppSettings {
+            selected_language: "en".to_string(),
+            ..Default::default()
+        };
+        let mut invocation = original.clone();
+
+        apply_language_override(&mut invocation, Some("fr"));
+        assert_eq!(invocation.selected_language, "fr");
+        assert_eq!(original.selected_language, "en");
+
+        apply_language_override(&mut invocation, Some("  "));
+        assert_eq!(invocation.selected_language, "fr");
+    }
+
+    #[test]
+    fn invocation_model_request_switches_only_when_required() {
+        assert!(!requested_model_requires_load(
+            Some("parakeet"),
+            "parakeet",
+            true,
+            false,
+        ));
+        assert!(requested_model_requires_load(
+            Some("parakeet"),
+            "whisper-small",
+            true,
+            false,
+        ));
+        assert!(requested_model_requires_load(
+            Some("parakeet"),
+            "parakeet",
+            false,
+            false,
+        ));
+        assert!(requested_model_requires_load(
+            Some("parakeet"),
+            "parakeet",
+            true,
+            true,
+        ));
     }
 }
 

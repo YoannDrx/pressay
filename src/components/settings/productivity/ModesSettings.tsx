@@ -17,6 +17,9 @@ import type {
   ProductivityConfig,
 } from "@/bindings";
 import { useProductivityStore } from "@/stores/productivityStore";
+import { useModelStore } from "@/stores/modelStore";
+import { useSettingsStore } from "@/stores/settingsStore";
+import { SELECTABLE_LANGUAGES } from "@/lib/constants/languages";
 import { Button } from "@/components/ui/Button";
 import { Input } from "@/components/ui/Input";
 import { Select } from "@/components/ui/Select";
@@ -81,6 +84,8 @@ interface ModesSettingsViewProps {
   onDeleteMode: (modeId: string) => Promise<unknown> | unknown;
   onSaveProfile: (profile: AppProfile) => Promise<boolean> | boolean;
   onDeleteProfile: (profileId: string) => Promise<unknown> | unknown;
+  modelOptions?: Array<{ value: string; label: string }>;
+  microphoneOptions?: Array<{ value: string; label: string }>;
 }
 
 export const ModesSettingsView = ({
@@ -93,6 +98,8 @@ export const ModesSettingsView = ({
   onDeleteMode,
   onSaveProfile,
   onDeleteProfile,
+  modelOptions = [],
+  microphoneOptions = [],
 }: ModesSettingsViewProps) => {
   const { t } = useTranslation();
   const [showModeForm, setShowModeForm] = useState(false);
@@ -193,6 +200,7 @@ export const ModesSettingsView = ({
             <label>
               <span>{t("pressay.modes.route", { defaultValue: "Route" })}</span>
               <Select
+                ariaLabel={t("pressay.modes.route", { defaultValue: "Route" })}
                 value={modeDraft.route}
                 isClearable={false}
                 options={Object.entries(routeMeta).map(([value, meta]) => ({
@@ -379,6 +387,7 @@ export const ModesSettingsView = ({
               }
             />
             <Select
+              ariaLabel="Profile mode"
               value={profileDraft.mode_id}
               isClearable={false}
               options={modeOptions}
@@ -390,6 +399,7 @@ export const ModesSettingsView = ({
               }
             />
             <Select
+              ariaLabel="Profile output"
               value={profileDraft.output ?? "paste"}
               isClearable={false}
               options={[
@@ -401,6 +411,51 @@ export const ModesSettingsView = ({
                 setProfileDraft((current) => ({
                   ...current,
                   output: (value ?? "paste") as OutputBehavior,
+                }))
+              }
+            />
+            <Select
+              ariaLabel="Profile language"
+              value={profileDraft.language ?? "__default__"}
+              isClearable={false}
+              options={[
+                { value: "__default__", label: "Default language" },
+                ...SELECTABLE_LANGUAGES,
+              ]}
+              onChange={(value) =>
+                setProfileDraft((current) => ({
+                  ...current,
+                  language: value === "__default__" ? null : value,
+                }))
+              }
+            />
+            <Select
+              ariaLabel="Profile model"
+              value={profileDraft.model ?? "__default__"}
+              isClearable={false}
+              options={[
+                { value: "__default__", label: "Default model" },
+                ...modelOptions,
+              ]}
+              onChange={(value) =>
+                setProfileDraft((current) => ({
+                  ...current,
+                  model: value === "__default__" ? null : value,
+                }))
+              }
+            />
+            <Select
+              ariaLabel="Profile microphone"
+              value={profileDraft.microphone ?? "__default__"}
+              isClearable={false}
+              options={[
+                { value: "__default__", label: "Default microphone" },
+                ...microphoneOptions,
+              ]}
+              onChange={(value) =>
+                setProfileDraft((current) => ({
+                  ...current,
+                  microphone: value === "__default__" ? null : value,
                 }))
               }
             />
@@ -434,6 +489,13 @@ export const ModesSettingsView = ({
                 <div>
                   <strong>{profile.app_name}</strong>
                   <span className="technical-label">{profile.bundle_id}</span>
+                  {profile.language || profile.model || profile.microphone ? (
+                    <span className="technical-label profile-overrides">
+                      {[profile.language, profile.model, profile.microphone]
+                        .filter(Boolean)
+                        .join(" · ")}
+                    </span>
+                  ) : null}
                 </div>
                 <span>
                   {config.modes.find((mode) => mode.id === profile.mode_id)
@@ -469,10 +531,18 @@ export const ModesSettings = () => {
   const deleteMode = useProductivityStore((state) => state.deleteMode);
   const saveProfile = useProductivityStore((state) => state.saveProfile);
   const deleteProfile = useProductivityStore((state) => state.deleteProfile);
+  const models = useModelStore((state) => state.models);
+  const initializeModels = useModelStore((state) => state.initialize);
+  const audioDevices = useSettingsStore((state) => state.audioDevices);
+  const refreshAudioDevices = useSettingsStore(
+    (state) => state.refreshAudioDevices,
+  );
 
   useEffect(() => {
     void initialize();
-  }, [initialize]);
+    void initializeModels();
+    void refreshAudioDevices();
+  }, [initialize, initializeModels, refreshAudioDevices]);
 
   if (!config) {
     return (
@@ -493,6 +563,12 @@ export const ModesSettings = () => {
       onDeleteMode={deleteMode}
       onSaveProfile={saveProfile}
       onDeleteProfile={deleteProfile}
+      modelOptions={models
+        .filter((model) => model.is_downloaded)
+        .map((model) => ({ value: model.id, label: model.name }))}
+      microphoneOptions={audioDevices
+        .filter((device) => !device.is_default)
+        .map((device) => ({ value: device.name, label: device.name }))}
     />
   );
 };

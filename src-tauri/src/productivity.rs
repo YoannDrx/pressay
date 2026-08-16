@@ -148,6 +148,7 @@ pub struct ResolvedMode {
     pub mode: PressayMode,
     pub source: ModeSelectionSource,
     pub profile_id: Option<String>,
+    pub profile: Option<AppProfile>,
     pub output: OutputBehavior,
     pub target: Option<TargetApplication>,
 }
@@ -187,6 +188,13 @@ impl ProductivityRuntime {
             .lock()
             .ok()
             .and_then(|mut invocation| invocation.temporary_mode_id.take())
+    }
+
+    pub fn peek_invocation_mode(&self) -> Option<ResolvedMode> {
+        self.invocation
+            .lock()
+            .ok()
+            .and_then(|invocation| invocation.resolved_mode.clone())
     }
 
     pub fn take_invocation(&self) -> (Option<ResolvedMode>, Option<SelectionContext>) {
@@ -241,6 +249,7 @@ pub fn resolve_mode(
             mode,
             source: ModeSelectionSource::Temporary,
             profile_id: None,
+            profile: None,
             output: OutputBehavior::Paste,
             target,
         });
@@ -257,6 +266,7 @@ pub fn resolve_mode(
                 mode,
                 source: ModeSelectionSource::AppProfile,
                 profile_id: Some(profile.id.clone()),
+                profile: Some(profile.clone()),
                 output: profile.output,
                 target,
             });
@@ -270,6 +280,7 @@ pub fn resolve_mode(
             mode,
             source: ModeSelectionSource::Default,
             profile_id: None,
+            profile: None,
             output: OutputBehavior::Paste,
             target,
         })
@@ -527,8 +538,26 @@ pub fn validate_profile(
         return Err("Bundle ID must use reverse-DNS notation".to_string());
     }
     validate_text(&profile.app_name, "Application name", 120)?;
+    if !(-10_000..=10_000).contains(&profile.priority) {
+        return Err("Profile priority must be between -10000 and 10000".to_string());
+    }
     if !known_mode_ids.contains(profile.mode_id.as_str()) {
         return Err(format!("Unknown mode id '{}'", profile.mode_id));
+    }
+    if let Some(language) = profile.language.as_deref() {
+        validate_text(language, "Profile language", 35)?;
+        static LANGUAGE_PATTERN: OnceLock<Regex> = OnceLock::new();
+        let language_pattern = LANGUAGE_PATTERN
+            .get_or_init(|| Regex::new(r"^(?:auto|[A-Za-z]{2,3}(?:-[A-Za-z0-9]{2,8})*)$").unwrap());
+        if !language_pattern.is_match(language) {
+            return Err("Profile language must be a valid language tag".to_string());
+        }
+    }
+    if let Some(microphone) = profile.microphone.as_deref() {
+        validate_text(microphone, "Profile microphone", 255)?;
+    }
+    if let Some(model) = profile.model.as_deref() {
+        validate_text(model, "Profile model", 500)?;
     }
     Ok(())
 }
@@ -658,9 +687,9 @@ mod tests {
                 app_name: "Notion".into(),
                 priority: 10,
                 mode_id: "email".into(),
-                language: None,
-                microphone: None,
-                model: None,
+                language: Some("fr".into()),
+                microphone: Some("Studio Mic".into()),
+                model: Some("whisper-small".into()),
                 output: OutputBehavior::Type,
             },
         ];
@@ -686,6 +715,10 @@ mod tests {
         assert_eq!(profiled.mode.id, "email");
         assert_eq!(profiled.profile_id.as_deref(), Some("high"));
         assert_eq!(profiled.output, OutputBehavior::Type);
+        let selected_profile = profiled.profile.unwrap();
+        assert_eq!(selected_profile.language.as_deref(), Some("fr"));
+        assert_eq!(selected_profile.microphone.as_deref(), Some("Studio Mic"));
+        assert_eq!(selected_profile.model.as_deref(), Some("whisper-small"));
 
         let default = resolve_mode(&modes, &profiles, "faithful", None, None).unwrap();
         assert_eq!(default.mode.id, "faithful");
@@ -834,5 +867,28 @@ mod tests {
         };
         assert!(validate_dictionary(std::slice::from_ref(&entry)).is_ok());
         assert!(validate_dictionary(&[entry.clone(), entry]).is_err());
+    }
+
+    #[test]
+    fn profile_rejects_invalid_language_and_extreme_priority() {
+        let mut profile = AppProfile {
+            id: "mail".into(),
+            bundle_id: "com.apple.mail".into(),
+            app_name: "Mail".into(),
+            priority: 0,
+            mode_id: "faithful".into(),
+            language: Some("fr".into()),
+            microphone: Some("Studio Mic".into()),
+            model: Some("whisper-small".into()),
+            output: OutputBehavior::Paste,
+        };
+        let known_modes = HashSet::from(["faithful"]);
+        assert!(validate_profile(&profile, &known_modes).is_ok());
+
+        profile.language = Some("../../secret".into());
+        assert!(validate_profile(&profile, &known_modes).is_err());
+        profile.language = Some("fr".into());
+        profile.priority = 10_001;
+        assert!(validate_profile(&profile, &known_modes).is_err());
     }
 }

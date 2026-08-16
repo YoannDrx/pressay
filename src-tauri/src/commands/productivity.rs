@@ -5,6 +5,7 @@ use crate::productivity::{
 use crate::settings::{get_settings, write_settings};
 use std::cmp::Reverse;
 use std::collections::HashSet;
+use std::sync::Arc;
 use tauri::{AppHandle, Manager};
 
 #[tauri::command]
@@ -112,6 +113,19 @@ pub fn upsert_app_profile(app: AppHandle, profile: AppProfile) -> Result<(), Str
         .map(|mode| mode.id.as_str())
         .collect::<HashSet<_>>();
     validate_profile(&profile, &mode_ids)?;
+    if let Some(model_id) = profile
+        .model
+        .as_deref()
+        .filter(|model_id| !model_id.trim().is_empty())
+    {
+        let model = app
+            .state::<Arc<crate::managers::model::ModelManager>>()
+            .get_model_info(model_id)
+            .ok_or_else(|| "Profile model was not found in the audited catalog".to_string())?;
+        if !model.is_downloaded {
+            return Err("Download the profile model before assigning it".to_string());
+        }
+    }
     if let Some(existing) = settings
         .app_profiles
         .iter_mut()

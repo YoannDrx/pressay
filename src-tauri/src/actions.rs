@@ -595,19 +595,26 @@ async fn process_pressay_mode(
 /// paths apply (see [`crate::managers::model::effective_language`]). Post-processing
 /// resolves it independently so it agrees with the language the transcription ran
 /// in, without threading a value through the pipeline.
-fn resolve_effective_language(app: &AppHandle, settings: &AppSettings) -> String {
+fn resolve_effective_language(
+    app: &AppHandle,
+    settings: &AppSettings,
+    language_override: Option<&str>,
+) -> String {
     let tm = app.state::<Arc<TranscriptionManager>>();
     let model_manager = app.state::<Arc<ModelManager>>();
+    let language_intent = language_override
+        .filter(|language| !language.trim().is_empty())
+        .unwrap_or(&settings.selected_language);
     let active_model = tm
         .get_current_model()
         .unwrap_or_else(|| settings.selected_model.clone());
     match model_manager.get_model_info(&active_model) {
         Some(info) => crate::managers::model::effective_language(
-            &settings.selected_language,
+            language_intent,
             &info.supported_languages,
             info.supports_language_detection,
         ),
-        None => settings.selected_language.clone(),
+        None => language_intent.to_string(),
     }
 }
 
@@ -617,6 +624,7 @@ pub(crate) async fn process_transcription_output(
     legacy_post_process: bool,
     resolved_mode: Option<&ResolvedMode>,
     selection: Option<&SelectionContext>,
+    language_override: Option<&str>,
 ) -> Result<ProcessedTranscription, TransformFailure> {
     let settings = get_settings(app);
     let mut final_text = transcription.to_string();
@@ -626,7 +634,7 @@ pub(crate) async fn process_transcription_output(
     // Resolve the language the transcription actually ran in (the persisted
     // intent coerced against the loaded model's capabilities) so OpenCC keys off
     // the effective language rather than a possibly-stale intent.
-    let effective_language = resolve_effective_language(app, &settings);
+    let effective_language = resolve_effective_language(app, &settings, language_override);
     if let Some(converted_text) =
         maybe_convert_chinese_variant(&effective_language, transcription).await
     {
@@ -706,10 +714,30 @@ impl ShortcutAction for TranscribeAction {
         // Load model in the background
         let tm = app.state::<Arc<TranscriptionManager>>();
         let rm = app.state::<Arc<AudioRecordingManager>>();
+        let invocation_profile = (!self.post_process)
+            .then(|| {
+                app.try_state::<ProductivityRuntime>()
+                    .and_then(|runtime| runtime.peek_invocation_mode())
+                    .and_then(|resolved| resolved.profile)
+            })
+            .flatten();
+        let invocation_model = invocation_profile
+            .as_ref()
+            .and_then(|profile| profile.model.clone())
+            .filter(|model| !model.trim().is_empty())
+            .unwrap_or_else(|| settings.selected_model.clone());
+        let invocation_language = invocation_profile
+            .as_ref()
+            .and_then(|profile| profile.language.clone())
+            .filter(|language| !language.trim().is_empty());
+        let invocation_microphone = invocation_profile
+            .as_ref()
+            .and_then(|profile| profile.microphone.clone())
+            .filter(|microphone| !microphone.trim().is_empty());
 
         // Load ASR model and VAD model in parallel
         let kickoff_started = Instant::now();
-        tm.initiate_model_load();
+        tm.initiate_model_load_for(&invocation_model);
         let rm_clone = Arc::clone(&rm);
         std::thread::spawn(move || {
             if let Err(e) = rm_clone.preload_vad() {
@@ -729,7 +757,7 @@ impl ShortcutAction for TranscribeAction {
 
         let selected_model_info = app
             .state::<Arc<ModelManager>>()
-            .get_model_info(&settings.selected_model);
+            .get_model_info(&invocation_model);
 
         // Use the app-facing model capability as the single pre-recording source
         // for live streaming decisions. Unknown support is represented as false
@@ -746,7 +774,7 @@ impl ShortcutAction for TranscribeAction {
             VadPolicy::Offline
         };
         if model_supports_streaming {
-            tm.start_stream();
+            tm.start_stream_with_language(invocation_language);
         }
         let plan_elapsed = plan_started.elapsed();
 
@@ -772,7 +800,11 @@ impl ShortcutAction for TranscribeAction {
 
         let mut recording_error: Option<String> = None;
         let recording_start_time = Instant::now();
-        match rm.try_start_recording(&binding_id, vad_policy) {
+        match rm.try_start_recording_with_microphone(
+            &binding_id,
+            vad_policy,
+            invocation_microphone.as_deref(),
+        ) {
             Ok(readiness) => {
                 debug!(
                     "Recording request accepted in {:?}; waiting for first microphone samples",
@@ -935,6 +967,11 @@ impl ShortcutAction for TranscribeAction {
             .as_ref()
             .map(|resolved| resolved.output)
             .unwrap_or_default();
+        let language_override = resolved_mode
+            .as_ref()
+            .and_then(|resolved| resolved.profile.as_ref())
+            .and_then(|profile| profile.language.clone())
+            .filter(|language| !language.trim().is_empty());
         let cancel_generation = rm.cancel_generation();
         let operation_id = app
             .state::<TranscriptionCoordinator>()
@@ -1005,6 +1042,7 @@ impl ShortcutAction for TranscribeAction {
                     let timeout = transcription_timeout(samples.len());
                     let tm_for_transcription = Arc::clone(&tm);
                     let rm_for_transcription = Arc::clone(&rm);
+                    let batch_language = language_override.clone();
                     let transcription_task = tauri::async_runtime::spawn_blocking(move || {
                         match tm_for_transcription.finalize_stream() {
                             // A finalized stream with usable text wins. An empty
@@ -1016,7 +1054,8 @@ impl ShortcutAction for TranscribeAction {
                             {
                                 Err(anyhow::anyhow!("Transcription cancelled"))
                             }
-                            Ok(_) => tm_for_transcription.transcribe(samples),
+                            Ok(_) => tm_for_transcription
+                                .transcribe_with_language(samples, batch_language.as_deref()),
                             Err(err) => Err(err),
                         }
                     });
@@ -1100,6 +1139,7 @@ impl ShortcutAction for TranscribeAction {
                                     post_process,
                                     resolved_mode.as_ref(),
                                     selection_context.as_ref(),
+                                    language_override.as_deref(),
                                 ),
                                 POST_PROCESS_TIMEOUT,
                                 || rm.was_cancelled_since(cancel_generation),

@@ -27,6 +27,10 @@ struct DeviceResolution {
     explicit_device_missing: bool,
 }
 
+fn configured_device_changed(desired: Option<&str>, active: Option<&str>) -> bool {
+    desired.is_some_and(|desired| active != Some(desired))
+}
+
 fn set_mute(mute: bool) {
     // Expected behavior:
     // - Windows: works on most systems using standard audio drivers.
@@ -362,6 +366,9 @@ pub struct AudioRecordingManager {
     /// so the retry re-enumerates. The system-default case is never cached —
     /// the recorder resolves the current default itself, cheaply.
     cached_device: Arc<Mutex<Option<(String, cpal::Device)>>>,
+    /// Per-invocation device requested by an application profile. It never
+    /// mutates settings and is cleared as soon as the recording ends.
+    invocation_microphone: Arc<Mutex<Option<String>>>,
 }
 
 impl AudioRecordingManager {
@@ -393,6 +400,7 @@ impl AudioRecordingManager {
             recording_active: Arc::new(AtomicBool::new(false)),
             capture_generation: Arc::new(AtomicU64::new(0)),
             cached_device: Arc::new(Mutex::new(None)),
+            invocation_microphone: Arc::new(Mutex::new(None)),
         };
 
         // Always-on?  Open immediately.
@@ -409,6 +417,9 @@ impl AudioRecordingManager {
     /// default. Only runs the clamshell probe (an `ioreg` subprocess, ~10-20ms)
     /// when a clamshell microphone is actually configured.
     fn desired_device_name(&self, settings: &AppSettings) -> Option<String> {
+        if let Some(device) = self.invocation_microphone.lock().unwrap().clone() {
+            return Some(device);
+        }
         if settings.clamshell_microphone.is_some() {
             let clamshell_started = Instant::now();
             let is_clamshell = clamshell::is_clamshell().unwrap_or(false);
@@ -638,9 +649,22 @@ impl AudioRecordingManager {
                 .unwrap()
                 .as_ref()
                 .is_some_and(AudioRecorder::needs_reopen);
-            let default_device_changed = !needs_reopen && self.default_stream_device_changed();
+            let settings = get_settings(&self.app_handle);
+            let desired_device = self.desired_device_name(&settings);
+            let active_device = self
+                .recorder
+                .lock()
+                .unwrap()
+                .as_ref()
+                .and_then(AudioRecorder::active_device_name);
+            let configured_device_changed =
+                configured_device_changed(desired_device.as_deref(), active_device.as_deref());
+            let default_device_changed = !needs_reopen
+                && !configured_device_changed
+                && desired_device.is_none()
+                && self.default_stream_device_changed();
 
-            if !needs_reopen && !default_device_changed {
+            if !needs_reopen && !configured_device_changed && !default_device_changed {
                 // trace, not debug: with the aliveness check in
                 // try_start_recording this now fires on every keypress in
                 // always-on mode.
@@ -650,8 +674,10 @@ impl AudioRecordingManager {
 
             if needs_reopen {
                 warn!("Microphone stream is no longer running (device disconnected?); reopening");
-            } else {
+            } else if default_device_changed {
                 info!("System default microphone changed; reopening stream before recording");
+            } else {
+                info!("Application profile microphone changed; reopening stream before recording");
             }
 
             // Torn down inline rather than via stop_microphone_stream(), which
@@ -694,6 +720,13 @@ impl AudioRecordingManager {
         let mut settings = get_settings(&self.app_handle);
         let resolve_started = Instant::now();
         let selected_device = self.get_effective_microphone_device(&settings);
+        if selected_device.explicit_device_missing
+            && self.invocation_microphone.lock().unwrap().is_some()
+        {
+            return Err(anyhow::anyhow!(
+                "Application profile microphone is unavailable"
+            ));
+        }
         self.fall_back_from_missing_selected_device(
             &mut settings,
             selected_device.explicit_device_missing,
@@ -715,6 +748,13 @@ impl AudioRecordingManager {
                 warn!("Recorder open failed ({first_err}); re-resolving device and retrying once");
                 self.invalidate_device_cache();
                 let fresh_device = self.get_effective_microphone_device(&settings);
+                if fresh_device.explicit_device_missing
+                    && self.invocation_microphone.lock().unwrap().is_some()
+                {
+                    return Err(anyhow::anyhow!(
+                        "Application profile microphone became unavailable"
+                    ));
+                }
                 self.fall_back_from_missing_selected_device(
                     &mut settings,
                     fresh_device.explicit_device_missing,
@@ -810,7 +850,23 @@ impl AudioRecordingManager {
         );
     }
 
-    pub fn try_start_recording(
+    pub fn try_start_recording_with_microphone(
+        &self,
+        binding_id: &str,
+        vad_policy: VadPolicy,
+        microphone_override: Option<&str>,
+    ) -> Result<RecordingReadiness, String> {
+        *self.invocation_microphone.lock().unwrap() = microphone_override
+            .filter(|device| !device.trim().is_empty() && *device != "default")
+            .map(str::to_string);
+        let result = self.try_start_recording_inner(binding_id, vad_policy);
+        if result.is_err() {
+            *self.invocation_microphone.lock().unwrap() = None;
+        }
+        result
+    }
+
+    fn try_start_recording_inner(
         &self,
         binding_id: &str,
         vad_policy: VadPolicy,
@@ -1010,6 +1066,7 @@ impl AudioRecordingManager {
 
                 *self.is_recording.lock().unwrap() = false;
                 self.set_state(&mut self.state.lock().unwrap(), RecordingState::Idle);
+                *self.invocation_microphone.lock().unwrap() = None;
 
                 // In on-demand mode, close the mic (lazily if the setting is enabled)
                 if matches!(*self.mode.lock().unwrap(), MicrophoneMode::OnDemand) {
@@ -1079,5 +1136,25 @@ impl AudioRecordingManager {
             }
             RecordingState::Idle => {}
         }
+        *self.invocation_microphone.lock().unwrap() = None;
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::configured_device_changed;
+
+    #[test]
+    fn explicit_profile_microphone_reopens_only_when_the_device_differs() {
+        assert!(!configured_device_changed(
+            Some("Studio Mic"),
+            Some("Studio Mic")
+        ));
+        assert!(configured_device_changed(
+            Some("Studio Mic"),
+            Some("MacBook Microphone")
+        ));
+        assert!(configured_device_changed(Some("Studio Mic"), None));
+        assert!(!configured_device_changed(None, Some("Studio Mic")));
     }
 }
