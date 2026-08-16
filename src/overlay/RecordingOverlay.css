@@ -5,8 +5,8 @@
   /* Near-opaque app surface (theme.css --color-background at 98%). Auto-flips
      light/dark with --color-background, so no dark-mode override is needed. */
   --s-surface: color-mix(in srgb, var(--color-background) 98%, transparent);
-  /* Accent = logo pink; flips automatically via --color-logo-primary. */
-  --s-accent: var(--color-logo-primary);
+  /* The product uses one semantic accent across the panel and overlay. */
+  --s-accent: var(--color-accent);
   /* Light/dark pairs for the tokens that can't flip through a shared palette
      variable on their own. Same shape as theme.css: each value is written once
      here, and the active token below is re-pointed by the media query or by the
@@ -16,8 +16,7 @@
     var(--color-background-ui) 16%,
     transparent
   );
-  /* Dark uses the lighter logo pink — reads better on the dark surface than the
-     deeper UI pink. */
+  /* Keep a slightly stronger halo on the dark surface. */
   --dark-s-accent-soft: color-mix(
     in srgb,
     var(--color-logo-primary) 20%,
@@ -58,6 +57,20 @@
   --ov-open-w: 392px; /* Live panel, expanded */
   --ov-base-h: 40px; /* control-row height (.sbase) */
   --ov-cap-max-h: 64px; /* max height of the scrolling live-text region */
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .scard,
+  .ov-fade,
+  .stext,
+  .sdot,
+  .swave i,
+  .sx,
+  .scaret,
+  .sspinner {
+    animation: none !important;
+    transition-duration: 0.01ms !important;
+  }
 }
 @media (prefers-color-scheme: dark) {
   :root {
