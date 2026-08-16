@@ -8,6 +8,7 @@ import {
   Languages,
   RefreshCw,
   Search,
+  SlidersHorizontal,
 } from "lucide-react";
 import type { ModelCardStatus } from "@/components/onboarding";
 import { ModelCard } from "@/components/onboarding";
@@ -28,7 +29,9 @@ const modelSupportsLanguage = (model: ModelInfo, langCode: string): boolean => {
 // the catalog GGUFs. They stay runnable when already on disk, but we no longer
 // advertise the download.
 const isLegacyModel = (model: ModelInfo): boolean =>
-  typeof model.source === "object" && "Url" in model.source;
+  typeof model.source === "object" &&
+  "Url" in model.source &&
+  !model.id.startsWith("pressay/");
 
 export const ModelsSettings: React.FC = () => {
   const { t } = useTranslation();
@@ -39,6 +42,7 @@ export const ModelsSettings: React.FC = () => {
   const [languageFilter, setLanguageFilter] = useState("all");
   const [languageDropdownOpen, setLanguageDropdownOpen] = useState(false);
   const [languageSearch, setLanguageSearch] = useState("");
+  const [showAdvanced, setShowAdvanced] = useState(false);
   const languageDropdownRef = useRef<HTMLDivElement>(null);
   const languageSearchInputRef = useRef<HTMLInputElement>(null);
   const {
@@ -177,6 +181,10 @@ export const ModelsSettings: React.FC = () => {
   const filteredModels = useMemo(() => {
     const q = searchQuery.trim().toLowerCase();
     return models.filter((model: ModelInfo) => {
+      const isPressayPreset = model.id.startsWith("pressay/");
+      if (!showAdvanced && !isPressayPreset && model.id !== currentModel) {
+        return false;
+      }
       // Hide deprecated legacy (.bin/ONNX) downloads unless already on disk.
       if (isLegacyModel(model) && !model.is_downloaded) return false;
       if (languageFilter !== "all") {
@@ -191,7 +199,15 @@ export const ModelsSettings: React.FC = () => {
       }
       return true;
     });
-  }, [models, languageFilter, filterStreaming, filterTranslation, searchQuery]);
+  }, [
+    models,
+    currentModel,
+    showAdvanced,
+    languageFilter,
+    filterStreaming,
+    filterTranslation,
+    searchQuery,
+  ]);
 
   // Split filtered models into downloaded (including custom) and available sections
   const { downloadedModels, availableModels } = useMemo(() => {
@@ -238,25 +254,42 @@ export const ModelsSettings: React.FC = () => {
   return (
     <div className="max-w-3xl w-full mx-auto space-y-4">
       <div className="mb-4">
-        <h1 className="text-xl font-semibold mb-2">
-          {t("settings.models.title")}
-        </h1>
+        <div className="flex items-center justify-between gap-4 mb-2">
+          <h1 className="text-xl font-semibold">
+            {t("settings.models.title")}
+          </h1>
+          <button
+            type="button"
+            onClick={() => setShowAdvanced((visible) => !visible)}
+            aria-expanded={showAdvanced}
+            className={`inline-flex items-center gap-2 px-3 py-2 rounded-lg text-sm font-medium border transition-colors ${
+              showAdvanced
+                ? "border-logo-primary/40 bg-logo-primary/10 text-logo-primary"
+                : "border-mid-gray/30 bg-mid-gray/10 text-text/60 hover:text-text"
+            }`}
+          >
+            <SlidersHorizontal className="w-4 h-4" />
+            {t("sidebar.advanced")}
+          </button>
+        </div>
         <p className="text-sm text-text/60">
           {t("settings.models.description")}
         </p>
       </div>
 
       {/* Search bar — filter the catalog by name or description */}
-      <div className="relative">
-        <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-text/40 pointer-events-none" />
-        <input
-          type="text"
-          value={searchQuery}
-          onChange={(e) => setSearchQuery(e.target.value)}
-          placeholder={t("settings.models.searchPlaceholder")}
-          className="w-full pl-9 pr-3 py-2 text-sm bg-mid-gray/10 border border-mid-gray/40 rounded-lg focus:outline-none focus:ring-1 focus:ring-logo-primary placeholder:text-text/40"
-        />
-      </div>
+      {showAdvanced && (
+        <div className="relative">
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-text/40 pointer-events-none" />
+          <input
+            type="text"
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            placeholder={t("settings.models.searchPlaceholder")}
+            className="w-full pl-9 pr-3 py-2 text-sm bg-mid-gray/10 border border-mid-gray/40 rounded-lg focus:outline-none focus:ring-1 focus:ring-logo-primary placeholder:text-text/40"
+          />
+        </div>
+      )}
 
       <div className="space-y-6">
         {/* Downloaded Models Section — header always visible so filter stays accessible */}
@@ -265,8 +298,11 @@ export const ModelsSettings: React.FC = () => {
             <h2 className="text-sm font-medium text-text/60">
               {t("settings.models.yourModels")}
             </h2>
-            <div className="flex items-center gap-2">
-              {/* Rescan local sources for models added outside Handy */}
+            <div
+              className={`items-center gap-2 ${showAdvanced ? "flex" : "hidden"}`}
+              aria-hidden={!showAdvanced}
+            >
+              {/* Rescan Pressay's custom-model directory */}
               <button
                 type="button"
                 onClick={() => rescanLocalModels()}

@@ -95,6 +95,18 @@
       "cohere-int8": {
         "name": "Cohere",
         "description": "Mô hình lớn, chậm hơn, nhưng rất chính xác và đa ngôn ngữ."
+      },
+      "pressay/parakeet-v3": {
+        "name": "Parakeet V3",
+        "description": "Fast local transcription for French and 24 other European languages."
+      },
+      "pressay/whisper-small": {
+        "name": "Whisper Small",
+        "description": "Polyglot local transcription across 99 languages, with translation to English."
+      },
+      "pressay/whisper-large": {
+        "name": "Whisper Large v3",
+        "description": "The most accurate Pressay preset for capable Apple Silicon Macs."
       }
     },
     "errors": {
@@ -153,7 +165,12 @@
     },
     "cancel": "Hủy",
     "cancelDownload": "Hủy tải xuống",
-    "legacy": "Cũ"
+    "legacy": "Cũ",
+    "presets": {
+      "fast": "Fast",
+      "polyglot": "Polyglot",
+      "precise": "Precise"
+    }
   },
   "settings": {
     "modelSettings": {
@@ -176,7 +193,7 @@
       "searchPlaceholder": "Tìm mô hình theo tên…",
       "rescan": {
         "label": "Quét lại",
-        "tooltip": "Quét lại các mô hình được thêm vào thư mục mô hình hoặc bộ nhớ đệm Hugging Face bên ngoài Pressay"
+        "tooltip": "Rescan models added to the Pressay models folder"
       }
     },
     "general": {
@@ -587,7 +604,7 @@
       "sourceCode": {
         "title": "Mã nguồn",
         "description": "Xem mã nguồn và đóng góp",
-        "button": "Xem trên GitHub"
+        "license": "MIT"
       },
       "supportDevelopment": {
         "title": "Hỗ trợ phát triển",
@@ -600,6 +617,11 @@
           "title": "ggml",
           "description": "Suy luận hiệu suất cao của mô hình nhận dạng giọng nói tự động Whisper của OpenAI",
           "details": "Pressay sử dụng ggml để xử lý chuyển đổi giọng nói thành văn bản nhanh, cục bộ. Cảm ơn công việc tuyệt vời của Georgi Gerganov và các cộng tác viên."
+        },
+        "models": {
+          "title": "Local models",
+          "description": "Attribution and licences for the Pressay presets",
+          "details": "Parakeet TDT 0.6B v3 © NVIDIA, licensed under CC BY 4.0. Whisper Small and Whisper Large v3 © OpenAI, model weights and code licensed under MIT."
         }
       },
       "whatsNewUpdates": {

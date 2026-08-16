@@ -95,6 +95,18 @@
       "cohere-int8": {
         "name": "Cohere",
         "description": "Un modello grande, più lento, ma molto accurato e multilingue."
+      },
+      "pressay/parakeet-v3": {
+        "name": "Parakeet V3",
+        "description": "Fast local transcription for French and 24 other European languages."
+      },
+      "pressay/whisper-small": {
+        "name": "Whisper Small",
+        "description": "Polyglot local transcription across 99 languages, with translation to English."
+      },
+      "pressay/whisper-large": {
+        "name": "Whisper Large v3",
+        "description": "The most accurate Pressay preset for capable Apple Silicon Macs."
       }
     },
     "errors": {
@@ -153,7 +165,12 @@
     },
     "cancel": "Annulla",
     "cancelDownload": "Annulla download",
-    "legacy": "Obsoleto"
+    "legacy": "Obsoleto",
+    "presets": {
+      "fast": "Fast",
+      "polyglot": "Polyglot",
+      "precise": "Precise"
+    }
   },
   "settings": {
     "modelSettings": {
@@ -176,7 +193,7 @@
       "searchPlaceholder": "Cerca modelli per nome…",
       "rescan": {
         "label": "Riscansiona",
-        "tooltip": "Riscansiona per trovare modelli aggiunti alla cartella dei modelli o alla cache di Hugging Face al di fuori di Pressay"
+        "tooltip": "Rescan models added to the Pressay models folder"
       }
     },
     "general": {
@@ -587,7 +604,7 @@
       "sourceCode": {
         "title": "Codice Sorgente",
         "description": "Vedi e contribuisci al codice sorgente",
-        "button": "Vedi su GitHub"
+        "license": "MIT"
       },
       "supportDevelopment": {
         "title": "Supporta lo Sviluppo",
@@ -600,6 +617,11 @@
           "title": "ggml",
           "description": "Inferenza ad alte prestazioni del modello di riconoscimento vocale automatico Whisper di OpenAI",
           "details": "Pressay usa ggml per il riconoscimento vocale veloce in locale. Grazie a Georgi Gerganov e collaboratori per il fantastico lavoro."
+        },
+        "models": {
+          "title": "Local models",
+          "description": "Attribution and licences for the Pressay presets",
+          "details": "Parakeet TDT 0.6B v3 © NVIDIA, licensed under CC BY 4.0. Whisper Small and Whisper Large v3 © OpenAI, model weights and code licensed under MIT."
         }
       },
       "whatsNewUpdates": {

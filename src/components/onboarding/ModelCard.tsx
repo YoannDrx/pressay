@@ -40,10 +40,21 @@ const getLanguageDisplayText = (
   });
 };
 
-// Legacy = a blob (Url-sourced) .bin/ONNX model, kept runnable but no longer the
-// advertised download (catalog GGUFs supersede it).
+// Legacy downloads also use direct URLs, so source shape alone cannot identify
+// them now that the signed Pressay catalog is served from the Pressay CDN.
 export const isLegacySource = (model: ModelInfo): boolean =>
-  typeof model.source === "object" && "Url" in model.source;
+  typeof model.source === "object" &&
+  "Url" in model.source &&
+  !model.id.startsWith("pressay/");
+
+const getPressayPreset = (
+  modelId: string,
+): "fast" | "polyglot" | "precise" | null => {
+  if (modelId.startsWith("pressay/parakeet-v3/")) return "fast";
+  if (modelId.startsWith("pressay/whisper-small/")) return "polyglot";
+  if (modelId.startsWith("pressay/whisper-large/")) return "precise";
+  return null;
+};
 
 // Extract a GGUF quantization label from a filename, if present (e.g. "Q8_0").
 const getQuantLabel = (filename: string): string | null => {
@@ -110,6 +121,7 @@ const ModelCard: React.FC<ModelCardProps> = ({
   const capabilityLanguages = getUniqueCapabilityLanguages(
     model.supported_languages,
   );
+  const pressayPreset = getPressayPreset(model.id);
 
   const baseClasses =
     "flex flex-col rounded-xl px-4 py-3 gap-2 text-left transition-all duration-200";
@@ -170,6 +182,11 @@ const ModelCard: React.FC<ModelCardProps> = ({
             >
               {displayName}
             </h3>
+            {pressayPreset && (
+              <Badge variant="secondary">
+                {t(`modelSelector.presets.${pressayPreset}`)}
+              </Badge>
+            )}
             {showRecommended && model.is_recommended && (
               <Badge variant="primary">{t("onboarding.recommended")}</Badge>
             )}

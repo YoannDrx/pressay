@@ -48,8 +48,10 @@ CMAKE_POLICY_VERSION_MINIMUM=3.5 bun run tauri dev \
   --features updater
 ```
 
-The Pressay model mirror must be populated from license-audited artifacts before
-model download testing or any production release.
+The signed Pressay model catalogue, licence evidence, signing procedure, and
+mirror publication gates are documented in [docs/MODELS.md](docs/MODELS.md).
+The mirror must be populated from audited artifacts before model download
+testing or any production release.
 
 Run the smallest complete local verification set:
 

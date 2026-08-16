@@ -67,14 +67,12 @@ export const AboutSettings: React.FC = () => {
           title={t("settings.about.sourceCode.title")}
           description={t("settings.about.sourceCode.description")}
           grouped={true}
+          layout="stacked"
+          descriptionMode="inline"
         >
-          <Button
-            variant="secondary"
-            size="md"
-            onClick={() => openUrl("https://github.com/cjpais/Handy")}
-          >
-            {t("settings.about.sourceCode.button")}
-          </Button>
+          <span className="text-sm font-mono text-mid-gray">
+            {t("settings.about.sourceCode.license")}
+          </span>
         </SettingContainer>
 
         <AppDataDirectory descriptionMode="tooltip" grouped={true} />
@@ -82,6 +80,16 @@ export const AboutSettings: React.FC = () => {
       </SettingsGroup>
 
       <SettingsGroup title={t("settings.about.acknowledgments.title")}>
+        <SettingContainer
+          title={t("settings.about.acknowledgments.models.title")}
+          description={t("settings.about.acknowledgments.models.description")}
+          grouped={true}
+          layout="stacked"
+        >
+          <div className="text-sm text-mid-gray">
+            {t("settings.about.acknowledgments.models.details")}
+          </div>
+        </SettingContainer>
         <SettingContainer
           title={t("settings.about.acknowledgments.ggml.title")}
           description={t("settings.about.acknowledgments.ggml.description")}
