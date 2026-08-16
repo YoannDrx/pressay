@@ -747,6 +747,8 @@ pub fn run(cli_args: CliArgs) {
             commands::productivity::get_correction_status,
             commands::productivity::arm_voice_correction,
             commands::productivity::cancel_voice_correction,
+            commands::productivity::export_productivity_config,
+            commands::productivity::import_productivity_config,
             transcription_coordinator::get_pipeline_state,
             helpers::clamshell::is_laptop,
         ])

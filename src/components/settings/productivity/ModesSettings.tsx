@@ -4,11 +4,15 @@ import {
   AppWindow,
   Check,
   Cloud,
+  Download,
   KeyRound,
   Laptop,
   Plus,
   Trash2,
+  Upload,
 } from "lucide-react";
+import { toast } from "sonner";
+import { commands } from "@/bindings";
 import type {
   AppProfile,
   OutputBehavior,
@@ -84,6 +88,8 @@ interface ModesSettingsViewProps {
   onDeleteMode: (modeId: string) => Promise<unknown> | unknown;
   onSaveProfile: (profile: AppProfile) => Promise<boolean> | boolean;
   onDeleteProfile: (profileId: string) => Promise<unknown> | unknown;
+  onExport?: () => Promise<unknown> | unknown;
+  onImport?: () => Promise<unknown> | unknown;
   modelOptions?: Array<{ value: string; label: string }>;
   microphoneOptions?: Array<{ value: string; label: string }>;
 }
@@ -98,6 +104,8 @@ export const ModesSettingsView = ({
   onDeleteMode,
   onSaveProfile,
   onDeleteProfile,
+  onExport,
+  onImport,
   modelOptions = [],
   microphoneOptions = [],
 }: ModesSettingsViewProps) => {
@@ -166,13 +174,27 @@ export const ModesSettingsView = ({
           "Choose what Pressay does after transcription. A remote route is never selected silently.",
       })}
       action={
-        <Button
-          variant="secondary"
-          onClick={() => setShowModeForm((visible) => !visible)}
-        >
-          <Plus size={14} aria-hidden="true" />
-          {t("pressay.modes.new", { defaultValue: "New mode" })}
-        </Button>
+        <div className="productivity-header-actions">
+          {onImport ? (
+            <Button variant="ghost" disabled={saving} onClick={onImport}>
+              <Upload size={14} aria-hidden="true" />
+              {t("common.import", { defaultValue: "Import" })}
+            </Button>
+          ) : null}
+          {onExport ? (
+            <Button variant="ghost" disabled={saving} onClick={onExport}>
+              <Download size={14} aria-hidden="true" />
+              {t("common.export", { defaultValue: "Export" })}
+            </Button>
+          ) : null}
+          <Button
+            variant="secondary"
+            onClick={() => setShowModeForm((visible) => !visible)}
+          >
+            <Plus size={14} aria-hidden="true" />
+            {t("pressay.modes.new", { defaultValue: "New mode" })}
+          </Button>
+        </div>
       }
     >
       {error ? <p className="productivity-error">{error}</p> : null}
@@ -520,6 +542,7 @@ export const ModesSettingsView = ({
 };
 
 export const ModesSettings = () => {
+  const { i18n } = useTranslation();
   const config = useProductivityStore((state) => state.config);
   const loading = useProductivityStore((state) => state.loading);
   const saving = useProductivityStore((state) => state.saving);
@@ -531,6 +554,7 @@ export const ModesSettings = () => {
   const deleteMode = useProductivityStore((state) => state.deleteMode);
   const saveProfile = useProductivityStore((state) => state.saveProfile);
   const deleteProfile = useProductivityStore((state) => state.deleteProfile);
+  const refreshProductivity = useProductivityStore((state) => state.refresh);
   const models = useModelStore((state) => state.models);
   const initializeModels = useModelStore((state) => state.initialize);
   const audioDevices = useSettingsStore((state) => state.audioDevices);
@@ -552,6 +576,51 @@ export const ModesSettings = () => {
     );
   }
 
+  const exportConfig = async () => {
+    try {
+      const result = await commands.exportProductivityConfig();
+      if (result.status === "error") {
+        toast.error(result.error);
+      } else if (!result.data.cancelled) {
+        toast.success(
+          i18n.resolvedLanguage?.startsWith("fr")
+            ? "Configuration exportée"
+            : "Configuration exported",
+        );
+      }
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : String(error));
+    }
+  };
+
+  const importConfig = async () => {
+    try {
+      const result = await commands.importProductivityConfig();
+      if (result.status === "error") {
+        toast.error(result.error);
+        return;
+      }
+      if (result.data.cancelled) return;
+      await refreshProductivity();
+      const report = result.data;
+      const isFrench = i18n.resolvedLanguage?.startsWith("fr");
+      const summary = isFrench
+        ? `${report.modes_added} modes · ${report.profiles_added} profils · ${report.dictionary_added} termes`
+        : `${report.modes_added} modes · ${report.profiles_added} profiles · ${report.dictionary_added} terms`;
+      toast.success(
+        isFrench ? "Configuration importée" : "Configuration imported",
+        {
+          description:
+            report.conflicts_preserved > 0
+              ? `${summary} · ${report.conflicts_preserved} ${isFrench ? "conflits préservés" : "conflicts preserved"}`
+              : summary,
+        },
+      );
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : String(error));
+    }
+  };
+
   return (
     <ModesSettingsView
       config={config}
@@ -563,6 +632,8 @@ export const ModesSettings = () => {
       onDeleteMode={deleteMode}
       onSaveProfile={saveProfile}
       onDeleteProfile={deleteProfile}
+      onExport={exportConfig}
+      onImport={importConfig}
       modelOptions={models
         .filter((model) => model.is_downloaded)
         .map((model) => ({ value: model.id, label: model.name }))}

@@ -1,13 +1,173 @@
 use crate::productivity::{
-    is_builtin_mode_id, validate_dictionary, validate_mode, validate_profile, AppProfile,
-    CorrectionStatus, DictionaryEntry, PressayMode, ProductivityConfig, ProductivityRuntime,
-    PRODUCTIVITY_SCHEMA_VERSION,
+    is_builtin_mode_id, merge_portable_bundle, portable_productivity_bundle, validate_dictionary,
+    validate_mode, validate_portable_bundle, validate_profile, AppProfile, CorrectionStatus,
+    DictionaryEntry, PressayMode, ProductivityConfig, ProductivityPortableBundle,
+    ProductivityRuntime, ProductivityTransferReport, PRODUCTIVITY_SCHEMA_VERSION,
 };
 use crate::settings::{get_settings, write_settings};
 use std::cmp::Reverse;
 use std::collections::HashSet;
+use std::fs::{self, OpenOptions};
+use std::io::Write;
+use std::path::Path;
 use std::sync::Arc;
 use tauri::{AppHandle, Emitter, Manager};
+use tauri_plugin_dialog::DialogExt;
+
+const MAX_PRODUCTIVITY_IMPORT_BYTES: u64 = 2 * 1024 * 1024;
+
+fn write_private_atomic(path: &Path, contents: &[u8]) -> Result<(), String> {
+    let parent = path
+        .parent()
+        .filter(|parent| !parent.as_os_str().is_empty())
+        .ok_or_else(|| "The selected export path has no parent directory".to_string())?;
+    let file_name = path
+        .file_name()
+        .and_then(|name| name.to_str())
+        .ok_or_else(|| "The selected export filename is invalid".to_string())?;
+    let stamp = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_nanos();
+    let temp_path = parent.join(format!(".{file_name}.{}.{}.tmp", std::process::id(), stamp));
+    let mut options = OpenOptions::new();
+    options.write(true).create_new(true);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::OpenOptionsExt;
+        options.mode(0o600);
+    }
+    let mut file = options
+        .open(&temp_path)
+        .map_err(|error| format!("Could not create the private export file: {error}"))?;
+    let write_result = (|| -> std::io::Result<()> {
+        file.write_all(contents)?;
+        file.sync_all()?;
+        Ok(())
+    })();
+    drop(file);
+    if let Err(error) = write_result {
+        let _ = fs::remove_file(&temp_path);
+        return Err(format!("Could not finish the productivity export: {error}"));
+    }
+    if let Err(error) = fs::rename(&temp_path, path) {
+        let _ = fs::remove_file(&temp_path);
+        return Err(format!(
+            "Could not replace the productivity export: {error}"
+        ));
+    }
+    #[cfg(unix)]
+    if let Ok(directory) = fs::File::open(parent) {
+        let _ = directory.sync_all();
+    }
+    Ok(())
+}
+
+#[tauri::command]
+#[specta::specta]
+pub fn export_productivity_config(app: AppHandle) -> Result<ProductivityTransferReport, String> {
+    let suggested_name = format!(
+        "pressay-workflows-{}.json",
+        chrono::Local::now().format("%Y-%m-%d")
+    );
+    let Some(selected) = app
+        .dialog()
+        .file()
+        .add_filter("Pressay JSON", &["json"])
+        .set_file_name(suggested_name)
+        .blocking_save_file()
+    else {
+        return Ok(ProductivityTransferReport {
+            cancelled: true,
+            ..Default::default()
+        });
+    };
+    let mut path = selected
+        .into_path()
+        .map_err(|_| "The selected export path is not a local file".to_string())?;
+    if path.extension().is_none() {
+        path.set_extension("json");
+    }
+    let settings = get_settings(&app);
+    let bundle = portable_productivity_bundle(
+        settings.active_mode_id,
+        &settings.pressay_modes,
+        &settings.app_profiles,
+        &settings.dictionary_entries,
+    );
+    let contents = serde_json::to_vec_pretty(&bundle)
+        .map_err(|error| format!("Could not serialize productivity settings: {error}"))?;
+    write_private_atomic(&path, &contents)?;
+    Ok(ProductivityTransferReport {
+        modes_added: bundle.modes.len() as u32,
+        profiles_added: bundle.profiles.len() as u32,
+        dictionary_added: bundle.dictionary.len() as u32,
+        ..Default::default()
+    })
+}
+
+#[tauri::command]
+#[specta::specta]
+pub fn import_productivity_config(app: AppHandle) -> Result<ProductivityTransferReport, String> {
+    let Some(selected) = app
+        .dialog()
+        .file()
+        .add_filter("Pressay JSON", &["json"])
+        .blocking_pick_file()
+    else {
+        return Ok(ProductivityTransferReport {
+            cancelled: true,
+            ..Default::default()
+        });
+    };
+    let path = selected
+        .into_path()
+        .map_err(|_| "The selected import path is not a local file".to_string())?;
+    let metadata = fs::metadata(&path)
+        .map_err(|error| format!("Could not inspect the selected import file: {error}"))?;
+    if !metadata.is_file() || metadata.len() > MAX_PRODUCTIVITY_IMPORT_BYTES {
+        return Err("The import must be a JSON file no larger than 2 MB".to_string());
+    }
+    let contents = fs::read(&path)
+        .map_err(|error| format!("Could not read the selected import file: {error}"))?;
+    let bundle: ProductivityPortableBundle = serde_json::from_slice(&contents)
+        .map_err(|error| format!("Invalid Pressay productivity JSON: {error}"))?;
+    validate_portable_bundle(&bundle)?;
+
+    let model_manager = app.state::<Arc<crate::managers::model::ModelManager>>();
+    for profile in &bundle.profiles {
+        if let Some(model_id) = profile
+            .model
+            .as_deref()
+            .filter(|model_id| !model_id.trim().is_empty())
+        {
+            let model = model_manager.get_model_info(model_id).ok_or_else(|| {
+                format!(
+                    "Profile '{}' references a model outside the audited catalog",
+                    profile.id
+                )
+            })?;
+            if !model.is_downloaded {
+                return Err(format!(
+                    "Download model '{}' before importing profile '{}'",
+                    model.name, profile.id
+                ));
+            }
+        }
+    }
+
+    let mut settings = get_settings(&app);
+    let mut modes = settings.pressay_modes.clone();
+    let mut profiles = settings.app_profiles.clone();
+    let mut dictionary = settings.dictionary_entries.clone();
+    let report = merge_portable_bundle(&mut modes, &mut profiles, &mut dictionary, bundle)?;
+    profiles.sort_by_key(|profile| Reverse(profile.priority));
+    settings.pressay_modes = modes;
+    settings.app_profiles = profiles;
+    settings.dictionary_entries = dictionary;
+    write_settings(&app, settings);
+    Ok(report)
+}
 
 pub(crate) fn emit_correction_status(app: &AppHandle) {
     let status = app.state::<ProductivityRuntime>().correction_status();
@@ -196,4 +356,35 @@ pub fn delete_app_profile(app: AppHandle, profile_id: String) -> Result<(), Stri
     }
     write_settings(&app, settings);
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::write_private_atomic;
+
+    #[test]
+    fn productivity_export_is_atomic_and_private() {
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("workflows.json");
+
+        write_private_atomic(&path, br#"{"schema_version":1}"#).unwrap();
+        assert_eq!(std::fs::read(&path).unwrap(), br#"{"schema_version":1}"#);
+
+        write_private_atomic(&path, br#"{"schema_version":2}"#).unwrap();
+        assert_eq!(std::fs::read(&path).unwrap(), br#"{"schema_version":2}"#);
+        assert_eq!(
+            std::fs::read_dir(directory.path()).unwrap().count(),
+            1,
+            "temporary export files must not remain"
+        );
+
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            assert_eq!(
+                std::fs::metadata(&path).unwrap().permissions().mode() & 0o777,
+                0o600
+            );
+        }
+    }
 }

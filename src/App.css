@@ -544,6 +544,14 @@
   line-height: 1.1;
 }
 
+.productivity-header-actions {
+  display: flex;
+  flex: 0 0 auto;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 6px;
+}
+
 .productivity-header > div > p:last-child {
   max-width: 610px;
   margin-top: 9px;

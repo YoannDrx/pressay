@@ -6,8 +6,12 @@ use std::sync::{Mutex, OnceLock};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 pub const PRODUCTIVITY_SCHEMA_VERSION: u32 = 1;
+pub const PRODUCTIVITY_EXPORT_SCHEMA_VERSION: u32 = 1;
+pub const PRODUCTIVITY_EXPORT_FORMAT: &str = "pressay-productivity";
 const MAX_MODE_STEPS: usize = 8;
 const MAX_DICTIONARY_ENTRIES: usize = 5_000;
+const MAX_PORTABLE_MODES: usize = 1_000;
+const MAX_PORTABLE_PROFILES: usize = 1_000;
 const BUILTIN_MODE_IDS: [&str; 5] = ["faithful", "clean", "message", "email", "ai_prompt"];
 const ALLOWED_VARIABLES: [&str; 4] = ["transcript", "selected", "app_name", "custom_words"];
 const CORRECTION_SESSION_TTL_MS: u64 = 2 * 60 * 1_000;
@@ -136,6 +140,28 @@ pub struct ProductivityConfig {
     pub modes: Vec<PressayMode>,
     pub profiles: Vec<AppProfile>,
     pub dictionary: Vec<DictionaryEntry>,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
+pub struct ProductivityPortableBundle {
+    pub format: String,
+    pub schema_version: u32,
+    pub exported_at: String,
+    pub active_mode_id: String,
+    pub modes: Vec<PressayMode>,
+    pub profiles: Vec<AppProfile>,
+    pub dictionary: Vec<DictionaryEntry>,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq, Type, Default)]
+pub struct ProductivityTransferReport {
+    pub cancelled: bool,
+    pub modes_added: u32,
+    pub profiles_added: u32,
+    pub dictionary_added: u32,
+    pub conflicts_preserved: u32,
+    pub duplicates_skipped: u32,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq, Type)]
@@ -567,6 +593,198 @@ pub fn builtin_modes() -> Vec<PressayMode> {
             "structuré",
         ),
     ]
+}
+
+pub fn portable_productivity_bundle(
+    active_mode_id: String,
+    modes: &[PressayMode],
+    profiles: &[AppProfile],
+    dictionary: &[DictionaryEntry],
+) -> ProductivityPortableBundle {
+    ProductivityPortableBundle {
+        format: PRODUCTIVITY_EXPORT_FORMAT.to_string(),
+        schema_version: PRODUCTIVITY_EXPORT_SCHEMA_VERSION,
+        exported_at: chrono::Utc::now().to_rfc3339(),
+        active_mode_id,
+        modes: modes
+            .iter()
+            .filter(|mode| !mode.is_builtin && !is_builtin_mode_id(&mode.id))
+            .cloned()
+            .collect(),
+        profiles: profiles.to_vec(),
+        dictionary: dictionary.to_vec(),
+    }
+}
+
+pub fn validate_portable_bundle(bundle: &ProductivityPortableBundle) -> Result<(), String> {
+    if bundle.format != PRODUCTIVITY_EXPORT_FORMAT {
+        return Err("This file is not a Pressay productivity export".to_string());
+    }
+    if bundle.schema_version != PRODUCTIVITY_EXPORT_SCHEMA_VERSION {
+        return Err(format!(
+            "Unsupported productivity export schema {} (expected {})",
+            bundle.schema_version, PRODUCTIVITY_EXPORT_SCHEMA_VERSION
+        ));
+    }
+    if bundle.modes.len() > MAX_PORTABLE_MODES {
+        return Err(format!(
+            "An export cannot contain more than {MAX_PORTABLE_MODES} custom modes"
+        ));
+    }
+    if bundle.profiles.len() > MAX_PORTABLE_PROFILES {
+        return Err(format!(
+            "An export cannot contain more than {MAX_PORTABLE_PROFILES} application profiles"
+        ));
+    }
+    validate_dictionary(&bundle.dictionary)?;
+
+    let mut mode_ids = builtin_modes()
+        .into_iter()
+        .map(|mode| mode.id)
+        .collect::<HashSet<_>>();
+    for mode in &bundle.modes {
+        if mode.is_builtin || is_builtin_mode_id(&mode.id) {
+            return Err("Exports cannot redefine a built-in Pressay mode".to_string());
+        }
+        validate_mode(mode)?;
+        if !mode_ids.insert(mode.id.clone()) {
+            return Err(format!("Duplicate mode id '{}' in export", mode.id));
+        }
+    }
+
+    let mode_id_refs = mode_ids.iter().map(String::as_str).collect::<HashSet<_>>();
+    let mut profile_ids = HashSet::new();
+    for profile in &bundle.profiles {
+        validate_profile(profile, &mode_id_refs)?;
+        if !profile_ids.insert(profile.id.clone()) {
+            return Err(format!("Duplicate profile id '{}' in export", profile.id));
+        }
+    }
+    if !mode_ids.contains(&bundle.active_mode_id) {
+        return Err("The exported active mode does not exist in the bundle".to_string());
+    }
+    Ok(())
+}
+
+fn unique_import_id(base: &str, existing: &HashSet<String>) -> String {
+    for index in 1_u32..=u32::MAX {
+        let suffix = format!("-imported-{index}");
+        let max_base_len = 64_usize.saturating_sub(suffix.len());
+        let trimmed = base.chars().take(max_base_len).collect::<String>();
+        let candidate = format!("{trimmed}{suffix}");
+        if !existing.contains(&candidate) {
+            return candidate;
+        }
+    }
+    unreachable!("u32 import suffix space exhausted")
+}
+
+pub fn merge_portable_bundle(
+    existing_modes: &mut Vec<PressayMode>,
+    existing_profiles: &mut Vec<AppProfile>,
+    existing_dictionary: &mut Vec<DictionaryEntry>,
+    bundle: ProductivityPortableBundle,
+) -> Result<ProductivityTransferReport, String> {
+    validate_portable_bundle(&bundle)?;
+    let mut report = ProductivityTransferReport::default();
+    let mut mode_ids = existing_modes
+        .iter()
+        .map(|mode| mode.id.clone())
+        .collect::<HashSet<_>>();
+    let mut mode_remap = HashMap::new();
+
+    for mut imported in bundle.modes {
+        if let Some(existing) = existing_modes.iter().find(|mode| mode.id == imported.id) {
+            if existing == &imported {
+                mode_remap.insert(imported.id.clone(), imported.id.clone());
+                report.duplicates_skipped = report.duplicates_skipped.saturating_add(1);
+                continue;
+            }
+            let original_id = imported.id.clone();
+            imported.id = unique_import_id(&original_id, &mode_ids);
+            mode_remap.insert(original_id, imported.id.clone());
+            report.conflicts_preserved = report.conflicts_preserved.saturating_add(1);
+        } else {
+            mode_remap.insert(imported.id.clone(), imported.id.clone());
+        }
+        mode_ids.insert(imported.id.clone());
+        existing_modes.push(imported);
+        report.modes_added = report.modes_added.saturating_add(1);
+    }
+
+    let mut profile_ids = existing_profiles
+        .iter()
+        .map(|profile| profile.id.clone())
+        .collect::<HashSet<_>>();
+    for mut imported in bundle.profiles {
+        if let Some(remapped_mode) = mode_remap.get(&imported.mode_id) {
+            imported.mode_id = remapped_mode.clone();
+        }
+        if existing_profiles.iter().any(|profile| profile == &imported) {
+            report.duplicates_skipped = report.duplicates_skipped.saturating_add(1);
+            continue;
+        }
+        let id_conflict = profile_ids.contains(&imported.id);
+        let target_conflict = existing_profiles
+            .iter()
+            .any(|profile| profile.bundle_id == imported.bundle_id);
+        if id_conflict {
+            imported.id = unique_import_id(&imported.id, &profile_ids);
+        }
+        if target_conflict {
+            // Preserve the imported profile as an inert backup: existing
+            // profiles remain earlier at the same minimum priority and win.
+            imported.priority = -10_000;
+        }
+        if id_conflict || target_conflict {
+            report.conflicts_preserved = report.conflicts_preserved.saturating_add(1);
+        }
+        profile_ids.insert(imported.id.clone());
+        existing_profiles.push(imported);
+        report.profiles_added = report.profiles_added.saturating_add(1);
+    }
+
+    let mut dictionary_ids = existing_dictionary
+        .iter()
+        .map(|entry| entry.id.clone())
+        .collect::<HashSet<_>>();
+    for mut imported in bundle.dictionary {
+        if existing_dictionary.iter().any(|entry| entry == &imported) {
+            report.duplicates_skipped = report.duplicates_skipped.saturating_add(1);
+            continue;
+        }
+        let id_conflict = dictionary_ids.contains(&imported.id);
+        let semantic_conflict = existing_dictionary.iter().any(|entry| {
+            entry.term.to_lowercase() == imported.term.to_lowercase()
+                && entry.language == imported.language
+                && entry.match_kind == imported.match_kind
+        });
+        if id_conflict {
+            imported.id = unique_import_id(&imported.id, &dictionary_ids);
+        }
+        if semantic_conflict {
+            imported.enabled = false;
+        }
+        if id_conflict || semantic_conflict {
+            report.conflicts_preserved = report.conflicts_preserved.saturating_add(1);
+        }
+        dictionary_ids.insert(imported.id.clone());
+        existing_dictionary.push(imported);
+        report.dictionary_added = report.dictionary_added.saturating_add(1);
+    }
+
+    let all_mode_ids = existing_modes
+        .iter()
+        .map(|mode| mode.id.as_str())
+        .collect::<HashSet<_>>();
+    for mode in existing_modes.iter() {
+        validate_mode(mode)?;
+    }
+    for profile in existing_profiles.iter() {
+        validate_profile(profile, &all_mode_ids)?;
+    }
+    validate_dictionary(existing_dictionary)?;
+    Ok(report)
 }
 
 fn remote_mode(
@@ -1139,5 +1357,121 @@ mod tests {
         let status = runtime.correction_status_at(1_000 + CORRECTION_SESSION_TTL_MS);
         assert!(!status.available);
         assert_eq!(status.expires_in_seconds, 0);
+    }
+
+    #[test]
+    fn portable_export_excludes_builtins_and_rejects_builtin_redefinitions() {
+        let mut modes = builtin_modes();
+        let mut custom = remote_mode(
+            "standup",
+            "Stand-up",
+            "A concise update",
+            "Rewrite ${transcript}",
+            "neutral",
+            "short",
+        );
+        custom.is_builtin = false;
+        modes.push(custom);
+        let bundle = portable_productivity_bundle("standup".into(), &modes, &[], &[]);
+        assert_eq!(bundle.modes.len(), 1);
+        assert_eq!(bundle.modes[0].id, "standup");
+        assert!(validate_portable_bundle(&bundle).is_ok());
+
+        let mut invalid = bundle;
+        invalid.modes[0].id = "faithful".into();
+        assert!(validate_portable_bundle(&invalid).is_err());
+    }
+
+    #[test]
+    fn portable_merge_preserves_conflicts_without_overwriting() {
+        let mut modes = builtin_modes();
+        let mut existing_mode = remote_mode(
+            "standup",
+            "Existing",
+            "Existing mode",
+            "Rewrite ${transcript}",
+            "neutral",
+            "short",
+        );
+        existing_mode.is_builtin = false;
+        modes.push(existing_mode);
+        let mut profiles = vec![AppProfile {
+            id: "notes".into(),
+            bundle_id: "com.apple.Notes".into(),
+            app_name: "Notes".into(),
+            priority: 10,
+            mode_id: "faithful".into(),
+            language: None,
+            microphone: None,
+            model: None,
+            output: OutputBehavior::Paste,
+        }];
+        let mut dictionary = vec![DictionaryEntry {
+            id: "pressay".into(),
+            term: "press say".into(),
+            variants: vec![],
+            replacement: Some("Pressay".into()),
+            match_kind: DictionaryMatchKind::Exact,
+            language: Some("fr".into()),
+            enabled: true,
+        }];
+        let mut imported_mode = remote_mode(
+            "standup",
+            "Imported",
+            "Imported mode",
+            "Structure ${transcript}",
+            "neutral",
+            "short",
+        );
+        imported_mode.is_builtin = false;
+        let bundle = ProductivityPortableBundle {
+            format: PRODUCTIVITY_EXPORT_FORMAT.into(),
+            schema_version: PRODUCTIVITY_EXPORT_SCHEMA_VERSION,
+            exported_at: "2026-08-17T00:00:00Z".into(),
+            active_mode_id: "standup".into(),
+            modes: vec![imported_mode],
+            profiles: vec![AppProfile {
+                id: "notes".into(),
+                bundle_id: "com.apple.Notes".into(),
+                app_name: "Notes imported".into(),
+                priority: 50,
+                mode_id: "standup".into(),
+                language: None,
+                microphone: None,
+                model: None,
+                output: OutputBehavior::Type,
+            }],
+            dictionary: vec![DictionaryEntry {
+                id: "pressay".into(),
+                term: "PRESS SAY".into(),
+                variants: vec![],
+                replacement: Some("Pressay imported".into()),
+                match_kind: DictionaryMatchKind::Exact,
+                language: Some("fr".into()),
+                enabled: true,
+            }],
+        };
+
+        let report =
+            merge_portable_bundle(&mut modes, &mut profiles, &mut dictionary, bundle).unwrap();
+        assert_eq!(report.modes_added, 1);
+        assert_eq!(report.profiles_added, 1);
+        assert_eq!(report.dictionary_added, 1);
+        assert_eq!(report.conflicts_preserved, 3);
+        assert_eq!(modes.iter().filter(|mode| mode.id == "standup").count(), 1);
+        let imported_mode_id = modes
+            .iter()
+            .find(|mode| mode.name == "Imported")
+            .unwrap()
+            .id
+            .clone();
+        assert!(imported_mode_id.starts_with("standup-imported-"));
+        let imported_profile = profiles
+            .iter()
+            .find(|profile| profile.app_name == "Notes imported")
+            .unwrap();
+        assert_eq!(imported_profile.mode_id, imported_mode_id);
+        assert_eq!(imported_profile.priority, -10_000);
+        assert!(!dictionary.last().unwrap().enabled);
     }
 }

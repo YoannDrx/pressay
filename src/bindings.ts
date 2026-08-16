@@ -1001,6 +1001,22 @@ async armVoiceCorrection() : Promise<Result<CorrectionStatus, string>> {
 async cancelVoiceCorrection() : Promise<CorrectionStatus> {
     return await TAURI_INVOKE("cancel_voice_correction");
 },
+async exportProductivityConfig() : Promise<Result<ProductivityTransferReport, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("export_productivity_config") };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+async importProductivityConfig() : Promise<Result<ProductivityTransferReport, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("import_productivity_config") };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
 async getPipelineState() : Promise<PipelineState> {
     return await TAURI_INVOKE("get_pipeline_state");
 },
@@ -1175,6 +1191,7 @@ export type PostProcessProvider = { id: string; label: string; base_url: string;
 export type PressayMode = { id: string; name: string; description: string; route: ProcessingRoute; steps: ModeStep[]; tone?: string | null; length?: string | null; language?: string | null; is_builtin?: boolean }
 export type ProcessingRoute = "local" | "byok" | "pressay_cloud"
 export type ProductivityConfig = { schema_version: number; active_mode_id: string; modes: PressayMode[]; profiles: AppProfile[]; dictionary: DictionaryEntry[] }
+export type ProductivityTransferReport = { cancelled: boolean; modes_added: number; profiles_added: number; dictionary_added: number; conflicts_preserved: number; duplicates_skipped: number }
 export type RecordingRetentionPeriod = "never" | "preserve_limit" | "days_3" | "weeks_2" | "months_3"
 export type SecureInputStatus = {
 /**

@@ -48,6 +48,8 @@ test.describe("Pressay App", () => {
       page.getByText("Nothing leaves this Mac").first(),
     ).toBeVisible();
     await expect(page.getByText("Application profiles")).toBeVisible();
+    await expect(page.getByRole("button", { name: "Import" })).toBeVisible();
+    await expect(page.getByRole("button", { name: "Export" })).toBeVisible();
 
     await page.getByRole("button", { name: "Add profile" }).click();
     await expect(page.getByLabel("Profile language")).toBeVisible();

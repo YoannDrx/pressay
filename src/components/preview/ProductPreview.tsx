@@ -172,6 +172,8 @@ export const ProductPreview = () => {
                   onDeleteMode={() => undefined}
                   onSaveProfile={() => true}
                   onDeleteProfile={() => undefined}
+                  onExport={() => undefined}
+                  onImport={() => undefined}
                 />
               ) : section === "Dictionary" ? (
                 <DictionarySettingsView
