@@ -20,8 +20,8 @@ use std::time::{Duration, Instant, SystemTime};
 use tauri::{AppHandle, Emitter, Manager};
 use tauri_specta::Event;
 use transcribe_cpp::{
-    Backend, Feature, Model, ModelOptions, RunExtension, RunOptions, Session, StreamOptions, Task,
-    WhisperRunOptions,
+    Backend, CancelToken, Feature, Model, ModelOptions, RunExtension, RunOptions, Session,
+    StreamOptions, Task, WhisperRunOptions,
 };
 use transcribe_rs::{
     onnx::{
@@ -224,6 +224,23 @@ struct StreamWorkerGuard {
     stream_active: Arc<AtomicBool>,
 }
 
+/// One cancellable native inference scope. The monotonically increasing ID
+/// prevents an older guard from clearing a newer operation's token.
+struct ActiveCancelGuard {
+    id: u64,
+    active: Arc<Mutex<Option<(u64, CancelToken)>>>,
+}
+
+impl Drop for ActiveCancelGuard {
+    fn drop(&mut self) {
+        if let Ok(mut active) = self.active.lock() {
+            if active.as_ref().is_some_and(|(id, _)| *id == self.id) {
+                *active = None;
+            }
+        }
+    }
+}
+
 impl Drop for StreamWorkerGuard {
     fn drop(&mut self) {
         if self.active_stream_worker.load(Ordering::Acquire) == self.worker_id {
@@ -277,6 +294,11 @@ pub struct TranscriptionManager {
     /// `is_model_loaded()` consults this so the model still reports "loaded"
     /// while the worker holds it.
     active_engine_lease: Arc<AtomicU64>,
+    /// Cooperative cancellation for the transcribe-cpp run/stream currently
+    /// holding the native session. ONNX engines are still discarded at the
+    /// action layer when cancellation is requested.
+    active_cancel: Arc<Mutex<Option<(u64, CancelToken)>>>,
+    next_cancel_id: Arc<AtomicU64>,
 }
 
 impl TranscriptionManager {
@@ -297,6 +319,8 @@ impl TranscriptionManager {
             next_stream_worker_id: Arc::new(AtomicU64::new(1)),
             active_stream_worker: Arc::new(AtomicU64::new(0)),
             active_engine_lease: Arc::new(AtomicU64::new(0)),
+            active_cancel: Arc::new(Mutex::new(None)),
+            next_cancel_id: Arc::new(AtomicU64::new(1)),
         };
 
         // Start the idle watcher
@@ -381,10 +405,41 @@ impl TranscriptionManager {
         })
     }
 
+    fn begin_cancel_scope(&self) -> (ActiveCancelGuard, CancelToken) {
+        let id = self.next_cancel_id.fetch_add(1, Ordering::Relaxed);
+        let token = CancelToken::new();
+        *self.active_cancel.lock().unwrap() = Some((id, token.clone()));
+        (
+            ActiveCancelGuard {
+                id,
+                active: Arc::clone(&self.active_cancel),
+            },
+            token,
+        )
+    }
+
+    /// Cooperatively abort the active transcribe-cpp inference. This is safe
+    /// from the shortcut/main thread; the native runtime polls the shared flag
+    /// between decode steps.
+    pub fn cancel_active_transcription(&self) {
+        if let Ok(active) = self.active_cancel.lock() {
+            if let Some((_, token)) = active.as_ref() {
+                token.cancel();
+            }
+        }
+    }
+
     pub fn is_model_loaded(&self) -> bool {
-        // The engine may be leased out to the streaming worker (taken out of
-        // the mutex). It's still loaded, just in use, so report true.
-        self.lock_engine().is_some() || self.active_engine_lease.load(Ordering::Acquire) != 0
+        // The engine may be leased out to the streaming worker or a batch run
+        // (taken out of the mutex). It is still loaded, just in use, so report
+        // true and prevent a second model from being loaded over it.
+        self.lock_engine().is_some()
+            || self.active_engine_lease.load(Ordering::Acquire) != 0
+            || self
+                .active_cancel
+                .lock()
+                .map(|active| active.is_some())
+                .unwrap_or(true)
     }
 
     /// Accelerator changes should not disturb the current transcription. Mark
@@ -858,6 +913,10 @@ impl TranscriptionManager {
                 return;
             }
         };
+        let (_cancel_guard, cancel_token) = self.begin_cancel_scope();
+        if let LoadedEngine::TranscribeCpp(session) = &mut engine {
+            session.set_cancel_token(&cancel_token);
+        }
 
         // Only transcribe-cpp models expose streaming; ONNX engines fall back to
         // batch. The loaded session (not the ModelManager copy) is the source of
@@ -893,6 +952,9 @@ impl TranscriptionManager {
         };
 
         if !supports_streaming {
+            if let LoadedEngine::TranscribeCpp(session) = &mut engine {
+                session.clear_cancel_token();
+            }
             self.return_engine(engine, &model_id);
             self.router.clear();
             drain_until_finalize(rx);
@@ -1051,11 +1113,17 @@ impl TranscriptionManager {
             // failed); drain so the finalize handshake still completes and the
             // caller falls back to batch transcription. Return the engine first
             // so the fallback can immediately use it.
+            if let LoadedEngine::TranscribeCpp(session) = &mut engine {
+                session.clear_cancel_token();
+            }
             self.return_engine(engine, &model_id);
             drain_until_finalize(rx);
             return;
         }
 
+        if let LoadedEngine::TranscribeCpp(session) = &mut engine {
+            session.clear_cancel_token();
+        }
         self.return_engine(engine, &model_id);
         if let (Some(reply), Some(result)) = (finalize_reply, finalize_result) {
             let _ = reply.send(result);
@@ -1124,6 +1192,7 @@ impl TranscriptionManager {
 
     /// Abandon any active stream without producing text (e.g. on cancel).
     pub fn cancel_stream(&self) {
+        self.cancel_active_transcription();
         if let Some(tx) = self.router.take() {
             let _ = tx.send(StreamCmd::Cancel);
         }
@@ -1240,6 +1309,11 @@ impl TranscriptionManager {
 
             // Release the lock before transcribing — no mutex held during the engine call
             drop(engine_guard);
+
+            let (_cancel_guard, cancel_token) = self.begin_cancel_scope();
+            if let LoadedEngine::TranscribeCpp(session) = &mut engine {
+                session.set_cancel_token(&cancel_token);
+            }
 
             // Probe live transcribe-cpp capabilities once (cheap GGUF-metadata
             // reads); the loaded session is the source of truth, not the
@@ -1405,6 +1479,10 @@ impl TranscriptionManager {
                 }
             }));
 
+            if let LoadedEngine::TranscribeCpp(session) = &mut engine {
+                session.clear_cancel_token();
+            }
+
             let text = match transcribe_result {
                 Ok(inner_result) => {
                     // Success or normal error: return the engine unless a model
@@ -1493,11 +1571,10 @@ impl TranscriptionManager {
 
         let final_result = filtered_result;
 
-        if final_result.is_empty() {
-            info!("Transcription result is empty");
-        } else {
-            info!("Transcription result: {}", final_result);
-        }
+        info!(
+            "Transcription output ready ({} characters)",
+            final_result.chars().count()
+        );
 
         self.maybe_unload_immediately("transcription");
 
@@ -2143,6 +2220,25 @@ mod tests {
 
     fn languages(codes: &[&str]) -> Vec<String> {
         codes.iter().map(|code| (*code).to_string()).collect()
+    }
+
+    #[test]
+    fn stale_cancel_guard_cannot_clear_a_newer_scope() {
+        let first = CancelToken::new();
+        let second = CancelToken::new();
+        let active = Arc::new(Mutex::new(Some((1, first))));
+        let stale = ActiveCancelGuard {
+            id: 1,
+            active: Arc::clone(&active),
+        };
+        *active.lock().unwrap() = Some((2, second.clone()));
+
+        drop(stale);
+
+        let guard = active.lock().unwrap();
+        assert_eq!(guard.as_ref().map(|(id, _)| *id), Some(2));
+        guard.as_ref().unwrap().1.cancel();
+        assert!(second.is_cancelled());
     }
 
     #[test]

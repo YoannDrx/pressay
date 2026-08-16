@@ -147,6 +147,32 @@ function App() {
     };
   }, [t]);
 
+  useEffect(() => {
+    const unlisten = listen<{ code: string; text: string }>(
+      "transform-error",
+      (event) => {
+        toast.error(
+          t("errors.transformFailedTitle", {
+            defaultValue: "Transformation interrupted",
+          }),
+          {
+            description: t("errors.transformFailed", {
+              defaultValue:
+                "Your local transcription is safe. You can copy it and try the transformation again.",
+            }),
+            action: {
+              label: t("common.copy", { defaultValue: "Copy text" }),
+              onClick: () => navigator.clipboard.writeText(event.payload.text),
+            },
+          },
+        );
+      },
+    );
+    return () => {
+      unlisten.then((fn) => fn());
+    };
+  }, [t]);
+
   // Listen for transcription failures and show a toast.
   // The payload is the backend error message (also logged to pressay.log).
   useEffect(() => {

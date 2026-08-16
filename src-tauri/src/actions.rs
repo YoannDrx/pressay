@@ -26,6 +26,11 @@ use tauri::Manager;
 use tauri::{AppHandle, Emitter};
 
 const CANCELLATION_POLL_INTERVAL: Duration = Duration::from_millis(25);
+const POST_PROCESS_TIMEOUT: Duration = Duration::from_secs(90);
+const MIN_TRANSCRIPTION_TIMEOUT: Duration = Duration::from_secs(60);
+const MAX_TRANSCRIPTION_TIMEOUT: Duration = Duration::from_secs(20 * 60);
+const TRANSCRIPTION_REALTIME_BUDGET: u64 = 4;
+const TRANSCRIPTION_SAMPLE_RATE: u64 = 16_000;
 
 #[derive(Clone, serde::Serialize)]
 struct RecordingErrorEvent {
@@ -35,6 +40,12 @@ struct RecordingErrorEvent {
 
 #[derive(Clone, serde::Serialize)]
 struct PasteErrorEvent {
+    text: String,
+}
+
+#[derive(Clone, serde::Serialize)]
+struct TransformErrorEvent {
+    code: String,
     text: String,
 }
 
@@ -112,22 +123,45 @@ fn is_blank_transcription(transcription: &str) -> bool {
     transcription.trim().is_empty()
 }
 
-async fn complete_unless_cancelled<F, C>(operation: F, is_cancelled: C) -> Option<F::Output>
+#[derive(Debug, PartialEq, Eq)]
+enum OperationOutcome<T> {
+    Completed(T),
+    Cancelled,
+    TimedOut,
+}
+
+fn transcription_timeout(sample_count: usize) -> Duration {
+    let audio_seconds = (sample_count as u64).div_ceil(TRANSCRIPTION_SAMPLE_RATE);
+    let budget_seconds = MIN_TRANSCRIPTION_TIMEOUT
+        .as_secs()
+        .saturating_add(audio_seconds.saturating_mul(TRANSCRIPTION_REALTIME_BUDGET));
+    Duration::from_secs(budget_seconds.min(MAX_TRANSCRIPTION_TIMEOUT.as_secs()))
+}
+
+async fn complete_before_deadline<F, C>(
+    operation: F,
+    timeout: Duration,
+    is_cancelled: C,
+) -> OperationOutcome<F::Output>
 where
     F: Future,
     C: Fn() -> bool,
 {
     tokio::pin!(operation);
+    let started = Instant::now();
 
     loop {
         if is_cancelled() {
-            return None;
+            return OperationOutcome::Cancelled;
+        }
+        let remaining = timeout.saturating_sub(started.elapsed());
+        if remaining.is_zero() {
+            return OperationOutcome::TimedOut;
         }
 
-        if let Ok(result) =
-            tokio::time::timeout(CANCELLATION_POLL_INTERVAL, operation.as_mut()).await
-        {
-            return Some(result);
+        let poll = remaining.min(CANCELLATION_POLL_INTERVAL);
+        if let Ok(result) = tokio::time::timeout(poll, operation.as_mut()).await {
+            return OperationOutcome::Completed(result);
         }
     }
 }
@@ -763,16 +797,47 @@ impl ShortcutAction for TranscribeAction {
                     // running, finalize it and use its text (all audio was already
                     // fed to the stream); otherwise batch-transcribe the samples.
                     let transcription_time = Instant::now();
-                    let transcription_result = match tm.finalize_stream() {
-                        // A finalized stream with usable text wins. An empty result
-                        // (no active stream, produced nothing, or a finalize error
-                        // after the engine was returned) falls back to a full batch
-                        // transcription of the same audio. A finalize timeout is
-                        // surfaced instead — the worker may still hold the engine,
-                        // so a batch fallback would contend with it.
-                        Ok(Some(text)) if !text.trim().is_empty() => Ok(text),
-                        Ok(_) => tm.transcribe(samples),
-                        Err(err) => Err(err),
+                    let timeout = transcription_timeout(samples.len());
+                    let tm_for_transcription = Arc::clone(&tm);
+                    let rm_for_transcription = Arc::clone(&rm);
+                    let transcription_task = tauri::async_runtime::spawn_blocking(move || {
+                        match tm_for_transcription.finalize_stream() {
+                            // A finalized stream with usable text wins. An empty
+                            // result falls back to batch only while this operation
+                            // is still active.
+                            Ok(Some(text)) if !text.trim().is_empty() => Ok(text),
+                            Ok(_)
+                                if rm_for_transcription.was_cancelled_since(cancel_generation) =>
+                            {
+                                Err(anyhow::anyhow!("Transcription cancelled"))
+                            }
+                            Ok(_) => tm_for_transcription.transcribe(samples),
+                            Err(err) => Err(err),
+                        }
+                    });
+                    let transcription_outcome =
+                        complete_before_deadline(transcription_task, timeout, || {
+                            rm.was_cancelled_since(cancel_generation)
+                        })
+                        .await;
+                    let transcription_timed_out =
+                        matches!(&transcription_outcome, OperationOutcome::TimedOut);
+                    let transcription_result = match transcription_outcome {
+                        OperationOutcome::Completed(Ok(result)) => result,
+                        OperationOutcome::Completed(Err(join_error)) => {
+                            Err(anyhow::anyhow!("Transcription worker failed: {join_error}"))
+                        }
+                        OperationOutcome::Cancelled => {
+                            tm.cancel_active_transcription();
+                            Err(anyhow::anyhow!("Transcription cancelled"))
+                        }
+                        OperationOutcome::TimedOut => {
+                            tm.cancel_active_transcription();
+                            Err(anyhow::anyhow!(
+                                "Transcription exceeded its {:?} deadline",
+                                timeout
+                            ))
+                        }
                     };
 
                     // The WAV representation is created in memory, encrypted, and
@@ -823,19 +888,62 @@ impl ShortcutAction for TranscribeAction {
                                     show_processing_overlay(&ah);
                                 }
                             }
-                            let Some(processed) = complete_unless_cancelled(
+                            let processing_outcome = complete_before_deadline(
                                 process_transcription_output(&ah, &transcription, post_process),
+                                POST_PROCESS_TIMEOUT,
                                 || rm.was_cancelled_since(cancel_generation),
                             )
-                            .await
-                            else {
-                                debug!("Transcription operation cancelled during output handling");
-                                if audio_saved {
-                                    let _ = hm.discard_audio(&file_name);
+                            .await;
+                            let processed = match processing_outcome {
+                                OperationOutcome::Completed(processed) => processed,
+                                OperationOutcome::Cancelled => {
+                                    debug!(
+                                        "Transcription operation cancelled during output handling"
+                                    );
+                                    if audio_saved {
+                                        let _ = hm.discard_audio(&file_name);
+                                    }
+                                    utils::hide_recording_overlay(&ah);
+                                    change_tray_icon(&ah, TrayIconState::Idle);
+                                    return;
                                 }
-                                utils::hide_recording_overlay(&ah);
-                                change_tray_icon(&ah, TrayIconState::Idle);
-                                return;
+                                OperationOutcome::TimedOut => {
+                                    if let Some(coordinator) =
+                                        ah.try_state::<TranscriptionCoordinator>()
+                                    {
+                                        coordinator.fail(
+                                            operation_id,
+                                            PipelinePhase::Transforming,
+                                            "transform_timeout",
+                                            true,
+                                        );
+                                    }
+                                    let _ = ah.emit(
+                                        "transform-error",
+                                        TransformErrorEvent {
+                                            code: "transform_timeout".to_string(),
+                                            text: transcription.clone(),
+                                        },
+                                    );
+                                    if audio_saved {
+                                        if let Err(save_error) = hm.save_entry(
+                                            file_name.clone(),
+                                            transcription.clone(),
+                                            post_process,
+                                            None,
+                                            None,
+                                        ) {
+                                            error!(
+                                                "Failed to save timed-out history entry: {}",
+                                                save_error
+                                            );
+                                            let _ = hm.discard_audio(&file_name);
+                                        }
+                                    }
+                                    utils::hide_recording_overlay(&ah);
+                                    change_tray_icon(&ah, TrayIconState::Idle);
+                                    return;
+                                }
                             };
 
                             if rm.was_cancelled_since(cancel_generation) {
@@ -962,7 +1070,11 @@ impl ShortcutAction for TranscribeAction {
                                 coordinator.fail(
                                     operation_id,
                                     PipelinePhase::Transcribing,
-                                    "transcription_failed",
+                                    if transcription_timed_out {
+                                        "transcription_timeout"
+                                    } else {
+                                        "transcription_failed"
+                                    },
                                     true,
                                 );
                             }
@@ -1066,8 +1178,9 @@ pub static ACTION_MAP: Lazy<HashMap<String, Arc<dyn ShortcutAction>>> = Lazy::ne
 #[cfg(test)]
 mod tests {
     use super::{
-        complete_unless_cancelled, is_blank_transcription, should_use_streaming_overlay,
-        strip_think_block,
+        complete_before_deadline, is_blank_transcription, should_use_streaming_overlay,
+        strip_think_block, transcription_timeout, OperationOutcome, MAX_TRANSCRIPTION_TIMEOUT,
+        MIN_TRANSCRIPTION_TIMEOUT,
     };
     use crate::settings::OverlayStyle;
     use std::future;
@@ -1091,12 +1204,13 @@ mod tests {
 
     #[test]
     fn completed_operation_returns_its_output() {
-        let result = tauri::async_runtime::block_on(complete_unless_cancelled(
+        let result = tauri::async_runtime::block_on(complete_before_deadline(
             future::ready("done"),
+            Duration::from_secs(1),
             || false,
         ));
 
-        assert_eq!(result, Some("done"));
+        assert_eq!(result, OperationOutcome::Completed("done"));
     }
 
     #[test]
@@ -1108,13 +1222,35 @@ mod tests {
             cancelled_for_thread.store(true, Ordering::Release);
         });
 
-        let result = tauri::async_runtime::block_on(complete_unless_cancelled(
+        let result = tauri::async_runtime::block_on(complete_before_deadline(
             future::pending::<()>(),
+            Duration::from_secs(1),
             || cancelled.load(Ordering::Acquire),
         ));
 
         cancel_thread.join().unwrap();
-        assert_eq!(result, None);
+        assert_eq!(result, OperationOutcome::Cancelled);
+    }
+
+    #[test]
+    fn pending_operation_stops_at_deadline() {
+        let result = tauri::async_runtime::block_on(complete_before_deadline(
+            future::pending::<()>(),
+            Duration::from_millis(5),
+            || false,
+        ));
+
+        assert_eq!(result, OperationOutcome::TimedOut);
+    }
+
+    #[test]
+    fn transcription_deadline_scales_and_is_bounded() {
+        assert_eq!(transcription_timeout(0), MIN_TRANSCRIPTION_TIMEOUT);
+        assert!(transcription_timeout(16_000 * 60) > MIN_TRANSCRIPTION_TIMEOUT);
+        assert_eq!(
+            transcription_timeout(16_000 * 60 * 60),
+            MAX_TRANSCRIPTION_TIMEOUT
+        );
     }
 
     #[test]
