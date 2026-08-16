@@ -108,10 +108,15 @@ pub async fn retry_history_entry_transcription(
         return Err("Recording contains no speech".to_string());
     }
 
-    let processed =
-        process_transcription_output(&app, &transcription, entry.post_process_requested, None)
-            .await
-            .map_err(|failure| format!("Transformation failed: {}", failure.code))?;
+    let processed = process_transcription_output(
+        &app,
+        &transcription,
+        entry.post_process_requested,
+        None,
+        None,
+    )
+    .await
+    .map_err(|failure| format!("Transformation failed: {}", failure.code))?;
     history_manager
         .update_transcription(
             id,

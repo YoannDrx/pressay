@@ -20,6 +20,7 @@ pub mod portable;
 pub mod productivity;
 mod secrets;
 mod secure_input;
+mod selection_context;
 mod settings;
 mod shortcut;
 mod signal_handle;

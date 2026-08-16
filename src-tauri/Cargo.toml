@@ -156,6 +156,7 @@ apple-native-keyring-store = { version = "=1.0.2", features = ["keychain", "prot
 # Used by the receipt-sequenced ("reliable") paste path for lazy NSPasteboard
 # promises. Versions track what Tauri already pulls in.
 objc2 = "0.6"
+objc2-core-foundation = { version = "0.3", default-features = false, features = ["std", "CFString"] }
 objc2-foundation = "0.3"
 objc2-app-kit = "0.3"
 objc2-service-management = "0.3.2"

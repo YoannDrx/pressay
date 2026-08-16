@@ -132,6 +132,7 @@ pub struct ProductivityConfig {
 pub struct TargetApplication {
     pub bundle_id: String,
     pub app_name: String,
+    pub process_id: i32,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone, Copy, PartialEq, Eq, Type)]
@@ -153,7 +154,8 @@ pub struct ResolvedMode {
 
 #[derive(Default)]
 struct RuntimeInvocation {
-    target: Option<TargetApplication>,
+    resolved_mode: Option<ResolvedMode>,
+    selection: Option<SelectionContext>,
     temporary_mode_id: Option<String>,
 }
 
@@ -163,9 +165,14 @@ pub struct ProductivityRuntime {
 }
 
 impl ProductivityRuntime {
-    pub fn capture_target(&self, target: Option<TargetApplication>) {
+    pub fn prepare_invocation(
+        &self,
+        resolved_mode: Option<ResolvedMode>,
+        selection: Option<SelectionContext>,
+    ) {
         if let Ok(mut invocation) = self.invocation.lock() {
-            invocation.target = target;
+            invocation.resolved_mode = resolved_mode;
+            invocation.selection = selection;
         }
     }
 
@@ -175,12 +182,16 @@ impl ProductivityRuntime {
         }
     }
 
-    pub fn take_invocation(&self) -> (Option<TargetApplication>, Option<String>) {
+    pub fn take_temporary_mode(&self) -> Option<String> {
+        self.invocation
+            .lock()
+            .ok()
+            .and_then(|mut invocation| invocation.temporary_mode_id.take())
+    }
+
+    pub fn take_invocation(&self) -> (Option<ResolvedMode>, Option<SelectionContext>) {
         match self.invocation.lock() {
-            Ok(mut invocation) => (
-                invocation.target.take(),
-                invocation.temporary_mode_id.take(),
-            ),
+            Ok(mut invocation) => (invocation.resolved_mode.take(), invocation.selection.take()),
             Err(_) => (None, None),
         }
     }
@@ -207,6 +218,7 @@ pub fn frontmost_application() -> Option<TargetApplication> {
     Some(TargetApplication {
         bundle_id,
         app_name,
+        process_id: application.processIdentifier(),
     })
 }
 
@@ -276,6 +288,15 @@ pub fn render_mode_instruction(instruction: &str, variables: &ModeVariables<'_>)
         .replace("${selected}", variables.selected.unwrap_or_default())
         .replace("${app_name}", variables.app_name.unwrap_or_default())
         .replace("${custom_words}", &variables.custom_words.join(", "))
+}
+
+pub fn mode_uses_variable(mode: &PressayMode, variable: &str) -> bool {
+    let token = format!("${{{variable}}}");
+    mode.steps.iter().any(|step| {
+        step.instruction
+            .as_deref()
+            .is_some_and(|instruction| instruction.contains(&token))
+    })
 }
 
 fn enabled_by_default() -> bool {
@@ -646,6 +667,7 @@ mod tests {
         let target = Some(TargetApplication {
             bundle_id: "notion.id".into(),
             app_name: "Notion".into(),
+            process_id: 42,
         });
 
         let temporary = resolve_mode(
@@ -692,6 +714,7 @@ mod tests {
             Some(TargetApplication {
                 bundle_id: "notion.id".into(),
                 app_name: "Notion".into(),
+                process_id: 42,
             }),
         )
         .unwrap();
@@ -739,16 +762,34 @@ mod tests {
         let target = TargetApplication {
             bundle_id: "com.apple.mail".into(),
             app_name: "Mail".into(),
+            process_id: 42,
         };
-
-        runtime.capture_target(Some(target.clone()));
         runtime.set_temporary_mode(Some("email".into()));
+        assert_eq!(runtime.take_temporary_mode().as_deref(), Some("email"));
+        assert_eq!(runtime.take_temporary_mode(), None);
 
-        assert_eq!(
-            runtime.take_invocation(),
-            (Some(target), Some("email".into()))
-        );
+        let resolved = resolve_mode(&builtin_modes(), &[], "faithful", None, Some(target)).unwrap();
+        let selection = SelectionContext {
+            selected_text: "Context".into(),
+            source_bundle_id: "com.apple.mail".into(),
+            source_app_name: "Mail".into(),
+            available: true,
+        };
+        runtime.prepare_invocation(Some(resolved.clone()), Some(selection.clone()));
+
+        assert_eq!(runtime.take_invocation(), (Some(resolved), Some(selection)));
         assert_eq!(runtime.take_invocation(), (None, None));
+    }
+
+    #[test]
+    fn selection_is_requested_only_by_modes_that_reference_it() {
+        let modes = builtin_modes();
+        let faithful = modes.iter().find(|mode| mode.id == "faithful").unwrap();
+        let prompt = modes.iter().find(|mode| mode.id == "ai_prompt").unwrap();
+
+        assert!(!mode_uses_variable(faithful, "selected"));
+        assert!(mode_uses_variable(prompt, "selected"));
+        assert!(!mode_uses_variable(prompt, "api_key"));
     }
 
     #[test]

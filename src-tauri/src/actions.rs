@@ -12,9 +12,11 @@ use crate::managers::model::ModelManager;
 use crate::managers::transcription::StreamWorkKind;
 use crate::managers::transcription::TranscriptionManager;
 use crate::productivity::{
-    dictionary_prompt_terms, frontmost_application, render_mode_instruction, resolve_mode,
-    ModeStepKind, ModeVariables, ProcessingRoute, ProductivityRuntime, ResolvedMode,
+    dictionary_prompt_terms, frontmost_application, mode_uses_variable, render_mode_instruction,
+    resolve_mode, ModeStepKind, ModeVariables, ProcessingRoute, ProductivityRuntime, ResolvedMode,
+    SelectionContext,
 };
+use crate::selection_context::capture_selected_text;
 use crate::settings::{get_settings, AppSettings, OverlayStyle, APPLE_INTELLIGENCE_PROVIDER_ID};
 use crate::shortcut;
 use crate::transcription_coordinator::PipelinePhase;
@@ -491,9 +493,25 @@ pub(crate) struct TransformFailure {
     pub code: &'static str,
 }
 
+fn verified_selection<'a>(
+    resolved: &ResolvedMode,
+    selection: Option<&'a SelectionContext>,
+) -> Option<&'a str> {
+    selection
+        .filter(|context| {
+            context.available
+                && resolved
+                    .target
+                    .as_ref()
+                    .is_some_and(|target| target.bundle_id == context.source_bundle_id)
+        })
+        .map(|context| context.selected_text.as_str())
+}
+
 async fn process_pressay_mode(
     settings: &AppSettings,
     resolved: &ResolvedMode,
+    selection: Option<&SelectionContext>,
     effective_language: &str,
     transcription: &str,
 ) -> Result<(String, Option<String>), TransformFailure> {
@@ -537,7 +555,7 @@ async fn process_pressay_mode(
                     instruction,
                     &ModeVariables {
                         transcript: &text,
-                        selected: None,
+                        selected: verified_selection(resolved, selection),
                         app_name: resolved
                             .target
                             .as_ref()
@@ -598,6 +616,7 @@ pub(crate) async fn process_transcription_output(
     transcription: &str,
     legacy_post_process: bool,
     resolved_mode: Option<&ResolvedMode>,
+    selection: Option<&SelectionContext>,
 ) -> Result<ProcessedTranscription, TransformFailure> {
     let settings = get_settings(app);
     let mut final_text = transcription.to_string();
@@ -631,9 +650,14 @@ pub(crate) async fn process_transcription_output(
             }
         }
     } else if let Some(resolved_mode) = resolved_mode {
-        let (mode_text, mode_prompt) =
-            process_pressay_mode(&settings, resolved_mode, &effective_language, &final_text)
-                .await?;
+        let (mode_text, mode_prompt) = process_pressay_mode(
+            &settings,
+            resolved_mode,
+            selection,
+            &effective_language,
+            &final_text,
+        )
+        .await?;
         if mode_text != transcription {
             post_processed_text = Some(mode_text.clone());
         }
@@ -654,12 +678,29 @@ impl ShortcutAction for TranscribeAction {
     fn start(&self, app: &AppHandle, binding_id: &str, _shortcut_str: &str) {
         let start_time = Instant::now();
         debug!("TranscribeAction::start called for binding: {}", binding_id);
+        let settings = get_settings(app);
 
-        // Capture the target before any overlay or settings window can affect
-        // AppKit's frontmost application. This identity contains no selected
-        // text and is discarded when the current invocation is resolved.
-        if let Some(runtime) = app.try_state::<ProductivityRuntime>() {
-            runtime.capture_target(frontmost_application());
+        // Resolve the complete invocation before any overlay can change the
+        // frontmost application. Selected text is queried only when the chosen
+        // mode explicitly references `${selected}` and remains in memory.
+        if !self.post_process {
+            if let Some(runtime) = app.try_state::<ProductivityRuntime>() {
+                let target = frontmost_application();
+                let temporary_mode_id = runtime.take_temporary_mode();
+                let resolved_mode = resolve_mode(
+                    &settings.pressay_modes,
+                    &settings.app_profiles,
+                    &settings.active_mode_id,
+                    temporary_mode_id.as_deref(),
+                    target,
+                );
+                let selection = resolved_mode
+                    .as_ref()
+                    .filter(|resolved| mode_uses_variable(&resolved.mode, "selected"))
+                    .and_then(|resolved| resolved.target.as_ref())
+                    .and_then(capture_selected_text);
+                runtime.prepare_invocation(resolved_mode, selection);
+            }
         }
 
         // Load model in the background
@@ -684,7 +725,6 @@ impl ShortcutAction for TranscribeAction {
 
         // Get the microphone mode to determine audio feedback timing
         let plan_started = Instant::now();
-        let settings = get_settings(app);
         let is_always_on = settings.always_on_microphone;
 
         let selected_model_info = app
@@ -861,23 +901,25 @@ impl ShortcutAction for TranscribeAction {
 
         let binding_id = binding_id.to_string(); // Clone binding_id for the async task
         let post_process = self.post_process;
-        let settings = get_settings(app);
-        let (target, temporary_mode_id) = app
+        let (prepared_mode, selection_context) = app
             .try_state::<ProductivityRuntime>()
             .map(|runtime| runtime.take_invocation())
             .unwrap_or((None, None));
         // The inherited post-processing shortcut remains an explicit manual
-        // override. Normal dictation resolves temporary mode > app profile >
-        // configured default.
+        // override. A missing prepared invocation fails closed to the current
+        // default local mode without trying to infer a new target application.
         let resolved_mode = (!post_process)
             .then(|| {
-                resolve_mode(
-                    &settings.pressay_modes,
-                    &settings.app_profiles,
-                    &settings.active_mode_id,
-                    temporary_mode_id.as_deref(),
-                    target,
-                )
+                prepared_mode.or_else(|| {
+                    let settings = get_settings(app);
+                    resolve_mode(
+                        &settings.pressay_modes,
+                        &settings.app_profiles,
+                        &settings.active_mode_id,
+                        None,
+                        None,
+                    )
+                })
             })
             .flatten();
         let requires_transform = post_process
@@ -1057,6 +1099,7 @@ impl ShortcutAction for TranscribeAction {
                                     &transcription,
                                     post_process,
                                     resolved_mode.as_ref(),
+                                    selection_context.as_ref(),
                                 ),
                                 POST_PROCESS_TIMEOUT,
                                 || rm.was_cancelled_since(cancel_generation),
@@ -1388,10 +1431,12 @@ pub static ACTION_MAP: Lazy<HashMap<String, Arc<dyn ShortcutAction>>> = Lazy::ne
 mod tests {
     use super::{
         complete_before_deadline, is_blank_transcription, process_pressay_mode,
-        should_use_streaming_overlay, strip_think_block, transcription_timeout, OperationOutcome,
-        MAX_TRANSCRIPTION_TIMEOUT, MIN_TRANSCRIPTION_TIMEOUT,
+        should_use_streaming_overlay, strip_think_block, transcription_timeout, verified_selection,
+        OperationOutcome, MAX_TRANSCRIPTION_TIMEOUT, MIN_TRANSCRIPTION_TIMEOUT,
     };
-    use crate::productivity::{builtin_modes, resolve_mode, ProcessingRoute};
+    use crate::productivity::{
+        builtin_modes, resolve_mode, ProcessingRoute, SelectionContext, TargetApplication,
+    };
     use crate::settings::{AppSettings, OverlayStyle};
     use std::future;
     use std::sync::atomic::{AtomicBool, Ordering};
@@ -1508,6 +1553,7 @@ mod tests {
         let faithful_output = tauri::async_runtime::block_on(process_pressay_mode(
             &settings,
             &faithful,
+            None,
             "en",
             "um this is ready",
         ))
@@ -1515,6 +1561,7 @@ mod tests {
         let clean_output = tauri::async_runtime::block_on(process_pressay_mode(
             &settings,
             &clean,
+            None,
             "en",
             "um this is ready",
         ))
@@ -1535,11 +1582,39 @@ mod tests {
         let error = tauri::async_runtime::block_on(process_pressay_mode(
             &settings,
             &resolved,
+            None,
             "fr",
             "Bonjour à tous",
         ))
         .unwrap_err();
 
         assert_eq!(error.code, "pressay_cloud_unavailable");
+    }
+
+    #[test]
+    fn selected_context_requires_the_verified_target_bundle() {
+        let modes = builtin_modes();
+        let mut resolved = resolve_mode(&modes, &[], "ai_prompt", None, None).unwrap();
+        resolved.target = Some(TargetApplication {
+            bundle_id: "com.apple.mail".into(),
+            app_name: "Mail".into(),
+            process_id: 42,
+        });
+        let mut selection = SelectionContext {
+            selected_text: "A private selection".into(),
+            source_bundle_id: "com.apple.mail".into(),
+            source_app_name: "Mail".into(),
+            available: true,
+        };
+
+        assert_eq!(
+            verified_selection(&resolved, Some(&selection)),
+            Some("A private selection")
+        );
+        selection.source_bundle_id = "com.apple.Notes".into();
+        assert_eq!(verified_selection(&resolved, Some(&selection)), None);
+        selection.source_bundle_id = "com.apple.mail".into();
+        selection.available = false;
+        assert_eq!(verified_selection(&resolved, Some(&selection)), None);
     }
 }
