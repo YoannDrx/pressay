@@ -25,7 +25,7 @@ use windows::Win32::Foundation::{
     SetLastError, ERROR_SUCCESS, HANDLE, HGLOBAL, HINSTANCE, HWND, LPARAM, LRESULT, WPARAM,
 };
 
-use super::{evaluate, send_chord, TxState, WaitDecision};
+use super::{evaluate, send_chord, PasteOptions, TxState, WaitDecision};
 use crate::clipboard::send_return_key;
 use crate::input::EnigoState;
 use crate::settings::{AutoSubmitKey, ClipboardHandling, PasteMethod};
@@ -76,6 +76,7 @@ pub(super) struct WinTxShared {
     /// ClipboardHandling::CopyToClipboard — settle by leaving the transcript
     /// on the clipboard as plain text instead of restoring the snapshot.
     preserve_transcript: bool,
+    operation_id: u64,
 }
 
 /// The transaction currently holding the clipboard, if any. A new
@@ -444,12 +445,12 @@ fn on_timer(_hwnd: HWND, shared: &WinTxShared) {
             st.injection_failed,
         )
     };
-    if ownership_lost {
-        info!("[reliable-paste] settling: clipboard ownership lost");
-    } else if receipt {
+    if receipt {
         info!("[reliable-paste] settling: reads went quiet");
     } else if injection_failed {
         info!("[reliable-paste] settling: chord injection failed, restoring quickly");
+    } else if ownership_lost {
+        info!("[reliable-paste] settling: clipboard ownership lost before a receipt");
     } else {
         info!("[reliable-paste] settling: no read within timeout, restoring anyway");
     }
@@ -466,6 +467,12 @@ fn on_timer(_hwnd: HWND, shared: &WinTxShared) {
         unsafe { settle_clipboard(shared) };
     } else {
         info!("[reliable-paste] clipboard changed externally; leaving it untouched");
+    }
+
+    if receipt {
+        super::report_confirmed_paste(&shared.app_handle, shared.operation_id);
+    } else if !injection_failed {
+        super::report_unconfirmed_paste(&shared.app_handle, shared.operation_id, &shared.text);
     }
 
     if let Ok(mut slot) = PENDING.lock() {
@@ -576,9 +583,7 @@ pub(super) fn run(
     app_handle: &tauri::AppHandle,
     paste_method: &PasteMethod,
     enigo: &mut enigo::Enigo,
-    auto_submit: bool,
-    auto_submit_key: AutoSubmitKey,
-    clipboard_handling: ClipboardHandling,
+    options: PasteOptions,
 ) -> Result<(), String> {
     let shared = Arc::new(WinTxShared {
         state: Mutex::new(TxState::new()),
@@ -587,9 +592,10 @@ pub(super) fn run(
         saved_bitmap: Mutex::new(None),
         sequence: Mutex::new(0),
         app_handle: app_handle.clone(),
-        auto_submit,
-        auto_submit_key,
-        preserve_transcript: clipboard_handling == ClipboardHandling::CopyToClipboard,
+        auto_submit: options.auto_submit,
+        auto_submit_key: options.auto_submit_key,
+        preserve_transcript: options.clipboard_handling == ClipboardHandling::CopyToClipboard,
+        operation_id: options.operation_id,
     });
 
     let (ready_tx, ready_rx) = std::sync::mpsc::channel();
@@ -617,6 +623,7 @@ pub(super) fn run(
             // after the short failed-injection timeout.
             shared.state.lock().unwrap().injection_failed = true;
             error!("[reliable-paste] failed to send paste chord: {e}");
+            return Err(e);
         }
     }
 

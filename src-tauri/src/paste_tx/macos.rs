@@ -24,7 +24,7 @@ use objc2_foundation::{NSArray, NSInteger, NSObject, NSString};
 use tauri::{AppHandle, Manager};
 use tauri_plugin_clipboard_manager::ClipboardExt;
 
-use super::{evaluate, send_chord, TxState, WaitDecision};
+use super::{evaluate, send_chord, PasteOptions, TxState, WaitDecision};
 use crate::clipboard::send_return_key;
 use crate::input::EnigoState;
 use crate::settings::{AutoSubmitKey, ClipboardHandling, PasteMethod};
@@ -107,6 +107,7 @@ struct MacPending {
     preserve_transcript: bool,
     /// The transcript, for the `preserve_transcript` re-write at settle time.
     transcript: String,
+    operation_id: u64,
     settled: bool,
 }
 
@@ -226,19 +227,24 @@ fn spawn_waiter(pending: Arc<Mutex<MacPending>>, app_handle: AppHandle) {
         };
 
         let (receipt_seen, ownership_lost, injection_failed) = outcome;
-        if ownership_lost {
-            info!("[reliable-paste] settling: clipboard ownership lost");
-        } else if receipt_seen {
+        let (transcript, operation_id) = match pending.lock() {
+            Ok(pending) => (pending.transcript.clone(), pending.operation_id),
+            Err(_) => return,
+        };
+        if receipt_seen {
             info!("[reliable-paste] settling: reads went quiet");
         } else if injection_failed {
             info!("[reliable-paste] settling: chord injection failed, restoring quickly");
+        } else if ownership_lost {
+            info!("[reliable-paste] settling: clipboard ownership lost before a receipt");
         } else {
             info!("[reliable-paste] settling: no read within timeout, restoring anyway");
         }
 
         let pending_for_finish = pending.clone();
         let app_for_finish = app_handle.clone();
-        let _ = app_handle.run_on_main_thread(move || {
+        let transcript_if_schedule_fails = transcript.clone();
+        let schedule_result = app_handle.run_on_main_thread(move || {
             settle(&pending_for_finish, &app_for_finish, None);
             if let Ok(mut slot) = PENDING.lock() {
                 let is_us = slot
@@ -249,7 +255,24 @@ fn spawn_waiter(pending: Arc<Mutex<MacPending>>, app_handle: AppHandle) {
                     *slot = None;
                 }
             }
+            if receipt_seen {
+                super::report_confirmed_paste(&app_for_finish, operation_id);
+            } else if !injection_failed {
+                super::report_unconfirmed_paste(&app_for_finish, operation_id, &transcript);
+            }
         });
+        if let Err(error) = schedule_result {
+            error!("[reliable-paste] failed to settle on the main thread: {error}");
+            if receipt_seen {
+                super::report_confirmed_paste(&app_handle, operation_id);
+            } else if !injection_failed {
+                super::report_unconfirmed_paste(
+                    &app_handle,
+                    operation_id,
+                    &transcript_if_schedule_fails,
+                );
+            }
+        }
     });
 }
 
@@ -258,9 +281,7 @@ pub(super) fn run(
     app_handle: &AppHandle,
     paste_method: &PasteMethod,
     enigo: &mut enigo::Enigo,
-    auto_submit: bool,
-    auto_submit_key: AutoSubmitKey,
-    clipboard_handling: ClipboardHandling,
+    options: PasteOptions,
 ) -> Result<(), String> {
     // Settle any previous transaction first so the snapshot below captures the
     // user's original clipboard, not the previous transcript.
@@ -301,9 +322,10 @@ pub(super) fn run(
     if let Ok(mut st) = state.lock() {
         st.injected_at = Some(Instant::now());
     }
-    match send_chord(enigo, paste_method) {
+    let injection_error = match send_chord(enigo, paste_method) {
         Ok(()) => {
             info!("[reliable-paste] paste chord sent ({paste_method:?})");
+            None
         }
         Err(e) => {
             // Keep the transaction alive: the waiter restores the clipboard
@@ -312,8 +334,9 @@ pub(super) fn run(
                 st.injection_failed = true;
             }
             error!("[reliable-paste] failed to send paste chord: {e}");
+            Some(e)
         }
-    }
+    };
 
     let pending = Arc::new(Mutex::new(MacPending {
         state,
@@ -321,10 +344,11 @@ pub(super) fn run(
         saved_image,
         change_count,
         provider: Some(provider),
-        auto_submit,
-        auto_submit_key,
-        preserve_transcript: clipboard_handling == ClipboardHandling::CopyToClipboard,
+        auto_submit: options.auto_submit,
+        auto_submit_key: options.auto_submit_key,
+        preserve_transcript: options.clipboard_handling == ClipboardHandling::CopyToClipboard,
         transcript: text.to_string(),
+        operation_id: options.operation_id,
         settled: false,
     }));
     if let Ok(mut slot) = PENDING.lock() {
@@ -332,5 +356,5 @@ pub(super) fn run(
     }
     spawn_waiter(pending, app_handle.clone());
 
-    Ok(())
+    injection_error.map_or(Ok(()), Err)
 }

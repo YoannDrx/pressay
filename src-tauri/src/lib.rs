@@ -734,12 +734,14 @@ pub fn run(cli_args: CliArgs) {
             commands::history::update_history_audio_retention,
             commands::history::delete_all_history,
             commands::history::update_recording_retention_period,
+            transcription_coordinator::get_pipeline_state,
             helpers::clamshell::is_laptop,
         ])
         .events(collect_events![
             managers::history::HistoryUpdatePayload,
             managers::transcription::StreamTextEvent,
             managers::transcription::StreamPhaseEvent,
+            transcription_coordinator::PipelineState,
         ]);
 
     #[cfg(debug_assertions)] // <- Only export on non-release builds

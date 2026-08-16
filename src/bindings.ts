@@ -928,6 +928,9 @@ async updateRecordingRetentionPeriod(period: string) : Promise<Result<null, stri
     else return { status: "error", error: e  as any };
 }
 },
+async getPipelineState() : Promise<PipelineState> {
+    return await TAURI_INVOKE("get_pipeline_state");
+},
 /**
  * Checks if the Mac is a laptop by detecting battery presence
  * 
@@ -949,10 +952,12 @@ async isLaptop() : Promise<Result<boolean, string>> {
 
 export const events = __makeEvents__<{
 historyUpdatePayload: HistoryUpdatePayload,
+pipelineState: PipelineState,
 streamPhaseEvent: StreamPhaseEvent,
 streamTextEvent: StreamTextEvent
 }>({
 historyUpdatePayload: "history-update-payload",
+pipelineState: "pipeline-state",
 streamPhaseEvent: "stream-phase-event",
 streamTextEvent: "stream-text-event"
 })
@@ -1022,6 +1027,9 @@ export type EngineType =
 export type GpuDeviceOption = { id: number; name: string; total_vram_mb: number }
 export type HistoryEntry = { id: number; file_name: string; timestamp: number; saved: boolean; title: string; transcription_text: string; post_processed_text: string | null; post_process_prompt: string | null; post_process_requested: boolean; audio_available: boolean; audio_saved: boolean }
 export type HistoryRetentionPeriod = "hours24" | "days7" | "days30" | "forever"
+export type PipelineFailure = { stage: PipelinePhase; code: string; recoverable: boolean }
+export type PipelinePhase = "idle" | "recording" | "transcribing" | "transforming" | "pasting" | "cancelled" | "failed"
+export type PipelineState = { phase: PipelinePhase; operation_id: number; binding_id: string | null; failure: PipelineFailure | null }
 export type HistoryUpdatePayload = { action: "added"; entry: HistoryEntry } | { action: "updated"; entry: HistoryEntry } | { action: "deleted"; id: number } | { action: "toggled"; id: number }
 /**
  * Result of changing keyboard implementation

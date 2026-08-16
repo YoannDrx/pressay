@@ -9,6 +9,7 @@ use crate::managers::transcription::StreamWorkKind;
 use crate::managers::transcription::TranscriptionManager;
 use crate::settings::{get_settings, AppSettings, OverlayStyle, APPLE_INTELLIGENCE_PROVIDER_ID};
 use crate::shortcut;
+use crate::transcription_coordinator::PipelinePhase;
 use crate::tray::{change_tray_icon, TrayIconState};
 use crate::utils::{
     self, show_processing_overlay, show_recording_overlay, show_transcribing_overlay,
@@ -32,13 +33,30 @@ struct RecordingErrorEvent {
     detail: Option<String>,
 }
 
+#[derive(Clone, serde::Serialize)]
+struct PasteErrorEvent {
+    text: String,
+}
+
+enum PasteCompletion {
+    Cancelled,
+    Finished(Result<crate::clipboard::PasteDispatch, String>),
+}
+
 /// Drop guard that notifies the [`TranscriptionCoordinator`] when the
 /// transcription pipeline finishes — whether it completes normally or panics.
-struct FinishGuard(AppHandle);
+struct FinishGuard {
+    app: AppHandle,
+    operation_id: u64,
+    finish_on_drop: bool,
+}
+
 impl Drop for FinishGuard {
     fn drop(&mut self) {
-        if let Some(c) = self.0.try_state::<TranscriptionCoordinator>() {
-            c.notify_processing_finished();
+        if self.finish_on_drop {
+            if let Some(c) = self.app.try_state::<TranscriptionCoordinator>() {
+                c.notify_processing_finished(self.operation_id);
+            }
         }
         // The pipeline just freed its large transient buffers (captured PCM,
         // WAV copy, engine scratch); hand the cached pages back to the OS so
@@ -680,9 +698,16 @@ impl ShortcutAction for TranscribeAction {
         let binding_id = binding_id.to_string(); // Clone binding_id for the async task
         let post_process = self.post_process;
         let cancel_generation = rm.cancel_generation();
+        let operation_id = app
+            .state::<TranscriptionCoordinator>()
+            .current_operation_id();
 
         tauri::async_runtime::spawn(async move {
-            let _guard = FinishGuard(ah.clone());
+            let mut finish_guard = FinishGuard {
+                app: ah.clone(),
+                operation_id,
+                finish_on_drop: true,
+            };
             debug!(
                 "Starting async transcription task for binding: {}",
                 binding_id
@@ -706,6 +731,14 @@ impl ShortcutAction for TranscribeAction {
 
                 if samples.is_empty() {
                     debug!("Recording produced no audio samples; skipping persistence");
+                    if let Some(coordinator) = ah.try_state::<TranscriptionCoordinator>() {
+                        coordinator.fail(
+                            operation_id,
+                            PipelinePhase::Transcribing,
+                            "empty_audio",
+                            true,
+                        );
+                    }
                     // Tear down any streaming worker so its channel doesn't leak
                     // and block the next start_stream.
                     tm.cancel_stream();
@@ -778,6 +811,12 @@ impl ShortcutAction for TranscribeAction {
                             );
 
                             if post_process {
+                                if let Some(coordinator) =
+                                    ah.try_state::<TranscriptionCoordinator>()
+                                {
+                                    coordinator
+                                        .transition(operation_id, PipelinePhase::Transforming);
+                                }
                                 if use_streaming_overlay {
                                     tm.emit_stream_working(StreamWorkKind::Polishing);
                                 } else {
@@ -827,36 +866,85 @@ impl ShortcutAction for TranscribeAction {
                                 utils::hide_recording_overlay(&ah);
                                 change_tray_icon(&ah, TrayIconState::Idle);
                             } else {
+                                if let Some(coordinator) =
+                                    ah.try_state::<TranscriptionCoordinator>()
+                                {
+                                    coordinator.transition(operation_id, PipelinePhase::Pasting);
+                                }
                                 let ah_clone = ah.clone();
                                 let paste_time = Instant::now();
                                 let final_text = processed.final_text;
+                                let recovery_text = final_text.clone();
+                                let recovery_text_for_closure = recovery_text.clone();
                                 let rm_for_paste = Arc::clone(&rm);
-                                ah.run_on_main_thread(move || {
+                                let (paste_tx, paste_rx) = tokio::sync::oneshot::channel();
+                                let schedule_result = ah.run_on_main_thread(move || {
                                     if rm_for_paste.was_cancelled_since(cancel_generation) {
                                         debug!("Transcription operation cancelled before paste");
-                                        utils::hide_recording_overlay(&ah_clone);
-                                        change_tray_icon(&ah_clone, TrayIconState::Idle);
+                                        let _ = paste_tx.send(PasteCompletion::Cancelled);
                                         return;
                                     }
 
-                                    match utils::paste(final_text, ah_clone.clone()) {
-                                        Ok(()) => debug!(
-                                            "Text pasted successfully in {:?}",
+                                    let result = utils::paste(final_text, ah_clone.clone());
+                                    if let Err(error) = &result {
+                                        error!("Failed to paste transcription: {}", error);
+                                        let _ = ah_clone.emit(
+                                            "paste-error",
+                                            PasteErrorEvent {
+                                                text: recovery_text_for_closure,
+                                            },
+                                        );
+                                    }
+                                    let _ = paste_tx.send(PasteCompletion::Finished(result));
+                                });
+
+                                let paste_completion = if let Err(error) = schedule_result {
+                                    error!("Failed to run paste on main thread: {:?}", error);
+                                    let _ = ah.emit(
+                                        "paste-error",
+                                        PasteErrorEvent {
+                                            text: recovery_text,
+                                        },
+                                    );
+                                    None
+                                } else {
+                                    paste_rx.await.ok()
+                                };
+                                match paste_completion {
+                                    Some(PasteCompletion::Finished(Ok(
+                                        crate::clipboard::PasteDispatch::Completed,
+                                    ))) => debug!(
+                                        "Text pasted successfully in {:?}",
+                                        paste_time.elapsed()
+                                    ),
+                                    Some(PasteCompletion::Finished(Ok(
+                                        crate::clipboard::PasteDispatch::AwaitingReceipt,
+                                    ))) => {
+                                        // The platform paste transaction owns the final
+                                        // Pasting -> Idle/Failed transition once the target
+                                        // actually reads (or fails to read) the clipboard.
+                                        finish_guard.finish_on_drop = false;
+                                        debug!(
+                                            "Paste dispatched; waiting for clipboard receipt after {:?}",
                                             paste_time.elapsed()
-                                        ),
-                                        Err(e) => {
-                                            error!("Failed to paste transcription: {}", e);
-                                            let _ = ah_clone.emit("paste-error", ());
+                                        );
+                                    }
+                                    Some(PasteCompletion::Cancelled) => {}
+                                    Some(PasteCompletion::Finished(Err(_))) | None => {
+                                        if let Some(coordinator) =
+                                            ah.try_state::<TranscriptionCoordinator>()
+                                        {
+                                            coordinator.fail(
+                                                operation_id,
+                                                PipelinePhase::Pasting,
+                                                "paste_failed",
+                                                true,
+                                            );
                                         }
                                     }
-                                    utils::hide_recording_overlay(&ah_clone);
-                                    change_tray_icon(&ah_clone, TrayIconState::Idle);
-                                })
-                                .unwrap_or_else(|e| {
-                                    error!("Failed to run paste on main thread: {:?}", e);
-                                    utils::hide_recording_overlay(&ah);
-                                    change_tray_icon(&ah, TrayIconState::Idle);
-                                });
+                                }
+                                utils::hide_recording_overlay(&ah);
+                                change_tray_icon(&ah, TrayIconState::Idle);
                             }
                         }
                         Err(err) => {
@@ -870,6 +958,14 @@ impl ShortcutAction for TranscribeAction {
                             }
 
                             error!("Transcription failed: {}", err);
+                            if let Some(coordinator) = ah.try_state::<TranscriptionCoordinator>() {
+                                coordinator.fail(
+                                    operation_id,
+                                    PipelinePhase::Transcribing,
+                                    "transcription_failed",
+                                    true,
+                                );
+                            }
                             // Surface the failure to the UI (toast). The full
                             // The categorized error is also written to pressay.log.
                             let _ = ah.emit("transcription-error", err.to_string());

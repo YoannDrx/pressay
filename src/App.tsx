@@ -133,9 +133,13 @@ function App() {
   // (see actions.rs `error!("Failed to paste transcription: ...")`),
   // so we show a localized, user-friendly message here instead of the raw error.
   useEffect(() => {
-    const unlisten = listen("paste-error", () => {
+    const unlisten = listen<{ text: string }>("paste-error", (event) => {
       toast.error(t("errors.pasteFailedTitle"), {
         description: t("errors.pasteFailed"),
+        action: {
+          label: t("common.copy", { defaultValue: "Copy text" }),
+          onClick: () => navigator.clipboard.writeText(event.payload.text),
+        },
       });
     });
     return () => {
