@@ -151,6 +151,7 @@ impl AudioRecorder {
         self.selected_channel = channel.map(usize::from);
     }
 
+    #[allow(deprecated)]
     pub fn open(&mut self, device: Option<Device>) -> Result<(), Box<dyn std::error::Error>> {
         if self.worker_handle.is_some() {
             if !self.needs_reopen() {
@@ -203,7 +204,7 @@ impl AudioRecorder {
                 };
                 let config_elapsed = config_started.elapsed();
 
-                let sample_rate = config.sample_rate().0;
+                let sample_rate = config.sample_rate();
                 let channels = config.channels() as usize;
 
                 log::info!(
@@ -401,6 +402,7 @@ impl AudioRecorder {
     }
 
     /// Name of the device backing the currently open stream.
+    #[allow(deprecated)]
     pub fn active_device_name(&self) -> Option<String> {
         self.device.as_ref().and_then(|device| device.name().ok())
     }

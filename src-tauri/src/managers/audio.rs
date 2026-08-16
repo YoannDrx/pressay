@@ -510,6 +510,7 @@ impl AudioRecordingManager {
 
     /// Checks whether an open stream that follows the system default is still
     /// attached to the device the OS currently reports as default.
+    #[allow(deprecated)]
     fn default_stream_device_changed(&self) -> bool {
         let settings = get_settings(&self.app_handle);
         if settings.selected_microphone.is_some() || settings.clamshell_microphone.is_some() {
