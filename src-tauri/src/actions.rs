@@ -2,13 +2,19 @@
 use crate::apple_intelligence;
 use crate::audio_feedback::{play_feedback_sound, play_feedback_sound_blocking, SoundType};
 use crate::audio_toolkit::{
-    is_effectively_silent, is_microphone_access_denied, is_no_input_device_error, VadPolicy,
+    apply_dictionary_entries, is_effectively_silent, is_microphone_access_denied,
+    is_no_input_device_error, normalize_transcription_output, remove_filler_words,
+    OutputLanguageEvidence, VadPolicy,
 };
 use crate::managers::audio::AudioRecordingManager;
 use crate::managers::history::HistoryManager;
 use crate::managers::model::ModelManager;
 use crate::managers::transcription::StreamWorkKind;
 use crate::managers::transcription::TranscriptionManager;
+use crate::productivity::{
+    dictionary_prompt_terms, frontmost_application, render_mode_instruction, resolve_mode,
+    ModeStepKind, ModeVariables, ProcessingRoute, ProductivityRuntime, ResolvedMode,
+};
 use crate::settings::{get_settings, AppSettings, OverlayStyle, APPLE_INTELLIGENCE_PROVIDER_ID};
 use crate::shortcut;
 use crate::transcription_coordinator::PipelinePhase;
@@ -185,7 +191,11 @@ fn should_use_streaming_overlay(style: OverlayStyle, is_streaming: bool) -> bool
     style == OverlayStyle::Live && is_streaming
 }
 
-async fn post_process_transcription(settings: &AppSettings, transcription: &str) -> Option<String> {
+async fn post_process_transcription(
+    settings: &AppSettings,
+    transcription: &str,
+    prompt_override: Option<&str>,
+) -> Option<String> {
     if is_blank_transcription(transcription) {
         debug!("Post-processing skipped because the transcription is empty");
         return None;
@@ -213,26 +223,27 @@ async fn post_process_transcription(settings: &AppSettings, transcription: &str)
         return None;
     }
 
-    let selected_prompt_id = match &settings.post_process_selected_prompt_id {
-        Some(id) => id.clone(),
+    let prompt = match prompt_override {
+        Some(prompt) => prompt.to_string(),
         None => {
-            debug!("Post-processing skipped because no prompt is selected");
-            return None;
-        }
-    };
-
-    let prompt = match settings
-        .post_process_prompts
-        .iter()
-        .find(|prompt| prompt.id == selected_prompt_id)
-    {
-        Some(prompt) => prompt.prompt.clone(),
-        None => {
-            debug!(
-                "Post-processing skipped because prompt '{}' was not found",
-                selected_prompt_id
-            );
-            return None;
+            let selected_prompt_id = match &settings.post_process_selected_prompt_id {
+                Some(id) => id,
+                None => {
+                    debug!("Post-processing skipped because no prompt is selected");
+                    return None;
+                }
+            };
+            match settings
+                .post_process_prompts
+                .iter()
+                .find(|prompt| &prompt.id == selected_prompt_id)
+            {
+                Some(prompt) => prompt.prompt.clone(),
+                None => {
+                    debug!("Post-processing skipped because the selected prompt was not found");
+                    return None;
+                }
+            }
         }
     };
 
@@ -475,6 +486,92 @@ pub(crate) struct ProcessedTranscription {
     pub post_process_prompt: Option<String>,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct TransformFailure {
+    pub code: &'static str,
+}
+
+async fn process_pressay_mode(
+    settings: &AppSettings,
+    resolved: &ResolvedMode,
+    effective_language: &str,
+    transcription: &str,
+) -> Result<(String, Option<String>), TransformFailure> {
+    let mut text = transcription.to_string();
+    let dictionary_terms = dictionary_prompt_terms(&settings.dictionary_entries);
+    let mut applied_prompt = None;
+
+    for step in &resolved.mode.steps {
+        match step.kind {
+            ModeStepKind::Normalize => {
+                text = normalize_transcription_output(&text);
+            }
+            ModeStepKind::Dictionary => {
+                text = apply_dictionary_entries(
+                    &text,
+                    &settings.dictionary_entries,
+                    settings.word_correction_threshold,
+                );
+            }
+            ModeStepKind::Format => {
+                if step.instruction.as_deref() == Some("remove_fillers") {
+                    let language = if effective_language == "auto" {
+                        OutputLanguageEvidence::Unknown
+                    } else {
+                        OutputLanguageEvidence::UserSelected(effective_language.to_string())
+                    };
+                    text =
+                        remove_filler_words(&text, &language, &settings.custom_filler_words, true);
+                    text = normalize_transcription_output(&text);
+                } else {
+                    return Err(TransformFailure {
+                        code: "unsupported_local_formatter",
+                    });
+                }
+            }
+            ModeStepKind::Transform => {
+                let instruction = step.instruction.as_deref().ok_or(TransformFailure {
+                    code: "mode_instruction_missing",
+                })?;
+                let rendered = render_mode_instruction(
+                    instruction,
+                    &ModeVariables {
+                        transcript: &text,
+                        selected: None,
+                        app_name: resolved
+                            .target
+                            .as_ref()
+                            .map(|target| target.app_name.as_str()),
+                        custom_words: &dictionary_terms,
+                    },
+                );
+                match resolved.mode.route {
+                    ProcessingRoute::Local => {
+                        return Err(TransformFailure {
+                            code: "local_mode_remote_step",
+                        });
+                    }
+                    ProcessingRoute::Byok => {
+                        text = post_process_transcription(settings, &text, Some(&rendered))
+                            .await
+                            .ok_or(TransformFailure {
+                                code: "byok_transform_failed",
+                            })?;
+                        applied_prompt = Some(instruction.to_string());
+                    }
+                    ProcessingRoute::PressayCloud => {
+                        return Err(TransformFailure {
+                            code: "pressay_cloud_unavailable",
+                        });
+                    }
+                }
+            }
+        }
+    }
+
+    Ok((text, applied_prompt))
+}
+
 /// Resolve the persisted language *intent* into the language the currently-loaded
 /// model will actually use — the same capability-aware coercion the transcription
 /// paths apply (see [`crate::managers::model::effective_language`]). Post-processing
@@ -499,8 +596,9 @@ fn resolve_effective_language(app: &AppHandle, settings: &AppSettings) -> String
 pub(crate) async fn process_transcription_output(
     app: &AppHandle,
     transcription: &str,
-    post_process: bool,
-) -> ProcessedTranscription {
+    legacy_post_process: bool,
+    resolved_mode: Option<&ResolvedMode>,
+) -> Result<ProcessedTranscription, TransformFailure> {
     let settings = get_settings(app);
     let mut final_text = transcription.to_string();
     let mut post_processed_text: Option<String> = None;
@@ -516,8 +614,9 @@ pub(crate) async fn process_transcription_output(
         final_text = converted_text;
     }
 
-    if post_process {
-        if let Some(processed_text) = post_process_transcription(&settings, &final_text).await {
+    if legacy_post_process {
+        if let Some(processed_text) = post_process_transcription(&settings, &final_text, None).await
+        {
             post_processed_text = Some(processed_text.clone());
             final_text = processed_text;
 
@@ -531,21 +630,37 @@ pub(crate) async fn process_transcription_output(
                 }
             }
         }
+    } else if let Some(resolved_mode) = resolved_mode {
+        let (mode_text, mode_prompt) =
+            process_pressay_mode(&settings, resolved_mode, &effective_language, &final_text)
+                .await?;
+        if mode_text != transcription {
+            post_processed_text = Some(mode_text.clone());
+        }
+        final_text = mode_text;
+        post_process_prompt = mode_prompt;
     } else if final_text != transcription {
         post_processed_text = Some(final_text.clone());
     }
 
-    ProcessedTranscription {
+    Ok(ProcessedTranscription {
         final_text,
         post_processed_text,
         post_process_prompt,
-    }
+    })
 }
 
 impl ShortcutAction for TranscribeAction {
     fn start(&self, app: &AppHandle, binding_id: &str, _shortcut_str: &str) {
         let start_time = Instant::now();
         debug!("TranscribeAction::start called for binding: {}", binding_id);
+
+        // Capture the target before any overlay or settings window can affect
+        // AppKit's frontmost application. This identity contains no selected
+        // text and is discarded when the current invocation is resolved.
+        if let Some(runtime) = app.try_state::<ProductivityRuntime>() {
+            runtime.capture_target(frontmost_application());
+        }
 
         // Load model in the background
         let tm = app.state::<Arc<TranscriptionManager>>();
@@ -746,6 +861,38 @@ impl ShortcutAction for TranscribeAction {
 
         let binding_id = binding_id.to_string(); // Clone binding_id for the async task
         let post_process = self.post_process;
+        let settings = get_settings(app);
+        let (target, temporary_mode_id) = app
+            .try_state::<ProductivityRuntime>()
+            .map(|runtime| runtime.take_invocation())
+            .unwrap_or((None, None));
+        // The inherited post-processing shortcut remains an explicit manual
+        // override. Normal dictation resolves temporary mode > app profile >
+        // configured default.
+        let resolved_mode = (!post_process)
+            .then(|| {
+                resolve_mode(
+                    &settings.pressay_modes,
+                    &settings.app_profiles,
+                    &settings.active_mode_id,
+                    temporary_mode_id.as_deref(),
+                    target,
+                )
+            })
+            .flatten();
+        let requires_transform = post_process
+            || resolved_mode.as_ref().is_some_and(|resolved| {
+                resolved.mode.route != ProcessingRoute::Local
+                    || resolved
+                        .mode
+                        .steps
+                        .iter()
+                        .any(|step| step.kind == ModeStepKind::Transform)
+            });
+        let output_behavior = resolved_mode
+            .as_ref()
+            .map(|resolved| resolved.output)
+            .unwrap_or_default();
         let cancel_generation = rm.cancel_generation();
         let operation_id = app
             .state::<TranscriptionCoordinator>()
@@ -891,7 +1038,7 @@ impl ShortcutAction for TranscribeAction {
                                 transcription.chars().count()
                             );
 
-                            if post_process {
+                            if requires_transform {
                                 if let Some(coordinator) =
                                     ah.try_state::<TranscriptionCoordinator>()
                                 {
@@ -905,13 +1052,55 @@ impl ShortcutAction for TranscribeAction {
                                 }
                             }
                             let processing_outcome = complete_before_deadline(
-                                process_transcription_output(&ah, &transcription, post_process),
+                                process_transcription_output(
+                                    &ah,
+                                    &transcription,
+                                    post_process,
+                                    resolved_mode.as_ref(),
+                                ),
                                 POST_PROCESS_TIMEOUT,
                                 || rm.was_cancelled_since(cancel_generation),
                             )
                             .await;
                             let processed = match processing_outcome {
-                                OperationOutcome::Completed(processed) => processed,
+                                OperationOutcome::Completed(Ok(processed)) => processed,
+                                OperationOutcome::Completed(Err(failure)) => {
+                                    if let Some(coordinator) =
+                                        ah.try_state::<TranscriptionCoordinator>()
+                                    {
+                                        coordinator.fail(
+                                            operation_id,
+                                            PipelinePhase::Transforming,
+                                            failure.code,
+                                            true,
+                                        );
+                                    }
+                                    let _ = ah.emit(
+                                        "transform-error",
+                                        TransformErrorEvent {
+                                            code: failure.code.to_string(),
+                                            text: transcription.clone(),
+                                        },
+                                    );
+                                    if audio_saved {
+                                        if let Err(save_error) = hm.save_entry(
+                                            file_name.clone(),
+                                            transcription.clone(),
+                                            requires_transform,
+                                            None,
+                                            None,
+                                        ) {
+                                            error!(
+                                                "Failed to save failed-transform history entry: {}",
+                                                save_error
+                                            );
+                                            let _ = hm.discard_audio(&file_name);
+                                        }
+                                    }
+                                    utils::hide_recording_overlay(&ah);
+                                    change_tray_icon(&ah, TrayIconState::Idle);
+                                    return;
+                                }
                                 OperationOutcome::Cancelled => {
                                     debug!(
                                         "Transcription operation cancelled during output handling"
@@ -945,7 +1134,7 @@ impl ShortcutAction for TranscribeAction {
                                         if let Err(save_error) = hm.save_entry(
                                             file_name.clone(),
                                             transcription.clone(),
-                                            post_process,
+                                            requires_transform,
                                             None,
                                             None,
                                         ) {
@@ -977,7 +1166,7 @@ impl ShortcutAction for TranscribeAction {
                                 if let Err(err) = hm.save_entry(
                                     file_name.clone(),
                                     transcription,
-                                    post_process,
+                                    requires_transform,
                                     processed.post_processed_text.clone(),
                                     processed.post_process_prompt.clone(),
                                 ) {
@@ -1009,7 +1198,11 @@ impl ShortcutAction for TranscribeAction {
                                         return;
                                     }
 
-                                    let result = utils::paste(final_text, ah_clone.clone());
+                                    let result = utils::deliver(
+                                        final_text,
+                                        ah_clone.clone(),
+                                        output_behavior,
+                                    );
                                     if let Err(error) = &result {
                                         error!("Failed to paste transcription: {}", error);
                                         let _ = ah_clone.emit(
@@ -1102,7 +1295,7 @@ impl ShortcutAction for TranscribeAction {
                                 if let Err(save_err) = hm.save_entry(
                                     file_name.clone(),
                                     String::new(),
-                                    post_process,
+                                    requires_transform,
                                     None,
                                     None,
                                 ) {
@@ -1194,11 +1387,12 @@ pub static ACTION_MAP: Lazy<HashMap<String, Arc<dyn ShortcutAction>>> = Lazy::ne
 #[cfg(test)]
 mod tests {
     use super::{
-        complete_before_deadline, is_blank_transcription, should_use_streaming_overlay,
-        strip_think_block, transcription_timeout, OperationOutcome, MAX_TRANSCRIPTION_TIMEOUT,
-        MIN_TRANSCRIPTION_TIMEOUT,
+        complete_before_deadline, is_blank_transcription, process_pressay_mode,
+        should_use_streaming_overlay, strip_think_block, transcription_timeout, OperationOutcome,
+        MAX_TRANSCRIPTION_TIMEOUT, MIN_TRANSCRIPTION_TIMEOUT,
     };
-    use crate::settings::OverlayStyle;
+    use crate::productivity::{builtin_modes, resolve_mode, ProcessingRoute};
+    use crate::settings::{AppSettings, OverlayStyle};
     use std::future;
     use std::sync::atomic::{AtomicBool, Ordering};
     use std::sync::Arc;
@@ -1301,5 +1495,51 @@ mod tests {
         assert!(!should_use_streaming_overlay(OverlayStyle::Live, false));
         assert!(!should_use_streaming_overlay(OverlayStyle::Minimal, true));
         assert!(!should_use_streaming_overlay(OverlayStyle::None, true));
+    }
+
+    #[test]
+    fn faithful_preserves_fillers_while_clean_removes_them_locally() {
+        let settings = AppSettings::default();
+        assert!(!settings.filler_word_removal_enabled);
+        let modes = builtin_modes();
+        let faithful = resolve_mode(&modes, &[], "faithful", None, None).unwrap();
+        let clean = resolve_mode(&modes, &[], "clean", None, None).unwrap();
+
+        let faithful_output = tauri::async_runtime::block_on(process_pressay_mode(
+            &settings,
+            &faithful,
+            "en",
+            "um this is ready",
+        ))
+        .unwrap();
+        let clean_output = tauri::async_runtime::block_on(process_pressay_mode(
+            &settings,
+            &clean,
+            "en",
+            "um this is ready",
+        ))
+        .unwrap();
+
+        assert_eq!(faithful_output.0, "um this is ready");
+        assert_eq!(clean_output.0, "this is ready");
+    }
+
+    #[test]
+    fn cloud_mode_fails_explicitly_without_sending_or_pasting() {
+        let settings = AppSettings::default();
+        let mut modes = builtin_modes();
+        let mode = modes.iter_mut().find(|mode| mode.id == "message").unwrap();
+        mode.route = ProcessingRoute::PressayCloud;
+        let resolved = resolve_mode(&modes, &[], "message", None, None).unwrap();
+
+        let error = tauri::async_runtime::block_on(process_pressay_mode(
+            &settings,
+            &resolved,
+            "fr",
+            "Bonjour à tous",
+        ))
+        .unwrap_err();
+
+        assert_eq!(error.code, "pressay_cloud_unavailable");
     }
 }

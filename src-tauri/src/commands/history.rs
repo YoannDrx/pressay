@@ -109,7 +109,9 @@ pub async fn retry_history_entry_transcription(
     }
 
     let processed =
-        process_transcription_output(&app, &transcription, entry.post_process_requested).await;
+        process_transcription_output(&app, &transcription, entry.post_process_requested, None)
+            .await
+            .map_err(|failure| format!("Transformation failed: {}", failure.code))?;
     history_manager
         .update_transcription(
             id,

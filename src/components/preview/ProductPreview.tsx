@@ -167,6 +167,7 @@ export const ProductPreview = () => {
                 <ModesSettingsView
                   config={PREVIEW_PRODUCTIVITY}
                   onActivate={() => undefined}
+                  onUseOnce={() => undefined}
                   onSaveMode={() => true}
                   onDeleteMode={() => undefined}
                   onSaveProfile={() => true}

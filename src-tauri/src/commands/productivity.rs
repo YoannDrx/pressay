@@ -5,7 +5,7 @@ use crate::productivity::{
 use crate::settings::{get_settings, write_settings};
 use std::cmp::Reverse;
 use std::collections::HashSet;
-use tauri::AppHandle;
+use tauri::{AppHandle, Manager};
 
 #[tauri::command]
 #[specta::specta]
@@ -72,6 +72,20 @@ pub fn set_active_pressay_mode(app: AppHandle, mode_id: String) -> Result<(), St
     }
     settings.active_mode_id = mode_id;
     write_settings(&app, settings);
+    Ok(())
+}
+
+#[tauri::command]
+#[specta::specta]
+pub fn set_temporary_pressay_mode(app: AppHandle, mode_id: Option<String>) -> Result<(), String> {
+    if let Some(mode_id) = mode_id.as_deref() {
+        let settings = get_settings(&app);
+        if !settings.pressay_modes.iter().any(|mode| mode.id == mode_id) {
+            return Err("Mode not found".to_string());
+        }
+    }
+    app.state::<crate::productivity::ProductivityRuntime>()
+        .set_temporary_mode(mode_id);
     Ok(())
 }
 

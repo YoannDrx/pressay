@@ -2,7 +2,7 @@ use regex::Regex;
 use serde::{Deserialize, Serialize};
 use specta::Type;
 use std::collections::HashSet;
-use std::sync::OnceLock;
+use std::sync::{Mutex, OnceLock};
 
 pub const PRODUCTIVITY_SCHEMA_VERSION: u32 = 1;
 const MAX_MODE_STEPS: usize = 8;
@@ -128,6 +128,156 @@ pub struct ProductivityConfig {
     pub dictionary: Vec<DictionaryEntry>,
 }
 
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq, Type)]
+pub struct TargetApplication {
+    pub bundle_id: String,
+    pub app_name: String,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone, Copy, PartialEq, Eq, Type)]
+#[serde(rename_all = "snake_case")]
+pub enum ModeSelectionSource {
+    Temporary,
+    AppProfile,
+    Default,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq, Type)]
+pub struct ResolvedMode {
+    pub mode: PressayMode,
+    pub source: ModeSelectionSource,
+    pub profile_id: Option<String>,
+    pub output: OutputBehavior,
+    pub target: Option<TargetApplication>,
+}
+
+#[derive(Default)]
+struct RuntimeInvocation {
+    target: Option<TargetApplication>,
+    temporary_mode_id: Option<String>,
+}
+
+#[derive(Default)]
+pub struct ProductivityRuntime {
+    invocation: Mutex<RuntimeInvocation>,
+}
+
+impl ProductivityRuntime {
+    pub fn capture_target(&self, target: Option<TargetApplication>) {
+        if let Ok(mut invocation) = self.invocation.lock() {
+            invocation.target = target;
+        }
+    }
+
+    pub fn set_temporary_mode(&self, mode_id: Option<String>) {
+        if let Ok(mut invocation) = self.invocation.lock() {
+            invocation.temporary_mode_id = mode_id;
+        }
+    }
+
+    pub fn take_invocation(&self) -> (Option<TargetApplication>, Option<String>) {
+        match self.invocation.lock() {
+            Ok(mut invocation) => (
+                invocation.target.take(),
+                invocation.temporary_mode_id.take(),
+            ),
+            Err(_) => (None, None),
+        }
+    }
+}
+
+#[cfg(target_os = "macos")]
+pub fn frontmost_application() -> Option<TargetApplication> {
+    use objc2_app_kit::NSWorkspace;
+
+    let application = NSWorkspace::sharedWorkspace().frontmostApplication()?;
+    let bundle_id = application.bundleIdentifier()?.to_string();
+    if bundle_id.trim().is_empty()
+        || matches!(
+            bundle_id.as_str(),
+            "app.pressay.desktop" | "app.pressay.desktop.mas"
+        )
+    {
+        return None;
+    }
+    let app_name = application
+        .localizedName()
+        .map(|name| name.to_string())
+        .unwrap_or_else(|| bundle_id.clone());
+    Some(TargetApplication {
+        bundle_id,
+        app_name,
+    })
+}
+
+#[cfg(not(target_os = "macos"))]
+pub fn frontmost_application() -> Option<TargetApplication> {
+    None
+}
+
+pub fn resolve_mode(
+    modes: &[PressayMode],
+    profiles: &[AppProfile],
+    default_mode_id: &str,
+    temporary_mode_id: Option<&str>,
+    target: Option<TargetApplication>,
+) -> Option<ResolvedMode> {
+    let find_mode = |mode_id: &str| modes.iter().find(|mode| mode.id == mode_id).cloned();
+
+    if let Some(mode) = temporary_mode_id.and_then(find_mode) {
+        return Some(ResolvedMode {
+            mode,
+            source: ModeSelectionSource::Temporary,
+            profile_id: None,
+            output: OutputBehavior::Paste,
+            target,
+        });
+    }
+
+    if let Some(target_application) = target.as_ref() {
+        if let Some((profile, mode)) = profiles
+            .iter()
+            .filter(|profile| profile.bundle_id == target_application.bundle_id)
+            .filter_map(|profile| find_mode(&profile.mode_id).map(|mode| (profile, mode)))
+            .max_by_key(|(profile, _)| profile.priority)
+        {
+            return Some(ResolvedMode {
+                mode,
+                source: ModeSelectionSource::AppProfile,
+                profile_id: Some(profile.id.clone()),
+                output: profile.output,
+                target,
+            });
+        }
+    }
+
+    find_mode(default_mode_id)
+        .or_else(|| find_mode("faithful"))
+        .or_else(|| modes.first().cloned())
+        .map(|mode| ResolvedMode {
+            mode,
+            source: ModeSelectionSource::Default,
+            profile_id: None,
+            output: OutputBehavior::Paste,
+            target,
+        })
+}
+
+pub struct ModeVariables<'a> {
+    pub transcript: &'a str,
+    pub selected: Option<&'a str>,
+    pub app_name: Option<&'a str>,
+    pub custom_words: &'a [String],
+}
+
+pub fn render_mode_instruction(instruction: &str, variables: &ModeVariables<'_>) -> String {
+    instruction
+        .replace("${transcript}", variables.transcript)
+        .replace("${selected}", variables.selected.unwrap_or_default())
+        .replace("${app_name}", variables.app_name.unwrap_or_default())
+        .replace("${custom_words}", &variables.custom_words.join(", "))
+}
+
 fn enabled_by_default() -> bool {
     true
 }
@@ -242,6 +392,27 @@ pub fn validate_mode(mode: &PressayMode) -> Result<(), String> {
         if let Some(instruction) = &step.instruction {
             validate_text(instruction, "Step instruction", 4_000)?;
             validate_variables(instruction)?;
+        }
+        match step.kind {
+            ModeStepKind::Normalize | ModeStepKind::Dictionary if step.instruction.is_some() => {
+                return Err(format!(
+                    "Step '{}' does not accept a custom instruction",
+                    step.id
+                ));
+            }
+            ModeStepKind::Format if step.instruction.as_deref() != Some("remove_fillers") => {
+                return Err(format!(
+                    "Step '{}' uses an unsupported local formatter",
+                    step.id
+                ));
+            }
+            ModeStepKind::Transform if step.instruction.is_none() => {
+                return Err(format!(
+                    "Transformation step '{}' requires an instruction",
+                    step.id
+                ));
+            }
+            _ => {}
         }
     }
 
@@ -446,6 +617,106 @@ mod tests {
     }
 
     #[test]
+    fn mode_resolution_honours_temporary_profile_then_default_priority() {
+        let modes = builtin_modes();
+        let profiles = vec![
+            AppProfile {
+                id: "low".into(),
+                bundle_id: "notion.id".into(),
+                app_name: "Notion".into(),
+                priority: 1,
+                mode_id: "clean".into(),
+                language: None,
+                microphone: None,
+                model: None,
+                output: OutputBehavior::Copy,
+            },
+            AppProfile {
+                id: "high".into(),
+                bundle_id: "notion.id".into(),
+                app_name: "Notion".into(),
+                priority: 10,
+                mode_id: "email".into(),
+                language: None,
+                microphone: None,
+                model: None,
+                output: OutputBehavior::Type,
+            },
+        ];
+        let target = Some(TargetApplication {
+            bundle_id: "notion.id".into(),
+            app_name: "Notion".into(),
+        });
+
+        let temporary = resolve_mode(
+            &modes,
+            &profiles,
+            "faithful",
+            Some("message"),
+            target.clone(),
+        )
+        .unwrap();
+        assert_eq!(temporary.mode.id, "message");
+        assert_eq!(temporary.source, ModeSelectionSource::Temporary);
+        assert_eq!(temporary.output, OutputBehavior::Paste);
+
+        let profiled = resolve_mode(&modes, &profiles, "faithful", None, target).unwrap();
+        assert_eq!(profiled.mode.id, "email");
+        assert_eq!(profiled.profile_id.as_deref(), Some("high"));
+        assert_eq!(profiled.output, OutputBehavior::Type);
+
+        let default = resolve_mode(&modes, &profiles, "faithful", None, None).unwrap();
+        assert_eq!(default.mode.id, "faithful");
+        assert_eq!(default.source, ModeSelectionSource::Default);
+    }
+
+    #[test]
+    fn invalid_temporary_and_profile_modes_fail_closed_to_default() {
+        let modes = builtin_modes();
+        let profiles = vec![AppProfile {
+            id: "broken".into(),
+            bundle_id: "notion.id".into(),
+            app_name: "Notion".into(),
+            priority: 100,
+            mode_id: "missing".into(),
+            language: None,
+            microphone: None,
+            model: None,
+            output: OutputBehavior::Copy,
+        }];
+        let resolved = resolve_mode(
+            &modes,
+            &profiles,
+            "clean",
+            Some("missing"),
+            Some(TargetApplication {
+                bundle_id: "notion.id".into(),
+                app_name: "Notion".into(),
+            }),
+        )
+        .unwrap();
+
+        assert_eq!(resolved.mode.id, "clean");
+        assert_eq!(resolved.source, ModeSelectionSource::Default);
+        assert_eq!(resolved.output, OutputBehavior::Paste);
+    }
+
+    #[test]
+    fn mode_variables_render_without_leaking_missing_context() {
+        let words = vec!["Pressay".to_string(), "Éléonore".to_string()];
+        let rendered = render_mode_instruction(
+            "${app_name}: ${transcript} / ${selected} / ${custom_words}",
+            &ModeVariables {
+                transcript: "Hello",
+                selected: None,
+                app_name: Some("Mail"),
+                custom_words: &words,
+            },
+        );
+        assert_eq!(rendered, "Mail: Hello /  / Pressay, Éléonore");
+    }
+
+    #[test]
     fn mode_variables_are_allowlisted() {
         let mut mode = remote_mode(
             "custom",
@@ -463,6 +734,24 @@ mod tests {
     }
 
     #[test]
+    fn runtime_invocation_is_consumed_once() {
+        let runtime = ProductivityRuntime::default();
+        let target = TargetApplication {
+            bundle_id: "com.apple.mail".into(),
+            app_name: "Mail".into(),
+        };
+
+        runtime.capture_target(Some(target.clone()));
+        runtime.set_temporary_mode(Some("email".into()));
+
+        assert_eq!(
+            runtime.take_invocation(),
+            (Some(target), Some("email".into()))
+        );
+        assert_eq!(runtime.take_invocation(), (None, None));
+    }
+
+    #[test]
     fn local_mode_rejects_remote_transformation() {
         let mut mode = builtin_modes().remove(0);
         mode.steps.push(step(
@@ -471,6 +760,24 @@ mod tests {
             Some("Rewrite ${transcript}"),
         ));
         assert!(validate_mode(&mode).is_err());
+    }
+
+    #[test]
+    fn mode_rejects_unknown_or_missing_step_configuration() {
+        let mut mode = builtin_modes().remove(1);
+        mode.steps[2].instruction = Some("unknown_formatter".into());
+        assert!(validate_mode(&mode).is_err());
+
+        let mut remote = remote_mode(
+            "custom",
+            "Custom",
+            "Custom mode",
+            "Use ${transcript}",
+            "neutral",
+            "short",
+        );
+        remote.steps[2].instruction = None;
+        assert!(validate_mode(&remote).is_err());
     }
 
     #[test]

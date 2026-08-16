@@ -1,4 +1,5 @@
 use crate::input::{self, EnigoState};
+use crate::productivity::OutputBehavior;
 #[cfg(target_os = "linux")]
 use crate::settings::TypingTool;
 use crate::settings::{get_settings, AutoSubmitKey, ClipboardHandling, PasteMethod};
@@ -821,6 +822,43 @@ pub fn paste(text: String, app_handle: AppHandle) -> Result<PasteDispatch, Strin
     }
 
     Ok(PasteDispatch::Completed)
+}
+
+pub fn deliver(
+    text: String,
+    app_handle: AppHandle,
+    behavior: OutputBehavior,
+) -> Result<PasteDispatch, String> {
+    match behavior {
+        OutputBehavior::Paste => paste(text, app_handle),
+        OutputBehavior::Copy => {
+            write_text_to_clipboard(&app_handle, &text)?;
+            Ok(PasteDispatch::Completed)
+        }
+        OutputBehavior::Type => {
+            let settings = get_settings(&app_handle);
+            let text = if settings.append_trailing_space {
+                format!("{text} ")
+            } else {
+                text
+            };
+            paste_direct(
+                &text,
+                &app_handle,
+                #[cfg(target_os = "linux")]
+                settings.typing_tool,
+            )?;
+            if settings.auto_submit {
+                std::thread::sleep(Duration::from_millis(50));
+                if let Err(error) = with_enigo(&app_handle, |enigo| {
+                    send_return_key(enigo, settings.auto_submit_key)
+                }) {
+                    log::warn!("Direct typing succeeded, but auto-submit failed: {error}");
+                }
+            }
+            Ok(PasteDispatch::Completed)
+        }
+    }
 }
 
 #[cfg(test)]

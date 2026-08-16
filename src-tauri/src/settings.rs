@@ -481,7 +481,7 @@ fn default_model() -> String {
     "".to_string()
 }
 
-const CURRENT_SETTINGS_SCHEMA_VERSION: u32 = 4;
+const CURRENT_SETTINGS_SCHEMA_VERSION: u32 = 5;
 
 fn default_settings_schema_version() -> u32 {
     CURRENT_SETTINGS_SCHEMA_VERSION
@@ -547,7 +547,7 @@ fn default_vad_enabled() -> bool {
 }
 
 fn default_filler_word_removal_enabled() -> bool {
-    true
+    false
 }
 
 fn default_debug_mode() -> bool {
@@ -1242,6 +1242,14 @@ fn apply_settings_migrations(
         updated = true;
     }
 
+    if stored_schema_version < 5 {
+        // Pressay modes now own filler removal. "Fidèle" must never delete
+        // spoken words, while the built-in "Propre" mode carries an explicit
+        // remove_fillers step. Retire the inherited global default once.
+        settings.filler_word_removal_enabled = false;
+        updated = true;
+    }
+
     // Built-ins are immutable product definitions. Re-add any missing entry
     // while preserving every custom mode from the store.
     let mut known_mode_ids = settings
@@ -1347,7 +1355,7 @@ mod tests {
             .expect("all AppSettings fields need serde defaults");
         assert!(settings.push_to_talk);
         assert!(!settings.audio_feedback);
-        assert!(settings.filler_word_removal_enabled);
+        assert!(!settings.filler_word_removal_enabled);
         // Bindings default to empty; the load path merges the real defaults in.
         assert!(settings.bindings.is_empty());
     }
@@ -1465,7 +1473,7 @@ mod tests {
         assert_eq!(settings.bindings["transcribe"].current_binding, "f13");
         assert_eq!(settings.log_level, LogLevel::Debug);
         assert_eq!(settings.sound_theme, SoundTheme::Pop);
-        assert!(settings.filler_word_removal_enabled);
+        assert!(!settings.filler_word_removal_enabled);
 
         assert!(apply_settings_migrations(&mut settings, &stored));
         assert_eq!(
@@ -1766,7 +1774,7 @@ mod tests {
 
         assert!(apply_settings_migrations(&mut settings, &raw));
         assert!(settings.history_enabled);
-        assert_eq!(settings.settings_schema_version, 4);
+        assert_eq!(settings.settings_schema_version, 5);
     }
 
     #[test]
@@ -1787,7 +1795,7 @@ mod tests {
         assert_eq!(settings.dictionary_entries.len(), 2);
         assert_eq!(settings.dictionary_entries[0].id, "legacy_0");
         assert_eq!(settings.dictionary_entries[1].term, "Mac Book Pro");
-        assert_eq!(settings.settings_schema_version, 4);
+        assert_eq!(settings.settings_schema_version, 5);
 
         let serialized = serde_json::to_value(&settings).unwrap();
         let before = settings.dictionary_entries.clone();

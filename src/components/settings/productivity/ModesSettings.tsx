@@ -76,6 +76,7 @@ interface ModesSettingsViewProps {
   saving?: boolean;
   error?: string | null;
   onActivate: (modeId: string) => Promise<unknown> | unknown;
+  onUseOnce: (modeId: string) => Promise<unknown> | unknown;
   onSaveMode: (mode: PressayMode) => Promise<boolean> | boolean;
   onDeleteMode: (modeId: string) => Promise<unknown> | unknown;
   onSaveProfile: (profile: AppProfile) => Promise<boolean> | boolean;
@@ -87,6 +88,7 @@ export const ModesSettingsView = ({
   saving = false,
   error,
   onActivate,
+  onUseOnce,
   onSaveMode,
   onDeleteMode,
   onSaveProfile,
@@ -305,6 +307,14 @@ export const ModesSettingsView = ({
                   ) : null}
                   <Button
                     size="sm"
+                    variant="ghost"
+                    disabled={saving}
+                    onClick={() => onUseOnce(mode.id)}
+                  >
+                    {t("pressay.modes.useOnce", { defaultValue: "Once" })}
+                  </Button>
+                  <Button
+                    size="sm"
                     variant={active ? "primary-soft" : "secondary"}
                     disabled={active || saving}
                     onClick={() => onActivate(mode.id)}
@@ -454,6 +464,7 @@ export const ModesSettings = () => {
   const error = useProductivityStore((state) => state.error);
   const initialize = useProductivityStore((state) => state.initialize);
   const setActiveMode = useProductivityStore((state) => state.setActiveMode);
+  const useModeOnce = useProductivityStore((state) => state.useModeOnce);
   const saveMode = useProductivityStore((state) => state.saveMode);
   const deleteMode = useProductivityStore((state) => state.deleteMode);
   const saveProfile = useProductivityStore((state) => state.saveProfile);
@@ -477,6 +488,7 @@ export const ModesSettings = () => {
       saving={saving}
       error={error}
       onActivate={setActiveMode}
+      onUseOnce={useModeOnce}
       onSaveMode={saveMode}
       onDeleteMode={deleteMode}
       onSaveProfile={saveProfile}

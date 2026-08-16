@@ -2355,6 +2355,7 @@ mod tests {
     fn auto_language_without_detection_skips_gated_filler_removal() {
         let settings = AppSettings {
             selected_language: "auto".to_string(),
+            filler_word_removal_enabled: true,
             ..Default::default()
         };
         let evidence =
@@ -2378,6 +2379,7 @@ mod tests {
     fn unknown_evidence_with_confident_text_detection_removes_gated_fillers() {
         let settings = AppSettings {
             selected_language: "auto".to_string(),
+            filler_word_removal_enabled: true,
             ..Default::default()
         };
 

@@ -739,6 +739,7 @@ pub fn run(cli_args: CliArgs) {
             commands::productivity::upsert_pressay_mode,
             commands::productivity::delete_pressay_mode,
             commands::productivity::set_active_pressay_mode,
+            commands::productivity::set_temporary_pressay_mode,
             commands::productivity::replace_dictionary_entries,
             commands::productivity::upsert_app_profile,
             commands::productivity::delete_app_profile,
@@ -951,6 +952,7 @@ pub fn run(cli_args: CliArgs) {
             WEBVIEW_LOG_STREAMING.store(settings.debug_mode, Ordering::Relaxed);
             let app_handle = app.handle().clone();
             app.manage(TranscriptionCoordinator::new(app_handle.clone()));
+            app.manage(productivity::ProductivityRuntime::default());
 
             initialize_core_logic(&app_handle);
 

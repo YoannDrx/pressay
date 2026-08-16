@@ -15,6 +15,7 @@ interface ProductivityStore {
   initialize: () => Promise<void>;
   refresh: () => Promise<void>;
   setActiveMode: (modeId: string) => Promise<boolean>;
+  useModeOnce: (modeId: string) => Promise<boolean>;
   saveMode: (mode: PressayMode) => Promise<boolean>;
   deleteMode: (modeId: string) => Promise<boolean>;
   replaceDictionary: (entries: DictionaryEntry[]) => Promise<boolean>;
@@ -73,6 +74,22 @@ export const useProductivityStore = create<ProductivityStore>((set, get) => {
 
     setActiveMode: (modeId) =>
       runMutation(() => commands.setActivePressayMode(modeId)),
+    useModeOnce: async (modeId) => {
+      set({ saving: true, error: null });
+      try {
+        const result = await commands.setTemporaryPressayMode(modeId);
+        if (result.status === "error") {
+          set({ error: result.error });
+          return false;
+        }
+        return true;
+      } catch (error) {
+        set({ error: resultError(error) });
+        return false;
+      } finally {
+        set({ saving: false });
+      }
+    },
     saveMode: (mode) => runMutation(() => commands.upsertPressayMode(mode)),
     deleteMode: (modeId) =>
       runMutation(() => commands.deletePressayMode(modeId)),

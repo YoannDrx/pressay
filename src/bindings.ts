@@ -955,6 +955,14 @@ async setActivePressayMode(modeId: string) : Promise<Result<null, string>> {
     else return { status: "error", error: e  as any };
 }
 },
+async setTemporaryPressayMode(modeId: string | null) : Promise<Result<null, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("set_temporary_pressay_mode", { modeId }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
 async replaceDictionaryEntries(entries: DictionaryEntry[]) : Promise<Result<null, string>> {
     try {
     return { status: "ok", data: await TAURI_INVOKE("replace_dictionary_entries", { entries }) };
