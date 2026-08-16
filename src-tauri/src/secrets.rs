@@ -84,6 +84,13 @@ mod platform {
             .set_secret(key)
             .map_err(|_| "Unable to save the history key in the macOS Keychain".to_string())
     }
+
+    pub fn delete_history_master_key() -> Result<(), String> {
+        match entry(HISTORY_SERVICE, HISTORY_MASTER_KEY_ACCOUNT)?.delete_credential() {
+            Ok(()) | Err(Error::NoEntry) => Ok(()),
+            Err(_) => Err("Unable to delete the history key from the macOS Keychain".to_string()),
+        }
+    }
 }
 
 #[cfg(not(target_os = "macos"))]
@@ -107,10 +114,15 @@ mod platform {
     pub fn set_history_master_key(_key: &[u8; 32]) -> Result<(), String> {
         Err("Encrypted history is only available in the supported macOS build".to_string())
     }
+
+    pub fn delete_history_master_key() -> Result<(), String> {
+        Err("Encrypted history is only available in the supported macOS build".to_string())
+    }
 }
 
 pub use platform::{
-    get_history_master_key, get_provider_api_key, set_history_master_key, set_provider_api_key,
+    delete_history_master_key, get_history_master_key, get_provider_api_key,
+    set_history_master_key, set_provider_api_key,
 };
 
 pub fn get_or_create_history_master_key() -> Result<[u8; 32], String> {

@@ -714,7 +714,7 @@ impl ShortcutAction for TranscribeAction {
                 } else {
                     // History is opt-in. When disabled, keep the entire audio and
                     // transcript pipeline in memory and never create an audio file.
-                    let history_enabled = crate::settings::get_history_limit(&ah) > 0;
+                    let history_enabled = crate::settings::get_history_enabled(&ah);
                     let file_name =
                         format!("pressay-{}.wav.enc", chrono::Utc::now().timestamp_millis());
                     let samples_for_history = samples.clone();

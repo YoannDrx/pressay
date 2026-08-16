@@ -1,5 +1,13 @@
 import React, { useCallback, useEffect, useRef, useState } from "react";
-import { Check, Copy, FolderOpen, RotateCcw, Star, Trash2 } from "lucide-react";
+import {
+  Archive,
+  Check,
+  Copy,
+  FolderOpen,
+  RotateCcw,
+  Star,
+  Trash2,
+} from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
 import {
@@ -176,6 +184,15 @@ export const HistorySettings: React.FC = () => {
     }
   };
 
+  const toggleAudioSaved = async (id: number) => {
+    const result = await commands.toggleHistoryAudioSaved(id);
+    if (result.status === "ok") {
+      setEntries((current) =>
+        current.map((entry) => (entry.id === id ? result.data : entry)),
+      );
+    }
+  };
+
   const getAudioUrl = useCallback(async (fileName: string) => {
     try {
       const result = await commands.getHistoryAudio(fileName);
@@ -225,6 +242,28 @@ export const HistorySettings: React.FC = () => {
     }
   };
 
+  const deleteAllHistory = async () => {
+    const confirmed = window.confirm(
+      t("settings.history.deleteAllConfirmation", {
+        defaultValue:
+          "Delete all local history, encrypted recordings, and the history encryption key? This cannot be undone.",
+      }),
+    );
+    if (!confirmed) return;
+
+    const result = await commands.deleteAllHistory();
+    if (result.status === "error") {
+      toast.error(
+        t("settings.history.deleteAllError", {
+          defaultValue: "The local history could not be deleted.",
+        }),
+      );
+      return;
+    }
+    setEntries([]);
+    setHasMore(false);
+  };
+
   let content: React.ReactNode;
 
   if (loading) {
@@ -249,6 +288,7 @@ export const HistorySettings: React.FC = () => {
                 key={entry.id}
                 entry={entry}
                 onToggleSaved={() => toggleSaved(entry.id)}
+                onToggleAudioSaved={() => toggleAudioSaved(entry.id)}
                 onCopyText={() => copyToClipboard(entry.transcription_text)}
                 getAudioUrl={getAudioUrl}
                 deleteAudio={deleteAudioEntry}
@@ -272,10 +312,17 @@ export const HistorySettings: React.FC = () => {
               {t("settings.history.title")}
             </h2>
           </div>
-          <OpenRecordingsButton
-            onClick={openRecordingsFolder}
-            label={t("settings.history.openFolder")}
-          />
+          <div className="flex items-center gap-2">
+            <Button onClick={deleteAllHistory} variant="danger-ghost" size="sm">
+              {t("settings.history.deleteAll", {
+                defaultValue: "Delete now",
+              })}
+            </Button>
+            <OpenRecordingsButton
+              onClick={openRecordingsFolder}
+              label={t("settings.history.openFolder")}
+            />
+          </div>
         </div>
         <div className="bg-background border border-mid-gray/20 rounded-lg overflow-visible">
           {content}
@@ -288,6 +335,7 @@ export const HistorySettings: React.FC = () => {
 interface HistoryEntryProps {
   entry: HistoryEntry;
   onToggleSaved: () => void;
+  onToggleAudioSaved: () => void;
   onCopyText: () => void;
   getAudioUrl: (fileName: string) => Promise<string | null>;
   deleteAudio: (id: number) => Promise<void>;
@@ -297,6 +345,7 @@ interface HistoryEntryProps {
 const HistoryEntryComponent: React.FC<HistoryEntryProps> = ({
   entry,
   onToggleSaved,
+  onToggleAudioSaved,
   onCopyText,
   getAudioUrl,
   deleteAudio,
@@ -378,6 +427,20 @@ const HistoryEntryComponent: React.FC<HistoryEntryProps> = ({
               fill={entry.saved ? "currentColor" : "none"}
             />
           </IconButton>
+          {entry.audio_available && (
+            <IconButton
+              onClick={onToggleAudioSaved}
+              disabled={retrying}
+              active={entry.audio_saved}
+              title={t("settings.history.preserveAudio", {
+                defaultValue: entry.audio_saved
+                  ? "Use the normal audio retention"
+                  : "Preserve this recording",
+              })}
+            >
+              <Archive width={16} height={16} />
+            </IconButton>
+          )}
           <IconButton
             onClick={handleRetranscribe}
             disabled={retrying}

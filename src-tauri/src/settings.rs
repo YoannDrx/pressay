@@ -183,6 +183,15 @@ pub enum RecordingRetentionPeriod {
 
 #[derive(Serialize, Deserialize, Debug, Clone, Copy, PartialEq, Eq, Type)]
 #[serde(rename_all = "snake_case")]
+pub enum HistoryRetentionPeriod {
+    Hours24,
+    Days7,
+    Days30,
+    Forever,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone, Copy, PartialEq, Eq, Type)]
+#[serde(rename_all = "snake_case")]
 pub enum KeyboardImplementation {
     Tauri,
     HandyKeys,
@@ -376,6 +385,12 @@ pub struct AppSettings {
     pub history_limit: usize,
     #[serde(default = "default_recording_retention_period")]
     pub recording_retention_period: RecordingRetentionPeriod,
+    #[serde(default = "default_history_enabled")]
+    pub history_enabled: bool,
+    #[serde(default = "default_history_text_retention")]
+    pub history_text_retention: HistoryRetentionPeriod,
+    #[serde(default = "default_history_audio_retention")]
+    pub history_audio_retention: HistoryRetentionPeriod,
     #[serde(default)]
     pub paste_method: PasteMethod,
     #[serde(default)]
@@ -454,7 +469,7 @@ fn default_model() -> String {
     "".to_string()
 }
 
-const CURRENT_SETTINGS_SCHEMA_VERSION: u32 = 2;
+const CURRENT_SETTINGS_SCHEMA_VERSION: u32 = 3;
 
 fn default_settings_schema_version() -> u32 {
     CURRENT_SETTINGS_SCHEMA_VERSION
@@ -545,6 +560,18 @@ fn default_auto_submit() -> bool {
 
 fn default_history_limit() -> usize {
     0
+}
+
+fn default_history_enabled() -> bool {
+    false
+}
+
+fn default_history_text_retention() -> HistoryRetentionPeriod {
+    HistoryRetentionPeriod::Days30
+}
+
+fn default_history_audio_retention() -> HistoryRetentionPeriod {
+    HistoryRetentionPeriod::Hours24
 }
 
 fn default_recording_retention_period() -> RecordingRetentionPeriod {
@@ -856,6 +883,9 @@ pub fn get_default_settings() -> AppSettings {
         word_correction_threshold: default_word_correction_threshold(),
         history_limit: default_history_limit(),
         recording_retention_period: default_recording_retention_period(),
+        history_enabled: default_history_enabled(),
+        history_text_retention: default_history_text_retention(),
+        history_audio_retention: default_history_audio_retention(),
         paste_method: PasteMethod::default(),
         clipboard_handling: ClipboardHandling::default(),
         auto_submit: default_auto_submit(),
@@ -1177,6 +1207,13 @@ fn apply_settings_migrations(
         updated = true;
     }
 
+    if stored_schema_version < 3 && settings_value.get("history_enabled").is_none() {
+        // Preserve the old opt-in semantics once: a positive legacy limit meant
+        // that the user had explicitly enabled history.
+        settings.history_enabled = settings.history_limit > 0;
+        updated = true;
+    }
+
     if stored_schema_version < u64::from(CURRENT_SETTINGS_SCHEMA_VERSION) {
         settings.settings_schema_version = CURRENT_SETTINGS_SCHEMA_VERSION;
         updated = true;
@@ -1232,14 +1269,16 @@ pub fn get_stored_binding(app: &AppHandle, id: &str) -> ShortcutBinding {
     binding
 }
 
-pub fn get_history_limit(app: &AppHandle) -> usize {
-    let settings = get_settings(app);
-    settings.history_limit
+pub fn get_history_enabled(app: &AppHandle) -> bool {
+    get_settings(app).history_enabled
 }
 
-pub fn get_recording_retention_period(app: &AppHandle) -> RecordingRetentionPeriod {
-    let settings = get_settings(app);
-    settings.recording_retention_period
+pub fn get_history_text_retention(app: &AppHandle) -> HistoryRetentionPeriod {
+    get_settings(app).history_text_retention
+}
+
+pub fn get_history_audio_retention(app: &AppHandle) -> HistoryRetentionPeriod {
+    get_settings(app).history_audio_retention
 }
 
 #[cfg(test)]
@@ -1633,5 +1672,36 @@ mod tests {
             stored.get("post_process_api_keys"),
             raw.get("post_process_api_keys")
         );
+    }
+
+    #[test]
+    fn history_is_opt_in_with_separate_private_defaults() {
+        let settings = get_default_settings();
+        assert!(!settings.history_enabled);
+        assert_eq!(
+            settings.history_text_retention,
+            HistoryRetentionPeriod::Days30
+        );
+        assert_eq!(
+            settings.history_audio_retention,
+            HistoryRetentionPeriod::Hours24
+        );
+    }
+
+    #[test]
+    fn legacy_positive_history_limit_migrates_to_enabled() {
+        let mut settings = get_default_settings();
+        settings.history_limit = 25;
+        let raw = serde_json::json!({
+            "settings_schema_version": 2,
+            "history_limit": 25,
+            "onboarding_completed": false,
+            "whats_new_last_seen_version": default_whats_new_last_seen_version(),
+            "overlay_style": "live"
+        });
+
+        assert!(apply_settings_migrations(&mut settings, &raw));
+        assert!(settings.history_enabled);
+        assert_eq!(settings.settings_schema_version, 3);
     }
 }

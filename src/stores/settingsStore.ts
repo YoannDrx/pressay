@@ -4,6 +4,7 @@ import { listen } from "@tauri-apps/api/event";
 import type {
   AppSettings as Settings,
   AudioDevice,
+  HistoryRetentionPeriod,
   TranscribeAcceleratorSetting,
   OrtAcceleratorSetting,
 } from "@/bindings";
@@ -119,6 +120,11 @@ const settingUpdaters: {
     ),
   recording_retention_period: (value) =>
     commands.updateRecordingRetentionPeriod(value as string),
+  history_enabled: (value) => commands.updateHistoryEnabled(value as boolean),
+  history_text_retention: (value) =>
+    commands.updateHistoryTextRetention(value as HistoryRetentionPeriod),
+  history_audio_retention: (value) =>
+    commands.updateHistoryAudioRetention(value as HistoryRetentionPeriod),
   translate_to_english: (value) =>
     commands.changeTranslateToEnglishSetting(value as boolean),
   selected_language: (value) =>

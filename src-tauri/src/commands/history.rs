@@ -35,6 +35,18 @@ pub async fn toggle_history_entry_saved(
 
 #[tauri::command]
 #[specta::specta]
+pub async fn toggle_history_audio_saved(
+    history_manager: State<'_, Arc<HistoryManager>>,
+    id: i64,
+) -> Result<crate::managers::history::HistoryEntry, String> {
+    history_manager
+        .toggle_audio_saved_status(id)
+        .await
+        .map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+#[specta::specta]
 pub async fn get_history_audio(
     _app: AppHandle,
     history_manager: State<'_, Arc<HistoryManager>>,
@@ -118,6 +130,7 @@ pub async fn update_history_limit(
 ) -> Result<(), String> {
     let mut settings = crate::settings::get_settings(&app);
     settings.history_limit = limit;
+    settings.history_enabled = limit > 0;
     crate::settings::write_settings(&app, settings);
 
     history_manager
@@ -125,6 +138,61 @@ pub async fn update_history_limit(
         .map_err(|e| e.to_string())?;
 
     Ok(())
+}
+
+#[tauri::command]
+#[specta::specta]
+pub async fn update_history_enabled(
+    app: AppHandle,
+    history_manager: State<'_, Arc<HistoryManager>>,
+    enabled: bool,
+) -> Result<(), String> {
+    let mut settings = crate::settings::get_settings(&app);
+    settings.history_enabled = enabled;
+    crate::settings::write_settings(&app, settings);
+    history_manager
+        .cleanup_old_entries()
+        .map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+#[specta::specta]
+pub async fn update_history_text_retention(
+    app: AppHandle,
+    history_manager: State<'_, Arc<HistoryManager>>,
+    period: crate::settings::HistoryRetentionPeriod,
+) -> Result<(), String> {
+    let mut settings = crate::settings::get_settings(&app);
+    settings.history_text_retention = period;
+    crate::settings::write_settings(&app, settings);
+    history_manager
+        .cleanup_old_entries()
+        .map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+#[specta::specta]
+pub async fn update_history_audio_retention(
+    app: AppHandle,
+    history_manager: State<'_, Arc<HistoryManager>>,
+    period: crate::settings::HistoryRetentionPeriod,
+) -> Result<(), String> {
+    let mut settings = crate::settings::get_settings(&app);
+    settings.history_audio_retention = period;
+    crate::settings::write_settings(&app, settings);
+    history_manager
+        .cleanup_old_entries()
+        .map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+#[specta::specta]
+pub async fn delete_all_history(
+    history_manager: State<'_, Arc<HistoryManager>>,
+) -> Result<(), String> {
+    history_manager
+        .delete_all_history()
+        .map_err(|error| error.to_string())
 }
 
 #[tauri::command]
