@@ -22,7 +22,7 @@ export const AboutSettings: React.FC = () => {
         setVersion(appVersion);
       } catch (error) {
         console.error("Failed to get app version:", error);
-        setVersion("0.1.2");
+        setVersion("2.0.0-beta.1");
       }
     };
 
@@ -31,7 +31,7 @@ export const AboutSettings: React.FC = () => {
 
   const handleDonateClick = async () => {
     try {
-      await openUrl("https://handy.computer/donate");
+      await openUrl("https://press-say.app");
     } catch (error) {
       console.error("Failed to open donate link:", error);
     }

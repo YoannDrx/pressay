@@ -1,0 +1,17 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "identifier": "app.pressay.desktop.mas",
+  "app": {
+    "macOSPrivateApi": false,
+    "security": {
+      "capabilities": ["appstore"]
+    }
+  },
+  "bundle": {
+    "createUpdaterArtifacts": false,
+    "targets": ["app"],
+    "macOS": {
+      "entitlements": "Entitlements.AppStore.plist"
+    }
+  }
+}

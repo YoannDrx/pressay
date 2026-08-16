@@ -571,7 +571,7 @@ fn default_auto_submit() -> bool {
 }
 
 fn default_history_limit() -> usize {
-    5
+    0
 }
 
 fn default_recording_retention_period() -> RecordingRetentionPeriod {
@@ -1215,7 +1215,7 @@ mod tests {
             "custom_words": ["Handy", "cjpais"],
             "model_unload_timeout": "min5",
             "word_correction_threshold": 0.18,
-            "history_limit": 5,
+            "history_limit": 0,
             "recording_retention_period": "preserve_limit",
             "paste_method": "ctrl_v",
             "clipboard_handling": "dont_modify",

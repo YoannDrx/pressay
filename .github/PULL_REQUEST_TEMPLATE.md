@@ -1,73 +1,37 @@
-## Before Submitting This PR
-
-<!--
-HANDY IS UNDERGOING A FEATURE FREEZE. IF YOU ARE SUBMITTING A PR WHICH IS A NEW FEATURE THAT THE COMMUNITY HAS NOT ASKED FOR: PREPARE TO BE REJECTED. IF THE COMMUNITY HAS ASKED FOR IT, OR YOU HAVE EXPLICITLY GATHERED SUPPORT IT MAY STILL BE CONSIDERED.
-
-BUG FIXES ARE THE TOP PRIORITY. THERE ARE 60+ ISSUES TO FIX.
--->
-
-**Please submit only one fix or feature per pull request. Pull requests containing multiple fixes or features will likely be closed.**
-
-**Please confirm you have done the following:**
-
-- [ ] I have searched [existing issues](https://github.com/cjpais/Handy/issues) and [pull requests](https://github.com/cjpais/Handy/pulls) (including closed ones) to ensure this isn't a duplicate
-- [ ] I have read [CONTRIBUTING.md](https://github.com/cjpais/Handy/blob/main/CONTRIBUTING.md)
-
-**If this is a feature or change that was previously closed/rejected:**
-
-- [ ] I have explained in the description below why this should be reconsidered
-- [ ] I have gathered community feedback (link to discussion below)
-
 ## Human Written Description
 
-<!-- Describe your changes clearly and concisely
+<!-- Required: the repository owner writes this section in their own words. -->
 
-Please write 2-3 sentences in your own words explaining:
-- What problem you noticed or idea you had
-- Why you think this change matters
+TODO (owner)
 
-This section should be YOUR thinking, not AI-generated text. Even if AI helped write the code, we want to hear from you directly. Your perspective as a human is what makes contributions meaningful. Your PR may be rejected if you do not
-include a human-written description.
--->
+## Scope
 
-## Related Issues/Discussions
+<!-- What changed, and what is intentionally deferred? -->
 
-<!-- Link to related issues, discussions, or previous PRs -->
-<!-- If reopening something previously closed, explain why this should be reconsidered -->
+## Privacy and security
 
-Fixes #
-Discussion:
+- [ ] No transcript, audio, clipboard value, prompt, API key, or authorization token is logged.
+- [ ] Any new remote processing is explicit in the UI and covered by a local-first fallback.
+- [ ] Secrets are stored in Keychain, never in settings or source control.
+- [ ] Tauri capabilities and CSP remain least-privilege.
 
-## Community Feedback
+## Verification
 
-<!--
-PRs with community support are much more likely to be merged.
+- [ ] Frontend build, lint, formatting, translations, and tests pass.
+- [ ] Rust formatting, Clippy, and tests pass.
+- [ ] Relevant macOS behavior was tested or the gap is documented below.
 
-For features: Link to a discussion where community members have expressed interest.
-For bug fixes: Link to the issue where others have confirmed the bug.
+Commands and manual scenarios:
 
-If you haven't gathered feedback yet, consider starting a discussion first:
-https://github.com/cjpais/Handy/discussions
+## Upstream provenance
 
-It is not explicitly required to gather feedback, but it certainly helps your PR get merged.
--->
+<!-- Link Handy commits/PRs if behavior was ported. Otherwise write “Pressay-only”. -->
 
-## Testing
+## Screenshots or recordings
 
-<!-- Describe how you tested your changes and if you need help getting additional testing -->
+<!-- Required for visible changes. Use content without personal or customer data. -->
 
-## Screenshots/Videos (if applicable)
+## AI assistance
 
-<!-- Add screenshots or videos demonstrating the change -->
-
-## AI Assistance
-
-<!-- AI-assisted PRs are welcome! Just let us know so we can review appropriately. -->
-
-- [ ] No AI was used in this PR
-- [ ] AI was used (please describe below)
-
-**If AI was used:**
-
-- Tools used:
-- How extensively:
+- [ ] AI assistance was used and the resulting diff was reviewed by a human.
+- [ ] No AI assistance was used.

@@ -37,7 +37,11 @@ jobs:
 
       - uses: oven-sh/setup-bun@v2
         with:
-          bun-version: latest
+          bun-version-file: ".bun-version"
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt
 
       - name: Install dependencies
         run: bun install --frozen-lockfile
@@ -47,6 +51,9 @@ jobs:
 
       - name: Run ESLint
         run: bun run lint
+
+      - name: Build frontend
+        run: bun run build
 
       - name: Run prettier
         run: bun run format:check

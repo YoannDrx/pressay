@@ -25,7 +25,7 @@ CATALOG_VERSION = 2
 # (the same three values that form the HF resolve URL, so a mirror is a plain
 # static file host). Mirrors are untrusted: every download is verified against
 # the per-file `sha256` below, so listing one only affects availability.
-MIRRORS = ["https://blob.handy.computer"]
+MIRRORS = ["https://models.press-say.app"]
 
 # ───────────────────────── scoring (one constant each) ──────────────────────
 SPEED_SCALE = 8.0    # speed = 100·(1 − e^(−rtf/8))     grows toward 100

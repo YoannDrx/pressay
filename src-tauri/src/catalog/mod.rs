@@ -50,6 +50,7 @@ struct CatalogModel {
     architecture: Option<String>,
     languages: Vec<String>,
     capabilities: CatalogCaps,
+    license: String,
     speed_score: Option<f32>,
     accuracy_score: Option<f32>,
     files: Vec<QuantFile>,
@@ -120,8 +121,20 @@ static ROOT: Lazy<CatalogRoot> = Lazy::new(|| {
 });
 
 /// The bundled catalog, parsed once and normalised into descriptors.
-pub static CATALOG: Lazy<Vec<ModelDescriptor>> =
-    Lazy::new(|| ROOT.models.iter().map(ModelDescriptor::from).collect());
+pub static CATALOG: Lazy<Vec<ModelDescriptor>> = Lazy::new(|| {
+    ROOT.models
+        .iter()
+        .filter(|model| is_commercially_audited_license(&model.license))
+        .map(ModelDescriptor::from)
+        .collect()
+});
+
+/// Pressay only exposes models whose redistribution terms have been reviewed
+/// for commercial use. Unknown (`other`) and non-commercial licenses fail
+/// closed even if a stale catalog generator includes them.
+fn is_commercially_audited_license(license: &str) -> bool {
+    matches!(license, "mit" | "apache-2.0" | "cc-by-4.0")
+}
 
 /// A mirror copy of a catalog model's default file, with the expected content
 /// hash for end-to-end verification. Mirrors are untrusted bit-pipes: the
@@ -220,6 +233,22 @@ mod tests {
     #[test]
     fn catalog_parses_and_is_nonempty() {
         assert!(!CATALOG.is_empty(), "bundled catalog should contain models");
+    }
+
+    #[test]
+    fn catalog_excludes_noncommercial_and_unaudited_models() {
+        assert!(ROOT
+            .models
+            .iter()
+            .any(|model| model.license == "cc-by-nc-4.0"));
+        assert!(ROOT.models.iter().any(|model| model.license == "other"));
+        assert!(ROOT
+            .models
+            .iter()
+            .filter(|model| { !is_commercially_audited_license(&model.license) })
+            .all(|blocked| CATALOG
+                .iter()
+                .all(|model| { !model.id.starts_with(&format!("{}/", blocked.id)) })));
     }
 
     #[test]
