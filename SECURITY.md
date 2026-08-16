@@ -32,3 +32,10 @@ hardware class.
 - Model licences and hashes are included in the release manifest.
 - Cloud remains disabled until retention disclosures and provider agreements are
   accurate for the production account.
+
+## Audited dependency exceptions
+
+- `RUSTSEC-2026-0235` is temporarily ignored by CI because `rkyv 0.7` is only
+  an optional, disabled dependency of `rust_decimal` through `byte-unit`;
+  `cargo tree -i rkyv` is empty for the Pressay build. Remove the exception as
+  soon as that upstream chain adopts `rkyv >= 0.8.17`.
