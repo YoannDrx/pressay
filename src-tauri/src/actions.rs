@@ -179,11 +179,21 @@ async fn post_process_transcription(settings: &AppSettings, transcription: &str)
         provider.id, model
     );
 
-    let api_key = settings
-        .post_process_api_keys
-        .get(&provider.id)
-        .cloned()
-        .unwrap_or_default();
+    let api_key = if provider.id == APPLE_INTELLIGENCE_PROVIDER_ID {
+        String::new()
+    } else {
+        match crate::secrets::get_provider_api_key(&provider.id) {
+            Ok(Some(api_key)) => api_key,
+            Ok(None) => String::new(),
+            Err(_) => {
+                warn!(
+                    "Post-processing skipped because the API key for provider '{}' could not be read",
+                    provider.id
+                );
+                return None;
+            }
+        }
+    };
 
     // Ask these providers to skip reasoning/thinking — post-processing rarely
     // benefits from it and it adds seconds of latency. llm_client picks the

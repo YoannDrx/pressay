@@ -468,11 +468,23 @@ export const useSettingsStore = create<SettingsStore>()(
 
       try {
         if (settingType === "base_url") {
-          await commands.changePostProcessBaseUrlSetting(providerId, value);
+          const result = await commands.changePostProcessBaseUrlSetting(
+            providerId,
+            value,
+          );
+          if (result.status === "error") throw new Error(result.error);
         } else if (settingType === "api_key") {
-          await commands.changePostProcessApiKeySetting(providerId, value);
+          const result = await commands.changePostProcessApiKeySetting(
+            providerId,
+            value,
+          );
+          if (result.status === "error") throw new Error(result.error);
         } else if (settingType === "model") {
-          await commands.changePostProcessModelSetting(providerId, value);
+          const result = await commands.changePostProcessModelSetting(
+            providerId,
+            value,
+          );
+          if (result.status === "error") throw new Error(result.error);
         }
         await refreshSettings();
       } catch (error) {

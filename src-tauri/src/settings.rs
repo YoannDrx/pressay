@@ -3,7 +3,6 @@ use serde::de::{self, Visitor};
 use serde::{Deserialize, Deserializer, Serialize};
 use specta::Type;
 use std::collections::HashMap;
-use std::fmt;
 use tauri::AppHandle;
 use tauri_plugin_store::StoreExt;
 
@@ -301,34 +300,6 @@ pub enum OrtAcceleratorSetting {
     Rocm,
 }
 
-#[derive(Clone, Serialize, Deserialize, Type)]
-#[serde(transparent)]
-pub(crate) struct SecretMap(HashMap<String, String>);
-
-impl fmt::Debug for SecretMap {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        let redacted: HashMap<&String, &str> = self
-            .0
-            .iter()
-            .map(|(k, v)| (k, if v.is_empty() { "" } else { "[REDACTED]" }))
-            .collect();
-        redacted.fmt(f)
-    }
-}
-
-impl std::ops::Deref for SecretMap {
-    type Target = HashMap<String, String>;
-    fn deref(&self) -> &Self::Target {
-        &self.0
-    }
-}
-
-impl std::ops::DerefMut for SecretMap {
-    fn deref_mut(&mut self) -> &mut Self::Target {
-        &mut self.0
-    }
-}
-
 /* still handy for composing the initial JSON in the store ------------- */
 /// The container-level `serde(default)` (backed by the `Default` impl below)
 /// guarantees every field — including ones added in the future — falls back to
@@ -419,8 +390,10 @@ pub struct AppSettings {
     pub post_process_provider_id: String,
     #[serde(default = "default_post_process_providers")]
     pub post_process_providers: Vec<PostProcessProvider>,
-    #[serde(default = "default_post_process_api_keys")]
-    pub post_process_api_keys: SecretMap,
+    /// Presence metadata only. API key values live exclusively in macOS
+    /// Keychain and are never serialized into settings or sent to the webview.
+    #[serde(default = "default_post_process_api_keys_configured")]
+    pub post_process_api_keys_configured: HashMap<String, bool>,
     #[serde(default = "default_post_process_models")]
     pub post_process_models: HashMap<String, String>,
     #[serde(default = "default_post_process_prompts")]
@@ -481,7 +454,7 @@ fn default_model() -> String {
     "".to_string()
 }
 
-const CURRENT_SETTINGS_SCHEMA_VERSION: u32 = 1;
+const CURRENT_SETTINGS_SCHEMA_VERSION: u32 = 2;
 
 fn default_settings_schema_version() -> u32 {
     CURRENT_SETTINGS_SCHEMA_VERSION
@@ -699,12 +672,12 @@ fn default_post_process_providers() -> Vec<PostProcessProvider> {
     providers
 }
 
-fn default_post_process_api_keys() -> SecretMap {
+fn default_post_process_api_keys_configured() -> HashMap<String, bool> {
     let mut map = HashMap::new();
     for provider in default_post_process_providers() {
-        map.insert(provider.id, String::new());
+        map.insert(provider.id, false);
     }
-    SecretMap(map)
+    map
 }
 
 fn default_model_for_provider(provider_id: &str) -> String {
@@ -770,10 +743,13 @@ fn ensure_post_process_defaults(settings: &mut AppSettings) -> bool {
             }
         }
 
-        if !settings.post_process_api_keys.contains_key(&provider.id) {
+        if !settings
+            .post_process_api_keys_configured
+            .contains_key(&provider.id)
+        {
             settings
-                .post_process_api_keys
-                .insert(provider.id.clone(), String::new());
+                .post_process_api_keys_configured
+                .insert(provider.id.clone(), false);
             changed = true;
         }
 
@@ -887,7 +863,7 @@ pub fn get_default_settings() -> AppSettings {
         post_process_enabled: default_post_process_enabled(),
         post_process_provider_id: default_post_process_provider_id(),
         post_process_providers: default_post_process_providers(),
-        post_process_api_keys: default_post_process_api_keys(),
+        post_process_api_keys_configured: default_post_process_api_keys_configured(),
         post_process_models: default_post_process_models(),
         post_process_prompts: default_post_process_prompts(),
         post_process_selected_prompt_id: None,
@@ -960,7 +936,9 @@ pub fn get_settings(app: &AppHandle) -> AppSettings {
 
     // Settings reads also persist one-time migrations. Migration helpers are
     // idempotent, so this converges after the first read of an older store.
-    let mut settings = if let Some(settings_value) = store.get("settings") {
+    let (mut settings, mut updated, legacy_source) = if let Some(settings_value) =
+        store.get("settings")
+    {
         let (mut settings, mut updated) =
             match serde_json::from_value::<AppSettings>(settings_value.clone()) {
                 Ok(settings) => (settings, false),
@@ -974,6 +952,15 @@ pub fn get_settings(app: &AppHandle) -> AppSettings {
             updated = true;
         }
 
+        let preserve_legacy = match migrate_legacy_api_keys(&settings_value, &mut settings) {
+            LegacyApiKeyMigration::NotNeeded => false,
+            LegacyApiKeyMigration::Complete => {
+                updated = true;
+                false
+            }
+            LegacyApiKeyMigration::Deferred => true,
+        };
+
         // Merge in any bindings added since this store was written.
         for (key, value) in get_default_settings().bindings {
             if let std::collections::hash_map::Entry::Vacant(entry) = settings.bindings.entry(key) {
@@ -983,22 +970,133 @@ pub fn get_settings(app: &AppHandle) -> AppSettings {
             }
         }
 
-        if updated {
-            store.set("settings", serde_json::to_value(&settings).unwrap());
-        }
-
-        settings
+        (
+            settings,
+            updated,
+            preserve_legacy.then_some(settings_value.clone()),
+        )
     } else {
         let default_settings = get_default_settings();
-        store.set("settings", serde_json::to_value(&default_settings).unwrap());
-        default_settings
+        (default_settings, true, None)
     };
 
     if ensure_post_process_defaults(&mut settings) {
-        store.set("settings", serde_json::to_value(&settings).unwrap());
+        updated = true;
+    }
+
+    if refresh_api_key_statuses(&mut settings) {
+        updated = true;
+    }
+
+    if updated {
+        store.set(
+            "settings",
+            settings_value_for_store(&settings, legacy_source.as_ref()),
+        );
     }
 
     settings
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum LegacyApiKeyMigration {
+    NotNeeded,
+    Complete,
+    Deferred,
+}
+
+fn legacy_api_keys(settings_value: &serde_json::Value) -> Option<Vec<(String, String)>> {
+    let value = settings_value.get("post_process_api_keys")?;
+    let Some(map) = value.as_object() else {
+        return Some(Vec::new());
+    };
+
+    Some(
+        map.iter()
+            .filter_map(|(provider_id, value)| {
+                value
+                    .as_str()
+                    .filter(|api_key| !api_key.is_empty())
+                    .map(|api_key| (provider_id.clone(), api_key.to_string()))
+            })
+            .collect(),
+    )
+}
+
+fn migrate_legacy_api_keys(
+    settings_value: &serde_json::Value,
+    settings: &mut AppSettings,
+) -> LegacyApiKeyMigration {
+    let Some(keys) = legacy_api_keys(settings_value) else {
+        return LegacyApiKeyMigration::NotNeeded;
+    };
+
+    let mut failed = false;
+    for (provider_id, api_key) in keys {
+        match crate::secrets::set_provider_api_key(&provider_id, &api_key) {
+            Ok(()) => {
+                settings
+                    .post_process_api_keys_configured
+                    .insert(provider_id, true);
+            }
+            Err(_) => {
+                // Never log the key or the platform error: both can contain
+                // environment details. The provider identifier is sufficient.
+                warn!(
+                    "Deferring plaintext API key migration for provider '{}'",
+                    provider_id
+                );
+                failed = true;
+            }
+        }
+    }
+
+    if failed {
+        LegacyApiKeyMigration::Deferred
+    } else {
+        LegacyApiKeyMigration::Complete
+    }
+}
+
+fn refresh_api_key_statuses(settings: &mut AppSettings) -> bool {
+    let mut updated = false;
+    for provider in &settings.post_process_providers {
+        if provider.id == APPLE_INTELLIGENCE_PROVIDER_ID
+            || settings
+                .post_process_api_keys_configured
+                .get(&provider.id)
+                .copied()
+                .unwrap_or(false)
+        {
+            continue;
+        }
+
+        if matches!(
+            crate::secrets::get_provider_api_key(&provider.id),
+            Ok(Some(_))
+        ) {
+            settings
+                .post_process_api_keys_configured
+                .insert(provider.id.clone(), true);
+            updated = true;
+        }
+    }
+
+    updated
+}
+
+fn settings_value_for_store(
+    settings: &AppSettings,
+    legacy_source: Option<&serde_json::Value>,
+) -> serde_json::Value {
+    let mut value = serde_json::to_value(settings).expect("settings must serialize");
+    if let Some(legacy) = legacy_source.and_then(|source| source.get("post_process_api_keys")) {
+        value
+            .as_object_mut()
+            .expect("settings serialize to an object")
+            .insert("post_process_api_keys".to_string(), legacy.clone());
+    }
+    value
 }
 
 /// Rebuilds settings from a store value that failed to deserialize as a whole.
@@ -1076,6 +1174,10 @@ fn apply_settings_migrations(
             settings.transcribe_accelerator = TranscribeAcceleratorSetting::Auto;
             settings.transcribe_gpu_device = default_transcribe_gpu_device();
         }
+        updated = true;
+    }
+
+    if stored_schema_version < u64::from(CURRENT_SETTINGS_SCHEMA_VERSION) {
         settings.settings_schema_version = CURRENT_SETTINGS_SCHEMA_VERSION;
         updated = true;
     }
@@ -1106,7 +1208,14 @@ pub fn write_settings(app: &AppHandle, settings: AppSettings) {
         .store(crate::portable::store_path(SETTINGS_STORE_PATH))
         .expect("Failed to initialize store");
 
-    store.set("settings", serde_json::to_value(&settings).unwrap());
+    let existing = store.get("settings");
+    let legacy_source = existing
+        .as_ref()
+        .filter(|value| legacy_api_keys(value).is_some());
+    store.set(
+        "settings",
+        settings_value_for_store(&settings, legacy_source),
+    );
 }
 
 pub fn get_bindings(app: &AppHandle) -> HashMap<String, ShortcutBinding> {
@@ -1156,7 +1265,7 @@ mod tests {
 
     /// Frozen snapshot of a real v0.9.0-era settings store, as written to
     /// disk. This pins backwards compatibility: it must always parse strictly
-    /// (no salvage) and require no migration rewrite.
+    /// (no salvage) and migrate forward without losing user-visible settings.
     ///
     /// If a schema change breaks this test, do NOT just update the fixture —
     /// it stands in for the stores on users' machines. Add a
@@ -1164,7 +1273,7 @@ mod tests {
     /// `apply_settings_migrations` so old values keep loading, and only extend
     /// the fixture alongside that.
     #[test]
-    fn frozen_v0_9_store_parses_strictly_without_migration() {
+    fn frozen_v0_9_store_parses_strictly_and_migrates_to_v2() {
         // Note "log_level": 2 — the legacy numeric format, kept deliberately.
         let stored: serde_json::Value = serde_json::from_str(
             r##"{
@@ -1269,8 +1378,11 @@ mod tests {
         assert_eq!(settings.sound_theme, SoundTheme::Pop);
         assert!(settings.filler_word_removal_enabled);
 
-        // A current-format store must not be rewritten on every read.
-        assert!(!apply_settings_migrations(&mut settings, &stored));
+        assert!(apply_settings_migrations(&mut settings, &stored));
+        assert_eq!(
+            settings.settings_schema_version,
+            CURRENT_SETTINGS_SCHEMA_VERSION
+        );
     }
 
     #[test]
@@ -1477,31 +1589,46 @@ mod tests {
     }
 
     #[test]
-    fn debug_output_redacts_api_keys() {
+    fn serialized_settings_never_contain_api_key_values() {
         let mut settings = get_default_settings();
         settings
-            .post_process_api_keys
-            .insert("openai".to_string(), "sk-proj-secret-key-12345".to_string());
-        settings.post_process_api_keys.insert(
-            "anthropic".to_string(),
-            "sk-ant-secret-key-67890".to_string(),
-        );
-        settings
-            .post_process_api_keys
-            .insert("empty_provider".to_string(), "".to_string());
+            .post_process_api_keys_configured
+            .insert("openai".to_string(), true);
 
-        let debug_output = format!("{:?}", settings);
-
-        assert!(!debug_output.contains("sk-proj-secret-key-12345"));
-        assert!(!debug_output.contains("sk-ant-secret-key-67890"));
-        assert!(debug_output.contains("[REDACTED]"));
+        let serialized = settings_value_for_store(&settings, None);
+        let output = serde_json::to_string(&serialized).unwrap();
+        assert!(!output.contains("post_process_api_keys\""));
+        assert!(output.contains("post_process_api_keys_configured"));
     }
 
     #[test]
-    fn secret_map_debug_redacts_values() {
-        let map = SecretMap(HashMap::from([("key".into(), "secret".into())]));
-        let out = format!("{:?}", map);
-        assert!(!out.contains("secret"));
-        assert!(out.contains("[REDACTED]"));
+    fn legacy_api_keys_are_extracted_without_exposing_empty_values() {
+        let raw = serde_json::json!({
+            "post_process_api_keys": {
+                "openai": "test-secret-value",
+                "custom": ""
+            }
+        });
+
+        assert_eq!(
+            legacy_api_keys(&raw),
+            Some(vec![("openai".to_string(), "test-secret-value".to_string())])
+        );
+    }
+
+    #[test]
+    fn deferred_migration_preserves_the_original_legacy_map_exactly() {
+        let settings = get_default_settings();
+        let raw = serde_json::json!({
+            "post_process_api_keys": {
+                "openai": "test-secret-value"
+            }
+        });
+
+        let stored = settings_value_for_store(&settings, Some(&raw));
+        assert_eq!(
+            stored.get("post_process_api_keys"),
+            raw.get("post_process_api_keys")
+        );
     }
 }

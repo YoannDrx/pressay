@@ -15,7 +15,9 @@ type PostProcessProviderState = {
   handleBaseUrlChange: (value: string) => void;
   isBaseUrlUpdating: boolean;
   apiKey: string;
+  apiKeyConfigured: boolean;
   handleApiKeyChange: (value: string) => void;
+  handleApiKeyRemove: () => void;
   isApiKeyUpdating: boolean;
   model: string;
   handleModelChange: (value: string) => void;
@@ -62,7 +64,11 @@ export const usePostProcessProviderState = (): PostProcessProviderState => {
 
   // Use settings directly as single source of truth
   const baseUrl = selectedProvider?.base_url ?? "";
-  const apiKey = settings?.post_process_api_keys?.[selectedProviderId] ?? "";
+  // Secret values never leave the Rust process. The input is intentionally
+  // blank and this boolean only controls configured-state UI.
+  const apiKey = "";
+  const apiKeyConfigured =
+    settings?.post_process_api_keys_configured?.[selectedProviderId] ?? false;
   const model = settings?.post_process_models?.[selectedProviderId] ?? "";
 
   const providerOptions = useMemo<DropdownOption[]>(() => {
@@ -98,9 +104,9 @@ export const usePostProcessProviderState = (): PostProcessProviderState => {
       // to avoid unnecessary backend errors.
       if (providerId !== APPLE_PROVIDER_ID) {
         const provider = providers.find((p) => p.id === providerId);
-        const apiKey = settings?.post_process_api_keys?.[providerId] ?? "";
+        const hasApiKey =
+          settings?.post_process_api_keys_configured?.[providerId] ?? false;
         const hasBaseUrl = (provider?.base_url ?? "").trim() !== "";
-        const hasApiKey = apiKey.trim() !== "";
 
         if (provider?.id === "custom" ? hasBaseUrl : hasApiKey) {
           void fetchPostProcessModels(providerId);
@@ -132,12 +138,18 @@ export const usePostProcessProviderState = (): PostProcessProviderState => {
   const handleApiKeyChange = useCallback(
     (value: string) => {
       const trimmed = value.trim();
-      if (trimmed !== apiKey) {
+      if (trimmed) {
         void updatePostProcessApiKey(selectedProviderId, trimmed);
       }
     },
-    [apiKey, selectedProviderId, updatePostProcessApiKey],
+    [selectedProviderId, updatePostProcessApiKey],
   );
+
+  const handleApiKeyRemove = useCallback(() => {
+    if (apiKeyConfigured) {
+      void updatePostProcessApiKey(selectedProviderId, "");
+    }
+  }, [apiKeyConfigured, selectedProviderId, updatePostProcessApiKey]);
 
   const handleModelChange = useCallback(
     (value: string) => {
@@ -220,7 +232,9 @@ export const usePostProcessProviderState = (): PostProcessProviderState => {
     handleBaseUrlChange,
     isBaseUrlUpdating,
     apiKey,
+    apiKeyConfigured,
     handleApiKeyChange,
+    handleApiKeyRemove,
     isApiKeyUpdating,
     model,
     handleModelChange,

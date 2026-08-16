@@ -23,7 +23,10 @@ export const ApiKeyField: React.FC<ApiKeyFieldProps> = React.memo(
         type="password"
         value={localValue}
         onChange={(event) => setLocalValue(event.target.value)}
-        onBlur={() => onBlur(localValue)}
+        onBlur={() => {
+          onBlur(localValue);
+          setLocalValue("");
+        }}
         placeholder={placeholder}
         variant="compact"
         disabled={disabled}
