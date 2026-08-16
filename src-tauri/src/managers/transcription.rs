@@ -1,9 +1,10 @@
 use crate::audio_toolkit::{
-    apply_custom_words, detect_output_language, normalize_transcription_output,
-    remove_filler_words, OutputLanguageEvidence,
+    apply_custom_words, apply_dictionary_entries, detect_output_language,
+    normalize_transcription_output, remove_filler_words, OutputLanguageEvidence,
 };
 use crate::managers::audio::AudioRecordingManager;
 use crate::managers::model::{EngineType, ModelManager};
+use crate::productivity::dictionary_prompt_terms;
 use crate::settings::{
     get_settings, AppSettings, ModelUnloadTimeout, OrtAcceleratorSetting,
     TranscribeAcceleratorSetting,
@@ -1354,11 +1355,16 @@ impl TranscriptionManager {
                         // whisper run extension to a non-whisper arch is rejected
                         // with INVALID_ARG, so skip it there and let the fuzzy
                         // post-correction handle custom words instead.
-                        let family = if settings.custom_words.is_empty() || !model_is_whisper {
+                        let prompt_terms = if settings.dictionary_entries.is_empty() {
+                            settings.custom_words.clone()
+                        } else {
+                            dictionary_prompt_terms(&settings.dictionary_entries)
+                        };
+                        let family = if prompt_terms.is_empty() || !model_is_whisper {
                             None
                         } else {
                             Some(RunExtension::Whisper(WhisperRunOptions {
-                                initial_prompt: Some(settings.custom_words.join(", ")),
+                                initial_prompt: Some(prompt_terms.join(", ")),
                                 ..Default::default()
                             }))
                         };
@@ -1539,11 +1545,10 @@ impl TranscriptionManager {
             (text, output_language, model_languages)
         };
 
-        // Apply fuzzy word correction if custom words are configured — UNLESS the
-        // words were already handed to the model as an initial prompt (whisper
-        // family). We don't pass a prompt to non-whisper models (it requires the
-        // whisper-kind run extension), so they still get fuzzy correction here,
-        // same as the ONNX engines.
+        // Apply the Pressay dictionary after every engine. A decode prompt only
+        // biases Whisper; it cannot guarantee canonical replacements. The
+        // legacy custom-word list retains its historical skip-after-prompt
+        // behavior until all existing stores have migrated to the dictionary.
         let filtered_result = post_process_transcription_text(
             result,
             &settings,
@@ -1824,7 +1829,13 @@ fn post_process_transcription_text(
     supported_languages: &[String],
 ) -> String {
     fail_open_text_transform(raw, |raw| {
-        let corrected = if !settings.custom_words.is_empty() && !custom_words_already_prompted {
+        let corrected = if !settings.dictionary_entries.is_empty() {
+            apply_dictionary_entries(
+                &raw,
+                &settings.dictionary_entries,
+                settings.word_correction_threshold,
+            )
+        } else if !settings.custom_words.is_empty() && !custom_words_already_prompted {
             apply_custom_words(
                 &raw,
                 &settings.custom_words,
@@ -2312,6 +2323,32 @@ mod tests {
             OutputLanguageEvidence::UserSelected("pt".to_string())
         );
         assert_eq!(result, "eu vi um carro");
+    }
+
+    #[test]
+    fn pressay_dictionary_applies_even_when_terms_were_decoder_prompted() {
+        let settings = AppSettings {
+            dictionary_entries: vec![crate::productivity::DictionaryEntry {
+                id: "pressay".into(),
+                term: "press say".into(),
+                variants: vec!["presser".into()],
+                replacement: Some("Pressay".into()),
+                match_kind: crate::productivity::DictionaryMatchKind::Exact,
+                language: Some("fr".into()),
+                enabled: true,
+            }],
+            ..Default::default()
+        };
+
+        let result = post_process_transcription_text(
+            "J'utilise presser.".to_string(),
+            &settings,
+            true,
+            &OutputLanguageEvidence::UserSelected("fr".into()),
+            &languages(&["fr"]),
+        );
+
+        assert_eq!(result, "J'utilise Pressay.");
     }
 
     #[test]

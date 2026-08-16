@@ -6,7 +6,9 @@ use std::collections::HashMap;
 use tauri::AppHandle;
 use tauri_plugin_store::StoreExt;
 
-use crate::productivity::{builtin_modes, AppProfile, DictionaryEntry, PressayMode};
+use crate::productivity::{
+    builtin_modes, dictionary_entries_from_legacy_words, AppProfile, DictionaryEntry, PressayMode,
+};
 
 pub const APPLE_INTELLIGENCE_PROVIDER_ID: &str = "apple_intelligence";
 pub const APPLE_INTELLIGENCE_DEFAULT_MODEL_ID: &str = "Apple Intelligence";
@@ -1232,6 +1234,14 @@ fn apply_settings_migrations(
         updated = true;
     }
 
+    if stored_schema_version < 4
+        && settings_value.get("dictionary_entries").is_none()
+        && !settings.custom_words.is_empty()
+    {
+        settings.dictionary_entries = dictionary_entries_from_legacy_words(&settings.custom_words);
+        updated = true;
+    }
+
     // Built-ins are immutable product definitions. Re-add any missing entry
     // while preserving every custom mode from the store.
     let mut known_mode_ids = settings
@@ -1757,5 +1767,31 @@ mod tests {
         assert!(apply_settings_migrations(&mut settings, &raw));
         assert!(settings.history_enabled);
         assert_eq!(settings.settings_schema_version, 4);
+    }
+
+    #[test]
+    fn legacy_custom_words_migrate_to_the_pressay_dictionary_once() {
+        let mut settings = AppSettings {
+            custom_words: vec!["Pressay".into(), "Mac Book Pro".into()],
+            ..get_default_settings()
+        };
+        let raw = serde_json::json!({
+            "settings_schema_version": 3,
+            "custom_words": ["Pressay", "Mac Book Pro"],
+            "onboarding_completed": false,
+            "whats_new_last_seen_version": default_whats_new_last_seen_version(),
+            "overlay_style": "live"
+        });
+
+        assert!(apply_settings_migrations(&mut settings, &raw));
+        assert_eq!(settings.dictionary_entries.len(), 2);
+        assert_eq!(settings.dictionary_entries[0].id, "legacy_0");
+        assert_eq!(settings.dictionary_entries[1].term, "Mac Book Pro");
+        assert_eq!(settings.settings_schema_version, 4);
+
+        let serialized = serde_json::to_value(&settings).unwrap();
+        let before = settings.dictionary_entries.clone();
+        assert!(!apply_settings_migrations(&mut settings, &serialized));
+        assert_eq!(settings.dictionary_entries, before);
     }
 }

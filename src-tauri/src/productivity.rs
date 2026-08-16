@@ -281,6 +281,47 @@ pub fn validate_dictionary(entries: &[DictionaryEntry]) -> Result<(), String> {
     Ok(())
 }
 
+/// Returns the canonical terms worth supplying to a decoder that supports an
+/// initial prompt. Disabled entries are deliberately omitted and explicit
+/// replacements win over their source term: the prompt should teach the model
+/// the spelling Pressay ultimately wants to emit.
+pub fn dictionary_prompt_terms(entries: &[DictionaryEntry]) -> Vec<String> {
+    let mut seen = HashSet::new();
+    entries
+        .iter()
+        .filter(|entry| entry.enabled)
+        .filter_map(|entry| {
+            let value = entry
+                .replacement
+                .as_deref()
+                .filter(|replacement| !replacement.trim().is_empty())
+                .unwrap_or(&entry.term)
+                .trim();
+            let key = value.to_lowercase();
+            seen.insert(key).then(|| value.to_string())
+        })
+        .collect()
+}
+
+pub fn dictionary_entries_from_legacy_words(words: &[String]) -> Vec<DictionaryEntry> {
+    words
+        .iter()
+        .enumerate()
+        .filter_map(|(index, word)| {
+            let term = word.trim();
+            (!term.is_empty()).then(|| DictionaryEntry {
+                id: format!("legacy_{index}"),
+                term: term.to_string(),
+                variants: Vec::new(),
+                replacement: None,
+                match_kind: DictionaryMatchKind::Fuzzy,
+                language: None,
+                enabled: true,
+            })
+        })
+        .collect()
+}
+
 pub fn validate_profile(
     profile: &AppProfile,
     known_mode_ids: &HashSet<&str>,
@@ -352,6 +393,56 @@ mod tests {
             assert!(mode.is_builtin);
             assert!(ids.insert(mode.id));
         }
+    }
+
+    #[test]
+    fn decoder_prompt_uses_enabled_canonical_replacements_once() {
+        let entries = vec![
+            DictionaryEntry {
+                id: "one".into(),
+                term: "press say".into(),
+                variants: vec![],
+                replacement: Some("Pressay".into()),
+                match_kind: DictionaryMatchKind::Exact,
+                language: None,
+                enabled: true,
+            },
+            DictionaryEntry {
+                id: "two".into(),
+                term: "PRESSAY".into(),
+                variants: vec![],
+                replacement: None,
+                match_kind: DictionaryMatchKind::Fuzzy,
+                language: None,
+                enabled: true,
+            },
+            DictionaryEntry {
+                id: "disabled".into(),
+                term: "Secret".into(),
+                variants: vec![],
+                replacement: None,
+                match_kind: DictionaryMatchKind::Exact,
+                language: None,
+                enabled: false,
+            },
+        ];
+
+        assert_eq!(dictionary_prompt_terms(&entries), vec!["Pressay"]);
+    }
+
+    #[test]
+    fn legacy_words_become_enabled_fuzzy_entries_with_stable_ids() {
+        let entries = dictionary_entries_from_legacy_words(&[
+            " Handy ".to_string(),
+            "".to_string(),
+            "ChargeBee".to_string(),
+        ]);
+
+        assert_eq!(entries.len(), 2);
+        assert_eq!(entries[0].id, "legacy_0");
+        assert_eq!(entries[0].term, "Handy");
+        assert_eq!(entries[1].id, "legacy_2");
+        assert_eq!(entries[1].match_kind, DictionaryMatchKind::Fuzzy);
     }
 
     #[test]
