@@ -23,9 +23,9 @@ TODO (owner)
 
 Commands and manual scenarios:
 
-## Upstream provenance
+## Source provenance
 
-<!-- Link Handy commits/PRs if behavior was ported. Otherwise write “Pressay-only”. -->
+<!-- Link any public source that informed the change. Otherwise write “Pressay-only”. -->
 
 ## Screenshots or recordings
 

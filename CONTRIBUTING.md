@@ -11,9 +11,10 @@ short-lived branch and a pull request into `main`.
 4. Run the checks listed in `BUILD.md`.
 5. Push to `origin` and open a Pressay pull request.
 
-`origin` is the only push destination. `upstream` points to Handy for audited,
-fetch-only comparison and has pushing disabled. Never merge `upstream/main`
-automatically. Follow `UPSTREAM.md` for every upstream review.
+`origin` is the only configured remote and the only push destination. Do not
+add a Handy remote or merge external repository history into Pressay. Any
+third-party behavior used as research must be reimplemented as an isolated,
+reviewed Pressay change with its source recorded in the pull request.
 
 ## Product constraints
 
@@ -29,6 +30,6 @@ automatically. Follow `UPSTREAM.md` for every upstream review.
 ## Pull requests
 
 Use the repository template. Describe privacy and security impact, list the
-verification performed, and call out any release blocker that remains. Upstream
-ports must identify the exact Handy commit or pull request and explain why the
-behavior was reimplemented or cherry-picked.
+verification performed, and call out any release blocker that remains. Changes
+informed by third-party code must identify the exact public source and explain
+how the behavior was reimplemented without adding a repository remote.

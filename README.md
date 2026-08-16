@@ -5,8 +5,8 @@ speak, and Pressay transcribes locally before inserting the result in the active
 application.
 
 Pressay is being rebuilt from the Handy codebase. The desktop product is
-developed in this private repository; attribution and upstream provenance are
-documented in [NOTICE](NOTICE) and [UPSTREAM.md](UPSTREAM.md).
+developed independently in this private repository. Source attribution is
+documented in [NOTICE](NOTICE); the Pressay repository has no Handy Git remote.
 
 ## Product principles
 
@@ -77,11 +77,10 @@ pressay --list-devices
 ## Repository workflow
 
 - `origin` is the only push destination.
-- `upstream` is fetch-only and points to Handy.
 - Direct pushes to `main` are prohibited.
 - Work is submitted from `codex/<topic>` branches through pull requests.
-- Upstream changes are reviewed and selectively ported; `upstream/main` is
-  never merged automatically.
+- No automatic or manual Git synchronization with Handy is part of the Pressay
+  workflow.
 
 ## Security and privacy
 
