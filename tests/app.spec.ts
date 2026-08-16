@@ -27,12 +27,46 @@ test.describe("Pressay App", () => {
 
     const navigation = page.getByRole("navigation", { name: "Primary" });
     await expect(navigation).toBeVisible();
-    await expect(navigation.getByRole("button")).toHaveCount(6);
+    await expect(navigation.getByRole("button")).toHaveCount(7);
     await expect(
       navigation.getByRole("button", { name: "Home" }),
     ).toHaveAttribute("aria-current", "page");
     await expect(page.getByText("Local", { exact: true })).toHaveCount(2);
     await expect(page.getByText("Private by default")).toBeVisible();
+  });
+
+  test("exposes explicit modes and application profiles", async ({ page }) => {
+    await page.goto("/");
+
+    await page.getByRole("button", { name: "Modes" }).click();
+    await expect(page.getByRole("heading", { name: "Modes" })).toBeVisible();
+    await expect(
+      page.getByText("Nothing leaves this Mac").first(),
+    ).toBeVisible();
+    await expect(page.getByText("Application profiles")).toBeVisible();
+
+    await page.getByRole("button", { name: "New mode" }).click();
+    await expect(page.getByLabel("Custom mode editor")).toBeVisible();
+    await expect(page.getByText("Transformation instruction")).toHaveCount(0);
+  });
+
+  test("shows controlled exact and fuzzy dictionary entries", async ({
+    page,
+  }) => {
+    await page.goto("/");
+
+    await page.getByRole("button", { name: "Dictionary" }).click();
+    await expect(
+      page.getByRole("heading", { name: "Dictionary" }),
+    ).toBeVisible();
+    const entries = page.getByLabel("Dictionary entries");
+    await expect(entries.getByText("Pressay", { exact: true })).toBeVisible();
+    await expect(entries.getByText("exact", { exact: true })).toBeVisible();
+    await expect(entries.getByText("fuzzy", { exact: true })).toBeVisible();
+
+    await page.getByRole("button", { name: "Add term" }).click();
+    await expect(page.getByLabel("Dictionary editor")).toBeVisible();
+    await expect(page.getByLabel("Spoken or written term")).toBeVisible();
   });
 
   test("presents local-first onboarding before permissions", async ({
