@@ -744,6 +744,9 @@ pub fn run(cli_args: CliArgs) {
             commands::productivity::replace_dictionary_entries,
             commands::productivity::upsert_app_profile,
             commands::productivity::delete_app_profile,
+            commands::productivity::get_correction_status,
+            commands::productivity::arm_voice_correction,
+            commands::productivity::cancel_voice_correction,
             transcription_coordinator::get_pipeline_state,
             helpers::clamshell::is_laptop,
         ])

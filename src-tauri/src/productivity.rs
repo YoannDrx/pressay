@@ -1,14 +1,16 @@
 use regex::Regex;
 use serde::{Deserialize, Serialize};
 use specta::Type;
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::sync::{Mutex, OnceLock};
+use std::time::{SystemTime, UNIX_EPOCH};
 
 pub const PRODUCTIVITY_SCHEMA_VERSION: u32 = 1;
 const MAX_MODE_STEPS: usize = 8;
 const MAX_DICTIONARY_ENTRIES: usize = 5_000;
 const BUILTIN_MODE_IDS: [&str; 5] = ["faithful", "clean", "message", "email", "ai_prompt"];
 const ALLOWED_VARIABLES: [&str; 4] = ["transcript", "selected", "app_name", "custom_words"];
+const CORRECTION_SESSION_TTL_MS: u64 = 2 * 60 * 1_000;
 
 #[derive(Serialize, Deserialize, Debug, Clone, Copy, PartialEq, Eq, Type, Default)]
 #[serde(rename_all = "snake_case")]
@@ -120,6 +122,14 @@ pub struct CorrectionSession {
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq, Type)]
+pub struct CorrectionStatus {
+    pub available: bool,
+    pub armed: bool,
+    pub target_app_name: Option<String>,
+    pub expires_in_seconds: u64,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq, Type)]
 pub struct ProductivityConfig {
     pub schema_version: u32,
     pub active_mode_id: String,
@@ -158,11 +168,26 @@ struct RuntimeInvocation {
     resolved_mode: Option<ResolvedMode>,
     selection: Option<SelectionContext>,
     temporary_mode_id: Option<String>,
+    correction: Option<CorrectionRecord>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct CorrectionRecord {
+    pub session: CorrectionSession,
+    pub target: TargetApplication,
+}
+
+#[derive(Default)]
+struct CorrectionRuntimeState {
+    confirmed: Option<CorrectionRecord>,
+    pending: HashMap<u64, CorrectionRecord>,
+    armed: bool,
 }
 
 #[derive(Default)]
 pub struct ProductivityRuntime {
     invocation: Mutex<RuntimeInvocation>,
+    correction: Mutex<CorrectionRuntimeState>,
 }
 
 impl ProductivityRuntime {
@@ -174,6 +199,15 @@ impl ProductivityRuntime {
         if let Ok(mut invocation) = self.invocation.lock() {
             invocation.resolved_mode = resolved_mode;
             invocation.selection = selection;
+            invocation.correction = None;
+        }
+    }
+
+    pub(crate) fn prepare_correction_invocation(&self, correction: CorrectionRecord) {
+        if let Ok(mut invocation) = self.invocation.lock() {
+            invocation.resolved_mode = None;
+            invocation.selection = None;
+            invocation.correction = Some(correction);
         }
     }
 
@@ -197,11 +231,166 @@ impl ProductivityRuntime {
             .and_then(|invocation| invocation.resolved_mode.clone())
     }
 
-    pub fn take_invocation(&self) -> (Option<ResolvedMode>, Option<SelectionContext>) {
+    pub(crate) fn take_invocation(
+        &self,
+    ) -> (
+        Option<ResolvedMode>,
+        Option<SelectionContext>,
+        Option<CorrectionRecord>,
+    ) {
         match self.invocation.lock() {
-            Ok(mut invocation) => (invocation.resolved_mode.take(), invocation.selection.take()),
-            Err(_) => (None, None),
+            Ok(mut invocation) => (
+                invocation.resolved_mode.take(),
+                invocation.selection.take(),
+                invocation.correction.take(),
+            ),
+            Err(_) => (None, None, None),
         }
+    }
+
+    pub fn correction_status(&self) -> CorrectionStatus {
+        self.correction_status_at(now_ms())
+    }
+
+    fn correction_status_at(&self, now: u64) -> CorrectionStatus {
+        let Ok(mut state) = self.correction.lock() else {
+            return CorrectionStatus {
+                available: false,
+                armed: false,
+                target_app_name: None,
+                expires_in_seconds: 0,
+            };
+        };
+        expire_correction(&mut state, now);
+        let expires_in_seconds = state
+            .confirmed
+            .as_ref()
+            .map(|record| {
+                record
+                    .session
+                    .created_at_ms
+                    .saturating_add(CORRECTION_SESSION_TTL_MS)
+                    .saturating_sub(now)
+                    .div_ceil(1_000)
+            })
+            .unwrap_or(0);
+        CorrectionStatus {
+            available: state.confirmed.is_some(),
+            armed: state.armed,
+            target_app_name: state
+                .confirmed
+                .as_ref()
+                .map(|record| record.target.app_name.clone()),
+            expires_in_seconds,
+        }
+    }
+
+    pub fn arm_correction(&self) -> Result<CorrectionStatus, String> {
+        let now = now_ms();
+        let mut state = self
+            .correction
+            .lock()
+            .map_err(|_| "Correction state is unavailable".to_string())?;
+        expire_correction(&mut state, now);
+        if state.confirmed.is_none() {
+            return Err("No recent insertion is available to correct".to_string());
+        }
+        state.armed = true;
+        drop(state);
+        Ok(self.correction_status_at(now))
+    }
+
+    pub fn cancel_correction(&self) -> CorrectionStatus {
+        if let Ok(mut state) = self.correction.lock() {
+            state.armed = false;
+        }
+        self.correction_status()
+    }
+
+    pub(crate) fn take_armed_correction(
+        &self,
+        target: Option<&TargetApplication>,
+    ) -> Result<Option<CorrectionRecord>, &'static str> {
+        let now = now_ms();
+        let mut state = self
+            .correction
+            .lock()
+            .map_err(|_| "correction_state_unavailable")?;
+        expire_correction(&mut state, now);
+        if !state.armed {
+            return Ok(None);
+        }
+        let Some(record) = state.confirmed.as_ref() else {
+            state.armed = false;
+            return Err("correction_session_expired");
+        };
+        let target_matches = target.is_some_and(|target| {
+            target.bundle_id == record.target.bundle_id
+                && target.process_id == record.target.process_id
+        });
+        if !target_matches {
+            return Err("correction_target_changed");
+        }
+        state.armed = false;
+        Ok(state.confirmed.clone())
+    }
+
+    pub(crate) fn stage_correction(
+        &self,
+        operation_id: u64,
+        text: String,
+        target: TargetApplication,
+    ) {
+        if text.trim().is_empty() {
+            return;
+        }
+        if let Ok(mut state) = self.correction.lock() {
+            state.confirmed = None;
+            state.armed = false;
+            state.pending.insert(
+                operation_id,
+                CorrectionRecord {
+                    session: CorrectionSession {
+                        text,
+                        target_bundle_id: target.bundle_id.clone(),
+                        created_at_ms: now_ms(),
+                    },
+                    target,
+                },
+            );
+        }
+    }
+
+    pub(crate) fn confirm_correction(&self, operation_id: u64) {
+        if let Ok(mut state) = self.correction.lock() {
+            if let Some(mut record) = state.pending.remove(&operation_id) {
+                record.session.created_at_ms = now_ms();
+                state.confirmed = Some(record);
+                state.armed = false;
+            }
+        }
+    }
+
+    pub(crate) fn discard_staged_correction(&self, operation_id: u64) {
+        if let Ok(mut state) = self.correction.lock() {
+            state.pending.remove(&operation_id);
+        }
+    }
+}
+
+fn now_ms() -> u64 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_millis() as u64
+}
+
+fn expire_correction(state: &mut CorrectionRuntimeState, now: u64) {
+    if state.confirmed.as_ref().is_some_and(|record| {
+        now.saturating_sub(record.session.created_at_ms) >= CORRECTION_SESSION_TTL_MS
+    }) {
+        state.confirmed = None;
+        state.armed = false;
     }
 }
 
@@ -810,8 +999,11 @@ mod tests {
         };
         runtime.prepare_invocation(Some(resolved.clone()), Some(selection.clone()));
 
-        assert_eq!(runtime.take_invocation(), (Some(resolved), Some(selection)));
-        assert_eq!(runtime.take_invocation(), (None, None));
+        assert_eq!(
+            runtime.take_invocation(),
+            (Some(resolved), Some(selection), None)
+        );
+        assert_eq!(runtime.take_invocation(), (None, None, None));
     }
 
     #[test]
@@ -890,5 +1082,62 @@ mod tests {
         profile.language = Some("fr".into());
         profile.priority = 10_001;
         assert!(validate_profile(&profile, &known_modes).is_err());
+    }
+
+    #[test]
+    fn correction_session_is_confirmed_armed_target_bound_and_consumed() {
+        let runtime = ProductivityRuntime::default();
+        let target = TargetApplication {
+            bundle_id: "com.apple.Notes".into(),
+            app_name: "Notes".into(),
+            process_id: 42,
+        };
+        runtime.stage_correction(7, "Original text".into(), target.clone());
+        assert!(!runtime.correction_status().available);
+
+        runtime.confirm_correction(7);
+        assert!(runtime.correction_status().available);
+        assert!(runtime.arm_correction().unwrap().armed);
+
+        let other_target = TargetApplication {
+            process_id: 43,
+            ..target.clone()
+        };
+        assert_eq!(
+            runtime.take_armed_correction(Some(&other_target)),
+            Err("correction_target_changed")
+        );
+        assert!(runtime.correction_status().armed);
+
+        let correction = runtime
+            .take_armed_correction(Some(&target))
+            .unwrap()
+            .unwrap();
+        assert_eq!(correction.session.text, "Original text");
+        assert!(!runtime.correction_status().armed);
+        assert!(runtime.correction_status().available);
+    }
+
+    #[test]
+    fn correction_session_expires_after_two_minutes() {
+        let runtime = ProductivityRuntime::default();
+        let target = TargetApplication {
+            bundle_id: "com.apple.Notes".into(),
+            app_name: "Notes".into(),
+            process_id: 42,
+        };
+        let record = CorrectionRecord {
+            session: CorrectionSession {
+                text: "Original text".into(),
+                target_bundle_id: target.bundle_id.clone(),
+                created_at_ms: 1_000,
+            },
+            target,
+        };
+        runtime.correction.lock().unwrap().confirmed = Some(record);
+
+        let status = runtime.correction_status_at(1_000 + CORRECTION_SESSION_TTL_MS);
+        assert!(!status.available);
+        assert_eq!(status.expires_in_seconds, 0);
     }
 }

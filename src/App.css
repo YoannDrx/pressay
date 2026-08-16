@@ -260,6 +260,7 @@
 
 .hero-card,
 .privacy-card,
+.correction-card,
 .status-card {
   border: 1px solid var(--color-border);
   background: var(--color-surface);
@@ -437,6 +438,58 @@
   gap: 14px;
   padding: 18px;
   border-radius: 12px;
+}
+
+.correction-card {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 14px;
+  padding: 18px;
+  border-radius: 12px;
+}
+
+.correction-card.is-armed {
+  border-color: color-mix(in srgb, var(--color-accent), transparent 45%);
+  background: color-mix(in srgb, var(--color-accent), var(--color-surface) 94%);
+}
+
+.correction-card-icon {
+  display: grid;
+  width: 38px;
+  height: 38px;
+  place-items: center;
+  border-radius: 10px;
+  color: var(--color-accent);
+  background: color-mix(in srgb, var(--color-accent), transparent 88%);
+}
+
+.correction-card h2 {
+  color: var(--color-text);
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.correction-card p,
+.correction-card small {
+  display: block;
+  max-width: 590px;
+  margin-top: 3px;
+  color: var(--color-muted);
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.correction-card small {
+  color: var(--color-warning);
+  font-size: 10px;
+}
+
+.correction-card button {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  white-space: nowrap;
 }
 
 .privacy-card-icon {
@@ -1244,6 +1297,15 @@
 
   .privacy-card {
     grid-template-columns: auto 1fr;
+  }
+
+  .correction-card {
+    grid-template-columns: auto 1fr;
+  }
+
+  .correction-card button {
+    grid-column: 2;
+    justify-self: start;
   }
 
   .route-summary {

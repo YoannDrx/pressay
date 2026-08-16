@@ -219,6 +219,10 @@ pub(crate) fn report_unconfirmed_paste(
     operation_id: u64,
     text: &str,
 ) {
+    if let Some(runtime) = app_handle.try_state::<crate::productivity::ProductivityRuntime>() {
+        runtime.discard_staged_correction(operation_id);
+        crate::commands::productivity::emit_correction_status(app_handle);
+    }
     let _ = app_handle.emit(
         "paste-error",
         UnconfirmedPasteEvent {
@@ -238,6 +242,10 @@ pub(crate) fn report_unconfirmed_paste(
 }
 
 pub(crate) fn report_confirmed_paste(app_handle: &tauri::AppHandle, operation_id: u64) {
+    if let Some(runtime) = app_handle.try_state::<crate::productivity::ProductivityRuntime>() {
+        runtime.confirm_correction(operation_id);
+        crate::commands::productivity::emit_correction_status(app_handle);
+    }
     if let Some(coordinator) =
         app_handle.try_state::<crate::transcription_coordinator::TranscriptionCoordinator>()
     {

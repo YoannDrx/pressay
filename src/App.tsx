@@ -188,6 +188,55 @@ function App() {
     };
   }, [t]);
 
+  useEffect(() => {
+    const unlisten = listen<{ code: string; text?: string }>(
+      "correction-error",
+      (event) => {
+        const isFrench = i18n.resolvedLanguage?.startsWith("fr");
+        const targetChanged =
+          event.payload.code === "correction_target_changed";
+        const expired = event.payload.code === "correction_session_expired";
+        const description = targetChanged
+          ? isFrench
+            ? "Revenez dans l’application d’origine et placez le focus dans le champ dicté."
+            : "Return to the original application and focus the field you dictated into."
+          : expired
+            ? isFrench
+              ? "La fenêtre de correction privée de deux minutes a expiré."
+              : "The private two-minute correction window has expired."
+            : isFrench
+              ? "L’insertion d’origine est restée intacte. Vérifiez votre fournisseur BYOK et réessayez."
+              : "Your original insertion was left untouched. Check your BYOK provider and try again.";
+        toast.error(
+          isFrench ? "Correction non appliquée" : "Correction not applied",
+          {
+            description,
+          },
+        );
+      },
+    );
+    return () => {
+      unlisten.then((fn) => fn());
+    };
+  }, [i18n.resolvedLanguage]);
+
+  useEffect(() => {
+    const unlisten = listen<{ code: string; text?: string }>(
+      "correction-fallback",
+      () => {
+        const isFrench = i18n.resolvedLanguage?.startsWith("fr");
+        toast.info(isFrench ? "Correction copiée" : "Correction copied", {
+          description: isFrench
+            ? "Pressay n’a pas pu vérifier le champ d’origine de façon sûre. La correction a été copiée sans modifier l’application."
+            : "Pressay could not safely verify the original field, so it copied the correction without changing the app.",
+        });
+      },
+    );
+    return () => {
+      unlisten.then((fn) => fn());
+    };
+  }, [i18n.resolvedLanguage]);
+
   // Listen for transcription failures and show a toast.
   // The payload is the backend error message (also logged to pressay.log).
   useEffect(() => {

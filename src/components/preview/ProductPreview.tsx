@@ -185,6 +185,14 @@ export const ProductPreview = () => {
                   modelName="Parakeet V3"
                   shortcut="⌥ Space"
                   microphone="MacBook Microphone"
+                  correction={{
+                    available: true,
+                    armed: false,
+                    target_app_name: "Notes",
+                    expires_in_seconds: 92,
+                  }}
+                  onArmCorrection={() => undefined}
+                  onCancelCorrection={() => undefined}
                 />
               )}
             </div>

@@ -17,6 +17,10 @@ test.describe("Pressay App", () => {
     await expect(page.getByRole("main")).toContainText(
       "Nothing leaves your Mac",
     );
+    await expect(
+      page.getByRole("button", { name: "Correct with voice" }),
+    ).toBeVisible();
+    await expect(page.getByText("If it is remote")).toBeVisible();
     expect(errors).toEqual([]);
   });
 

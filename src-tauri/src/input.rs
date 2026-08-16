@@ -16,6 +16,7 @@ mod macos {
     // resolution and remains the safest fallback if macOS cannot expose the
     // active layout.
     const ANSI_V_KEYCODE: u16 = 9;
+    const ANSI_Z_KEYCODE: u16 = 6;
     const KEYCODE_COUNT: u16 = 128;
     const UC_KEY_ACTION_DISPLAY: u16 = 3;
     const UC_KEY_TRANSLATE_NO_DEAD_KEYS_MASK: u32 = 1;
@@ -74,7 +75,7 @@ mod macos {
     ///
     /// TIS APIs must run on the main thread. Handy's paste path already enters
     /// through `AppHandle::run_on_main_thread` before reaching this function.
-    fn resolve_command_v_keycode() -> Result<u16, String> {
+    fn resolve_command_keycode(character: char) -> Result<u16, String> {
         // SAFETY: This function is called on the macOS main thread. The returned
         // source follows the Create Rule and is released by InputSource::drop.
         let source = InputSource(unsafe { TISCopyCurrentKeyboardLayoutInputSource() });
@@ -123,15 +124,17 @@ mod macos {
                 )
             };
 
-            status == 0 && length == 1 && chars[0] == u16::from(b'v')
+            status == 0 && length == 1 && chars[0] == character as u16
         })
-        .ok_or_else(|| "could not map Cmd+V in the current macOS keyboard layout".to_string())?;
+        .ok_or_else(|| {
+            format!("could not map Cmd+{character} in the current macOS keyboard layout")
+        })?;
 
         Ok(keycode)
     }
 
     pub(super) fn command_v_key() -> Key {
-        match resolve_command_v_keycode() {
+        match resolve_command_keycode('v') {
             Ok(keycode) => {
                 debug!("Resolved Cmd+V for the active macOS layout to keycode {keycode}");
                 Key::Other(u32::from(keycode))
@@ -141,6 +144,18 @@ mod macos {
                     "Could not resolve Cmd+V for the active macOS layout ({error}); using ANSI V keycode {ANSI_V_KEYCODE}"
                 );
                 Key::Other(u32::from(ANSI_V_KEYCODE))
+            }
+        }
+    }
+
+    pub(super) fn command_z_key() -> Key {
+        match resolve_command_keycode('z') {
+            Ok(keycode) => Key::Other(u32::from(keycode)),
+            Err(error) => {
+                warn!(
+                    "Could not resolve Cmd+Z for the active macOS layout ({error}); using ANSI Z keycode {ANSI_Z_KEYCODE}"
+                );
+                Key::Other(u32::from(ANSI_Z_KEYCODE))
             }
         }
     }
@@ -261,6 +276,62 @@ pub fn send_paste_shift_insert(enigo: &mut Enigo, hold_ms: u64) -> Result<(), St
         .map_err(|e| format!("Failed to release Shift key: {}", e))?;
 
     Ok(())
+}
+
+pub fn send_undo(enigo: &mut Enigo) -> Result<(), String> {
+    #[cfg(target_os = "macos")]
+    let (modifier, key) = (Key::Meta, macos::command_z_key());
+    #[cfg(target_os = "windows")]
+    let (modifier, key) = (Key::Control, Key::Other(0x5A));
+    #[cfg(target_os = "linux")]
+    let (modifier, key) = (Key::Control, Key::Unicode('z'));
+
+    enigo
+        .key(modifier, enigo::Direction::Press)
+        .map_err(|error| format!("Failed to press undo modifier: {error}"))?;
+    let click_result = enigo
+        .key(key, enigo::Direction::Click)
+        .map_err(|error| format!("Failed to click undo key: {error}"));
+    let release_result = enigo
+        .key(modifier, enigo::Direction::Release)
+        .map_err(|error| format!("Failed to release undo modifier: {error}"));
+    click_result.and(release_result)
+}
+
+pub fn send_redo(enigo: &mut Enigo) -> Result<(), String> {
+    #[cfg(target_os = "macos")]
+    let (modifier, key) = (Key::Meta, macos::command_z_key());
+    #[cfg(target_os = "windows")]
+    let (modifier, key) = (Key::Control, Key::Other(0x59));
+    #[cfg(target_os = "linux")]
+    let (modifier, key) = (Key::Control, Key::Unicode('y'));
+
+    enigo
+        .key(modifier, enigo::Direction::Press)
+        .map_err(|error| format!("Failed to press redo modifier: {error}"))?;
+    #[cfg(target_os = "macos")]
+    if let Err(error) = enigo
+        .key(Key::Shift, enigo::Direction::Press)
+        .map_err(|error| format!("Failed to press redo Shift key: {error}"))
+    {
+        let _ = enigo.key(modifier, enigo::Direction::Release);
+        return Err(error);
+    }
+    let click_result = enigo
+        .key(key, enigo::Direction::Click)
+        .map_err(|error| format!("Failed to click redo key: {error}"));
+    #[cfg(target_os = "macos")]
+    let shift_release_result = enigo
+        .key(Key::Shift, enigo::Direction::Release)
+        .map_err(|error| format!("Failed to release redo Shift key: {error}"));
+    #[cfg(not(target_os = "macos"))]
+    let shift_release_result = Ok(());
+    let modifier_release_result = enigo
+        .key(modifier, enigo::Direction::Release)
+        .map_err(|error| format!("Failed to release redo modifier: {error}"));
+    click_result
+        .and(shift_release_result)
+        .and(modifier_release_result)
 }
 
 /// Pastes text directly using the enigo text method.

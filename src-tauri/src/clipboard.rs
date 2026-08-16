@@ -861,6 +861,14 @@ pub fn deliver(
     }
 }
 
+pub fn undo_last_insertion(app_handle: &AppHandle) -> Result<(), String> {
+    with_enigo(app_handle, input::send_undo)
+}
+
+pub fn redo_last_insertion(app_handle: &AppHandle) -> Result<(), String> {
+    with_enigo(app_handle, input::send_redo)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

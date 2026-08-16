@@ -987,6 +987,20 @@ async deleteAppProfile(profileId: string) : Promise<Result<null, string>> {
     else return { status: "error", error: e  as any };
 }
 },
+async getCorrectionStatus() : Promise<CorrectionStatus> {
+    return await TAURI_INVOKE("get_correction_status");
+},
+async armVoiceCorrection() : Promise<Result<CorrectionStatus, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("arm_voice_correction") };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+async cancelVoiceCorrection() : Promise<CorrectionStatus> {
+    return await TAURI_INVOKE("cancel_voice_correction");
+},
 async getPipelineState() : Promise<PipelineState> {
     return await TAURI_INVOKE("get_pipeline_state");
 },
@@ -1081,6 +1095,7 @@ export type AutoSubmitKey = "enter" | "ctrl_enter" | "cmd_enter"
 export type AvailableAccelerators = { transcribe: string[]; ort: string[]; gpu_devices: GpuDeviceOption[] }
 export type BindingResponse = { success: boolean; binding: ShortcutBinding | null; error: string | null }
 export type ClipboardHandling = "dont_modify" | "copy_to_clipboard"
+export type CorrectionStatus = { available: boolean; armed: boolean; target_app_name: string | null; expires_in_seconds: number }
 export type CustomSounds = { start: boolean; stop: boolean }
 export type DictionaryEntry = { id: string; term: string; variants?: string[]; replacement?: string | null; match_kind?: DictionaryMatchKind; language?: string | null; enabled?: boolean }
 export type DictionaryMatchKind = "exact" | "fuzzy"

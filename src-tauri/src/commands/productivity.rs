@@ -1,12 +1,53 @@
 use crate::productivity::{
     is_builtin_mode_id, validate_dictionary, validate_mode, validate_profile, AppProfile,
-    DictionaryEntry, PressayMode, ProductivityConfig, PRODUCTIVITY_SCHEMA_VERSION,
+    CorrectionStatus, DictionaryEntry, PressayMode, ProductivityConfig, ProductivityRuntime,
+    PRODUCTIVITY_SCHEMA_VERSION,
 };
 use crate::settings::{get_settings, write_settings};
 use std::cmp::Reverse;
 use std::collections::HashSet;
 use std::sync::Arc;
-use tauri::{AppHandle, Manager};
+use tauri::{AppHandle, Emitter, Manager};
+
+pub(crate) fn emit_correction_status(app: &AppHandle) {
+    let status = app.state::<ProductivityRuntime>().correction_status();
+    let _ = app.emit("correction-status", status);
+}
+
+#[tauri::command]
+#[specta::specta]
+pub fn get_correction_status(app: AppHandle) -> CorrectionStatus {
+    app.state::<ProductivityRuntime>().correction_status()
+}
+
+#[tauri::command]
+#[specta::specta]
+pub fn arm_voice_correction(app: AppHandle) -> Result<CorrectionStatus, String> {
+    let settings = get_settings(&app);
+    let provider = settings
+        .active_post_process_provider()
+        .ok_or_else(|| "Configure a text provider before using voice correction".to_string())?;
+    let model = settings
+        .post_process_models
+        .get(&provider.id)
+        .map(String::as_str)
+        .unwrap_or_default();
+    if model.trim().is_empty() {
+        return Err("Choose a model for the active text provider first".to_string());
+    }
+
+    let status = app.state::<ProductivityRuntime>().arm_correction()?;
+    let _ = app.emit("correction-status", status.clone());
+    Ok(status)
+}
+
+#[tauri::command]
+#[specta::specta]
+pub fn cancel_voice_correction(app: AppHandle) -> CorrectionStatus {
+    let status = app.state::<ProductivityRuntime>().cancel_correction();
+    let _ = app.emit("correction-status", status.clone());
+    status
+}
 
 #[tauri::command]
 #[specta::specta]

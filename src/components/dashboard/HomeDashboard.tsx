@@ -4,19 +4,36 @@ import {
   CloudOff,
   Command,
   Mic2,
+  RotateCcw,
   ShieldCheck,
   Sparkles,
+  X,
 } from "lucide-react";
 import { useTranslation } from "react-i18next";
-import { commands, events, type PipelineState } from "@/bindings";
+import { listen } from "@tauri-apps/api/event";
+import { toast } from "sonner";
+import {
+  commands,
+  events,
+  type CorrectionStatus,
+  type PipelineState,
+} from "@/bindings";
 import { useSettings } from "@/hooks/useSettings";
 import { useModelStore } from "@/stores/modelStore";
+import { Button } from "@/components/ui/Button";
 
 const INITIAL_PIPELINE_STATE: PipelineState = {
   phase: "idle",
   operation_id: 0,
   binding_id: null,
   failure: null,
+};
+
+const INITIAL_CORRECTION_STATUS: CorrectionStatus = {
+  available: false,
+  armed: false,
+  target_app_name: null,
+  expires_in_seconds: 0,
 };
 
 const COPY = {
@@ -46,6 +63,15 @@ const COPY = {
     mode: "Mode",
     faithful: "Faithful",
     route: "Processing route",
+    correctionTitle: "Correct the last result",
+    correctionBody:
+      "Arm correction, return to the original app, then dictate only the change you want.",
+    correctionDisclosure:
+      "Your configured text provider processes the original and instruction. If it is remote, both leave this Mac.",
+    correctionAction: "Correct with voice",
+    correctionArmed: "Waiting for your correction",
+    correctionArmedBody: "Return to {{app}} and use your dictation shortcut.",
+    correctionCancel: "Cancel",
   },
   fr: {
     eyebrow: "DICTÉE LOCALE",
@@ -73,6 +99,16 @@ const COPY = {
     mode: "Mode",
     faithful: "Fidèle",
     route: "Route de traitement",
+    correctionTitle: "Corriger le dernier résultat",
+    correctionBody:
+      "Armez la correction, revenez dans l’application d’origine, puis dictez uniquement la modification souhaitée.",
+    correctionDisclosure:
+      "Votre fournisseur de texte traite l’original et l’instruction. S’il est distant, les deux quittent ce Mac.",
+    correctionAction: "Corriger à la voix",
+    correctionArmed: "En attente de votre correction",
+    correctionArmedBody:
+      "Revenez dans {{app}} et utilisez votre raccourci de dictée.",
+    correctionCancel: "Annuler",
   },
 } as const;
 
@@ -82,6 +118,9 @@ export const HomeDashboard = () => {
   const { currentModel, models } = useModelStore();
   const [pipeline, setPipeline] = useState<PipelineState>(
     INITIAL_PIPELINE_STATE,
+  );
+  const [correction, setCorrection] = useState<CorrectionStatus>(
+    INITIAL_CORRECTION_STATUS,
   );
 
   useEffect(() => {
@@ -101,6 +140,42 @@ export const HomeDashboard = () => {
     };
   }, []);
 
+  useEffect(() => {
+    let mounted = true;
+    commands
+      .getCorrectionStatus()
+      .then((status) => mounted && setCorrection(status))
+      .catch(() => undefined);
+    const unlisten = listen<CorrectionStatus>("correction-status", (event) => {
+      setCorrection(event.payload);
+    });
+    return () => {
+      mounted = false;
+      unlisten.then((dispose) => dispose());
+    };
+  }, []);
+
+  const armCorrection = async () => {
+    try {
+      const result = await commands.armVoiceCorrection();
+      if (result.status === "error") {
+        toast.error(result.error);
+        return;
+      }
+      setCorrection(result.data);
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : String(error));
+    }
+  };
+
+  const cancelCorrection = async () => {
+    try {
+      setCorrection(await commands.cancelVoiceCorrection());
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : String(error));
+    }
+  };
+
   const currentModelName = useMemo(
     () => models.find((model) => model.id === currentModel)?.name,
     [currentModel, models],
@@ -115,6 +190,9 @@ export const HomeDashboard = () => {
       modelName={currentModelName}
       shortcut={shortcut}
       microphone={microphone}
+      correction={correction}
+      onArmCorrection={armCorrection}
+      onCancelCorrection={cancelCorrection}
     />
   );
 };
@@ -125,6 +203,9 @@ interface HomeDashboardViewProps {
   modelName?: string;
   shortcut?: string;
   microphone?: string | null;
+  correction?: CorrectionStatus;
+  onArmCorrection?: () => void;
+  onCancelCorrection?: () => void;
 }
 
 export const HomeDashboardView = ({
@@ -133,6 +214,9 @@ export const HomeDashboardView = ({
   modelName,
   shortcut,
   microphone,
+  correction = INITIAL_CORRECTION_STATUS,
+  onArmCorrection,
+  onCancelCorrection,
 }: HomeDashboardViewProps) => {
   const copy = COPY[language?.startsWith("fr") ? "fr" : "en"];
   const isActive = !["idle", "cancelled", "failed"].includes(pipeline.phase);
@@ -187,6 +271,43 @@ export const HomeDashboardView = ({
           value={modelName || copy.noModel}
         />
       </section>
+
+      {correction.available ? (
+        <section
+          className={`correction-card ${correction.armed ? "is-armed" : ""}`}
+        >
+          <div className="correction-card-icon" aria-hidden="true">
+            <RotateCcw size={18} />
+          </div>
+          <div>
+            <h2>
+              {correction.armed ? copy.correctionArmed : copy.correctionTitle}
+            </h2>
+            <p>
+              {correction.armed
+                ? copy.correctionArmedBody.replace(
+                    "{{app}}",
+                    correction.target_app_name || "the original app",
+                  )
+                : copy.correctionBody}
+            </p>
+            {!correction.armed ? (
+              <small>{copy.correctionDisclosure}</small>
+            ) : null}
+          </div>
+          {correction.armed ? (
+            <Button variant="secondary" onClick={onCancelCorrection}>
+              <X size={14} />
+              {copy.correctionCancel}
+            </Button>
+          ) : (
+            <Button onClick={onArmCorrection} disabled={isActive}>
+              <Mic2 size={14} />
+              {copy.correctionAction}
+            </Button>
+          )}
+        </section>
+      ) : null}
 
       <section className="privacy-card">
         <div className="privacy-card-icon" aria-hidden="true">
