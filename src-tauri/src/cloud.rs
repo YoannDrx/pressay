@@ -1,4 +1,4 @@
-use base64::engine::general_purpose::URL_SAFE_NO_PAD;
+use base64::engine::general_purpose::{STANDARD, URL_SAFE_NO_PAD};
 use base64::Engine;
 use ed25519_dalek::{Signature, Verifier, VerifyingKey};
 use reqwest::{Client, Response, StatusCode, Url};
@@ -11,8 +11,10 @@ use tauri::{AppHandle, Emitter, Manager};
 use url::form_urlencoded;
 
 use crate::secrets::{
-    delete_cloud_bearer_token, delete_cloud_entitlement_snapshot, get_cloud_bearer_token,
-    get_cloud_entitlement_snapshot, set_cloud_bearer_token, set_cloud_entitlement_snapshot,
+    delete_cloud_bearer_token, delete_cloud_entitlement_snapshot, delete_cloud_sync_keys,
+    get_cloud_bearer_token, get_cloud_entitlement_snapshot, get_cloud_sync_account_key,
+    get_cloud_sync_device_key, set_cloud_bearer_token, set_cloud_entitlement_snapshot,
+    set_cloud_sync_account_key, set_cloud_sync_device_key,
 };
 use crate::settings::{get_settings, write_settings, AppSettings};
 
@@ -33,6 +35,10 @@ impl CloudFailure {
         Self {
             code: safe_error_code(code),
         }
+    }
+
+    pub(crate) fn from_code(code: &str) -> Self {
+        Self::new(code)
     }
 }
 
@@ -120,6 +126,98 @@ pub struct CloudAccountSnapshot {
     pub device_id: Option<String>,
     pub entitlement: Option<EntitlementSnapshot>,
     pub usage: Option<UsageSnapshot>,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone, Copy, PartialEq, Eq, Type)]
+#[serde(rename_all = "snake_case")]
+pub enum CloudSyncStatus {
+    NotConfigured,
+    PendingApproval,
+    Ready,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct CloudSyncDevice {
+    pub id: String,
+    pub display_name: String,
+    pub status: CloudSyncStatus,
+    pub current: bool,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct CloudSyncSnapshot {
+    pub status: CloudSyncStatus,
+    pub devices: Vec<CloudSyncDevice>,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone, Copy, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum SyncObjectType {
+    Mode,
+    Profile,
+    Dictionary,
+    Preference,
+}
+
+impl SyncObjectType {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Mode => "mode",
+            Self::Profile => "profile",
+            Self::Dictionary => "dictionary",
+            Self::Preference => "preference",
+        }
+    }
+}
+
+#[derive(Serialize, Debug, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct SyncChangeInput {
+    pub object_type: SyncObjectType,
+    pub object_id: String,
+    pub revision: u64,
+    pub envelope: String,
+    pub envelope_version: u8,
+    pub tombstone: bool,
+}
+
+#[derive(Deserialize, Debug, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct SyncChangeOutput {
+    pub object_type: SyncObjectType,
+    pub object_id: String,
+    pub revision: u64,
+    pub envelope: String,
+    pub envelope_version: u8,
+    pub tombstone: bool,
+    pub sequence_id: u64,
+    pub source_device_id: String,
+    pub conflict: bool,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct AppendSyncChangesResponse {
+    accepted: u64,
+    conflicts: u64,
+    cursor: u64,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SyncChangesResponse {
+    pub changes: Vec<SyncChangeOutput>,
+    pub next_cursor: u64,
+    pub has_more: bool,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct AppendSyncChangesRequest<'a> {
+    device_id: &'a str,
+    changes: &'a [SyncChangeInput],
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq, Type)]
@@ -241,6 +339,47 @@ struct BootstrapResponse {
 #[derive(Deserialize)]
 struct BootstrapDevice {
     id: String,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct EnrollSyncDeviceRequest<'a> {
+    device_id: &'a str,
+    public_key: &'a str,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    encrypted_account_key: Option<&'a str>,
+}
+
+#[derive(Deserialize)]
+struct EnrollSyncDeviceResponse {
+    status: String,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct SyncDeviceResponse {
+    id: String,
+    display_name: String,
+    public_key: String,
+    status: String,
+}
+
+#[derive(Deserialize)]
+struct SyncDeviceListResponse {
+    devices: Vec<SyncDeviceResponse>,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct SyncDeviceEnvelopeResponse {
+    encrypted_account_key: String,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct ApproveSyncDeviceRequest<'a> {
+    approver_device_id: &'a str,
+    encrypted_account_key: &'a str,
 }
 
 #[derive(Deserialize)]
@@ -674,6 +813,287 @@ async fn bootstrap_device(app: &AppHandle) -> Result<(), CloudFailure> {
     Ok(())
 }
 
+fn sync_context(settings: &AppSettings) -> Result<(&str, &str), CloudFailure> {
+    let account_id = settings
+        .pressay_cloud_account_id
+        .as_deref()
+        .ok_or_else(|| CloudFailure::new("cloud_not_connected"))?;
+    let device_id = settings
+        .pressay_cloud_device_id
+        .as_deref()
+        .ok_or_else(|| CloudFailure::new("cloud_not_connected"))?;
+    if uuid::Uuid::parse_str(account_id).is_err() || uuid::Uuid::parse_str(device_id).is_err() {
+        return Err(CloudFailure::new("cloud_account_invalid"));
+    }
+    Ok((account_id, device_id))
+}
+
+fn sync_device_keypair(account_id: &str) -> Result<([u8; 32], [u8; 32]), CloudFailure> {
+    if let Some(private) = get_cloud_sync_device_key(account_id)
+        .map_err(|_| CloudFailure::new("cloud_keychain_unavailable"))?
+    {
+        let public = crate::sync_crypto::device_public_key(&private);
+        return Ok((private, public));
+    }
+    let (private, public) = crate::sync_crypto::generate_device_keypair();
+    set_cloud_sync_device_key(account_id, &private)
+        .map_err(|_| CloudFailure::new("cloud_keychain_unavailable"))?;
+    Ok((private, public))
+}
+
+async fn sync_device_envelope(
+    settings: &AppSettings,
+    token: &str,
+    device_id: &str,
+) -> Result<Vec<u8>, CloudFailure> {
+    let response: SyncDeviceEnvelopeResponse = json(
+        client()
+            .get(endpoint(
+                settings,
+                &format!("/v1/sync/devices/{device_id}/envelope"),
+            )?)
+            .bearer_auth(token)
+            .send()
+            .await
+            .map_err(|_| CloudFailure::new("cloud_network_unavailable"))?,
+    )
+    .await?;
+    STANDARD
+        .decode(response.encrypted_account_key)
+        .map_err(|_| CloudFailure::new("cloud_sync_envelope_invalid"))
+}
+
+async fn load_sync_account_key(
+    settings: &AppSettings,
+    account_id: &str,
+    device_id: &str,
+    private: &[u8; 32],
+) -> Result<[u8; 32], CloudFailure> {
+    if let Some(account_key) = get_cloud_sync_account_key(account_id)
+        .map_err(|_| CloudFailure::new("cloud_keychain_unavailable"))?
+    {
+        return Ok(account_key);
+    }
+    let envelope = sync_device_envelope(settings, &bearer()?, device_id).await?;
+    let account_key = crate::sync_crypto::open_account_key(&envelope, private)
+        .map_err(|_| CloudFailure::new("cloud_sync_envelope_invalid"))?;
+    set_cloud_sync_account_key(account_id, &account_key)
+        .map_err(|_| CloudFailure::new("cloud_keychain_unavailable"))?;
+    Ok(account_key)
+}
+
+async fn list_sync_devices(
+    settings: &AppSettings,
+    device_id: &str,
+) -> Result<Vec<SyncDeviceResponse>, CloudFailure> {
+    let mut url = endpoint(settings, "/v1/sync/devices")?;
+    url.query_pairs_mut()
+        .append_pair("approverDeviceId", device_id);
+    let response: SyncDeviceListResponse = json(
+        client()
+            .get(url)
+            .bearer_auth(bearer()?)
+            .send()
+            .await
+            .map_err(|_| CloudFailure::new("cloud_network_unavailable"))?,
+    )
+    .await?;
+    Ok(response.devices)
+}
+
+fn public_sync_devices(
+    devices: Vec<SyncDeviceResponse>,
+    current_device_id: &str,
+) -> Result<Vec<CloudSyncDevice>, CloudFailure> {
+    devices
+        .into_iter()
+        .map(|device| {
+            if uuid::Uuid::parse_str(&device.id).is_err()
+                || STANDARD
+                    .decode(&device.public_key)
+                    .map_or(true, |key| key.len() != 32)
+            {
+                return Err(CloudFailure::new("cloud_response_invalid"));
+            }
+            let status = match device.status.as_str() {
+                "approved" => CloudSyncStatus::Ready,
+                "pending" => CloudSyncStatus::PendingApproval,
+                _ => return Err(CloudFailure::new("cloud_response_invalid")),
+            };
+            Ok(CloudSyncDevice {
+                current: device.id == current_device_id,
+                id: device.id,
+                display_name: device.display_name,
+                status,
+            })
+        })
+        .collect()
+}
+
+pub async fn cloud_sync_snapshot(app: &AppHandle) -> Result<CloudSyncSnapshot, CloudFailure> {
+    let settings = get_settings(app);
+    let (account_id, device_id) = sync_context(&settings)?;
+    let Some(private) = get_cloud_sync_device_key(account_id)
+        .map_err(|_| CloudFailure::new("cloud_keychain_unavailable"))?
+    else {
+        return Ok(CloudSyncSnapshot {
+            status: CloudSyncStatus::NotConfigured,
+            devices: Vec::new(),
+        });
+    };
+    match load_sync_account_key(&settings, account_id, device_id, &private).await {
+        Ok(_) => {
+            let devices = list_sync_devices(&settings, device_id).await?;
+            Ok(CloudSyncSnapshot {
+                status: CloudSyncStatus::Ready,
+                devices: public_sync_devices(devices, device_id)?,
+            })
+        }
+        Err(error)
+            if matches!(
+                error.code.as_str(),
+                "cloud_forbidden" | "sync_envelope_unavailable" | "sync_device_not_approved"
+            ) =>
+        {
+            Ok(CloudSyncSnapshot {
+                status: CloudSyncStatus::PendingApproval,
+                devices: Vec::new(),
+            })
+        }
+        Err(error) => Err(error),
+    }
+}
+
+pub async fn initialize_cloud_sync(app: &AppHandle) -> Result<CloudSyncSnapshot, CloudFailure> {
+    let settings = get_settings(app);
+    let (account_id, device_id) = sync_context(&settings)?;
+    let (private, public) = sync_device_keypair(account_id)?;
+    let candidate_account_key = if get_cloud_sync_account_key(account_id)
+        .map_err(|_| CloudFailure::new("cloud_keychain_unavailable"))?
+        .is_none()
+    {
+        Some(crate::sync_crypto::generate_account_key())
+    } else {
+        None
+    };
+    let sealed_candidate = candidate_account_key
+        .as_ref()
+        .map(|key| crate::sync_crypto::seal_account_key(key, &public))
+        .transpose()
+        .map_err(|_| CloudFailure::new("cloud_sync_encryption_failed"))?
+        .map(|envelope| STANDARD.encode(envelope));
+    let public_key = STANDARD.encode(public);
+    let response: EnrollSyncDeviceResponse = json(
+        client()
+            .post(endpoint(&settings, "/v1/sync/devices/enroll")?)
+            .bearer_auth(bearer()?)
+            .json(&EnrollSyncDeviceRequest {
+                device_id,
+                public_key: &public_key,
+                encrypted_account_key: sealed_candidate.as_deref(),
+            })
+            .send()
+            .await
+            .map_err(|_| CloudFailure::new("cloud_network_unavailable"))?,
+    )
+    .await?;
+    match response.status.as_str() {
+        "approved" => {
+            load_sync_account_key(&settings, account_id, device_id, &private).await?;
+            cloud_sync_snapshot(app).await
+        }
+        "pending" => Ok(CloudSyncSnapshot {
+            status: CloudSyncStatus::PendingApproval,
+            devices: Vec::new(),
+        }),
+        _ => Err(CloudFailure::new("cloud_response_invalid")),
+    }
+}
+
+pub async fn approve_cloud_sync_device(
+    app: &AppHandle,
+    target_device_id: &str,
+) -> Result<CloudSyncSnapshot, CloudFailure> {
+    let settings = get_settings(app);
+    let (account_id, current_device_id) = sync_context(&settings)?;
+    let private = get_cloud_sync_device_key(account_id)
+        .map_err(|_| CloudFailure::new("cloud_keychain_unavailable"))?
+        .ok_or_else(|| CloudFailure::new("cloud_sync_not_configured"))?;
+    let account_key =
+        load_sync_account_key(&settings, account_id, current_device_id, &private).await?;
+    let devices = list_sync_devices(&settings, current_device_id).await?;
+    let target = devices
+        .iter()
+        .find(|device| device.id == target_device_id && device.status == "pending")
+        .ok_or_else(|| CloudFailure::new("cloud_sync_device_not_pending"))?;
+    let target_public: [u8; 32] = STANDARD
+        .decode(&target.public_key)
+        .map_err(|_| CloudFailure::new("cloud_response_invalid"))?
+        .try_into()
+        .map_err(|_| CloudFailure::new("cloud_response_invalid"))?;
+    let encrypted_account_key = STANDARD.encode(
+        crate::sync_crypto::seal_account_key(&account_key, &target_public)
+            .map_err(|_| CloudFailure::new("cloud_sync_encryption_failed"))?,
+    );
+    let response = client()
+        .post(endpoint(
+            &settings,
+            &format!("/v1/sync/devices/{target_device_id}/approve"),
+        )?)
+        .bearer_auth(bearer()?)
+        .json(&ApproveSyncDeviceRequest {
+            approver_device_id: current_device_id,
+            encrypted_account_key: &encrypted_account_key,
+        })
+        .send()
+        .await
+        .map_err(|_| CloudFailure::new("cloud_network_unavailable"))?;
+    finish(response).await?;
+    cloud_sync_snapshot(app).await
+}
+
+pub async fn append_sync_changes(
+    settings: &AppSettings,
+    device_id: &str,
+    changes: &[SyncChangeInput],
+) -> Result<(u64, u64, u64), CloudFailure> {
+    if changes.is_empty() || changes.len() > 100 {
+        return Err(CloudFailure::new("cloud_sync_batch_invalid"));
+    }
+    let response: AppendSyncChangesResponse = json(
+        client()
+            .post(endpoint(settings, "/v1/sync/changes")?)
+            .bearer_auth(bearer()?)
+            .json(&AppendSyncChangesRequest { device_id, changes })
+            .send()
+            .await
+            .map_err(|_| CloudFailure::new("cloud_network_unavailable"))?,
+    )
+    .await?;
+    Ok((response.accepted, response.conflicts, response.cursor))
+}
+
+pub async fn fetch_sync_changes(
+    settings: &AppSettings,
+    device_id: &str,
+    after: u64,
+) -> Result<SyncChangesResponse, CloudFailure> {
+    let mut url = endpoint(settings, "/v1/sync/changes")?;
+    url.query_pairs_mut()
+        .append_pair("deviceId", device_id)
+        .append_pair("after", &after.to_string())
+        .append_pair("limit", "200");
+    json(
+        client()
+            .get(url)
+            .bearer_auth(bearer()?)
+            .send()
+            .await
+            .map_err(|_| CloudFailure::new("cloud_network_unavailable"))?,
+    )
+    .await
+}
+
 pub async fn account_snapshot(app: &AppHandle) -> Result<CloudAccountSnapshot, CloudFailure> {
     let settings = get_settings(app);
     let Some(device_id) = settings.pressay_cloud_device_id.as_deref() else {
@@ -780,6 +1200,7 @@ pub async fn sign_out(app: &AppHandle) -> Result<(), CloudFailure> {
 
 pub async fn delete_account(app: &AppHandle) -> Result<(), CloudFailure> {
     let settings = get_settings(app);
+    let account_id = settings.pressay_cloud_account_id.clone();
     let response = client()
         .delete(endpoint(&settings, "/v1/me")?)
         .bearer_auth(bearer()?)
@@ -787,7 +1208,12 @@ pub async fn delete_account(app: &AppHandle) -> Result<(), CloudFailure> {
         .await
         .map_err(|_| CloudFailure::new("cloud_network_unavailable"))?;
     finish(response).await?;
-    sign_out(app).await
+    sign_out(app).await?;
+    if let Some(account_id) = account_id {
+        delete_cloud_sync_keys(&account_id)
+            .map_err(|_| CloudFailure::new("cloud_keychain_unavailable"))?;
+    }
+    Ok(())
 }
 
 pub async fn transform(

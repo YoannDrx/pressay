@@ -31,6 +31,21 @@
       "delete": "Supprimer le compte",
       "confirmDelete": "Supprimer votre compte Pressay Cloud et les réglages synchronisés ? Cette action est irréversible."
     },
+    "sync": {
+      "title": "Synchronisation chiffrée",
+      "ready": "Les clés de synchronisation sont prêtes",
+      "pending": "En attente de validation depuis un autre Mac",
+      "notConfigured": "La synchronisation chiffrée n’est pas configurée",
+      "privacy": "Seuls les modes, profils, dictionnaire et préférences autorisées sont chiffrés de bout en bout. Les dictées, audios, historiques et clés API ne sont jamais synchronisés.",
+      "enable": "Configurer",
+      "syncNow": "Synchroniser",
+      "approve": "Autoriser",
+      "current": "ce Mac",
+      "approvedStatus": "Autorisé",
+      "updated": "La synchronisation chiffrée a été mise à jour.",
+      "approved": "Le Mac a été autorisé.",
+      "error": "Impossible de mettre à jour la synchronisation chiffrée."
+    },
     "usage": {
       "title": "Utilisation mensuelle",
       "transformations": "Transformations",

@@ -562,6 +562,38 @@ async deleteCloudAccount() : Promise<Result<null, string>> {
     else return { status: "error", error: e  as any };
 }
 },
+async getCloudSyncSnapshot() : Promise<Result<CloudSyncSnapshot, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("get_cloud_sync_snapshot") };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+async initializeCloudSync() : Promise<Result<CloudSyncSnapshot, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("initialize_cloud_sync") };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+async approveCloudSyncDevice(targetDeviceId: string) : Promise<Result<CloudSyncSnapshot, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("approve_cloud_sync_device", { targetDeviceId }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+async runCloudSync() : Promise<Result<CloudSyncRunReport, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("run_cloud_sync") };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
 async isPortable() : Promise<boolean> {
     return await TAURI_INVOKE("is_portable");
 },
@@ -1167,6 +1199,10 @@ export type ClipboardHandling = "dont_modify" | "copy_to_clipboard"
 export type CloudAccountSnapshot = { connected: boolean; accountId: string | null; email: string | null; deviceId: string | null; entitlement: EntitlementSnapshot | null; usage: UsageSnapshot | null }
 export type CloudAuthConfig = { magicLink: boolean; providers: CloudAuthProvider[]; callbackUrl: string }
 export type CloudAuthProvider = "google" | "apple"
+export type CloudSyncDevice = { id: string; displayName: string; status: CloudSyncStatus; current: boolean }
+export type CloudSyncRunReport = { uploaded: number; downloaded: number; conflictsPreserved: number; nextCursor: number }
+export type CloudSyncSnapshot = { status: CloudSyncStatus; devices: CloudSyncDevice[] }
+export type CloudSyncStatus = "not_configured" | "pending_approval" | "ready"
 export type CorrectionStatus = { available: boolean; armed: boolean; target_app_name: string | null; expires_in_seconds: number }
 export type CustomSounds = { start: boolean; stop: boolean }
 export type DictionaryEntry = { id: string; term: string; variants?: string[]; replacement?: string | null; match_kind?: DictionaryMatchKind; language?: string | null; enabled?: boolean }

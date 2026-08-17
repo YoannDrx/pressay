@@ -4,6 +4,14 @@ const HISTORY_MASTER_KEY_ACCOUNT: &str = "master-key-v1";
 const CLOUD_SERVICE: &str = "app.pressay.desktop.cloud";
 const CLOUD_BEARER_ACCOUNT: &str = "bearer-token-v1";
 const CLOUD_ENTITLEMENT_ACCOUNT: &str = "entitlement-snapshot-v1";
+const CLOUD_SYNC_DEVICE_KEY_PREFIX: &str = "sync-device-private-key-v1";
+const CLOUD_SYNC_ACCOUNT_KEY_PREFIX: &str = "sync-account-key-v1";
+
+fn cloud_sync_account(prefix: &str, account_id: &str) -> Result<String, String> {
+    let account_id = uuid::Uuid::parse_str(account_id)
+        .map_err(|_| "Invalid Cloud account identifier".to_string())?;
+    Ok(format!("{prefix}:{account_id}"))
+}
 
 fn validate_provider_id(provider_id: &str) -> Result<(), String> {
     if provider_id.is_empty()
@@ -43,8 +51,9 @@ fn validate_cloud_entitlement_snapshot(token: &str) -> Result<(), String> {
 #[cfg(target_os = "macos")]
 mod platform {
     use super::{
-        validate_cloud_bearer_token, validate_cloud_entitlement_snapshot, validate_provider_id,
-        BYOK_SERVICE, CLOUD_BEARER_ACCOUNT, CLOUD_ENTITLEMENT_ACCOUNT, CLOUD_SERVICE,
+        cloud_sync_account, validate_cloud_bearer_token, validate_cloud_entitlement_snapshot,
+        validate_provider_id, BYOK_SERVICE, CLOUD_BEARER_ACCOUNT, CLOUD_ENTITLEMENT_ACCOUNT,
+        CLOUD_SERVICE, CLOUD_SYNC_ACCOUNT_KEY_PREFIX, CLOUD_SYNC_DEVICE_KEY_PREFIX,
         HISTORY_MASTER_KEY_ACCOUNT, HISTORY_SERVICE,
     };
     use keyring_core::{Entry, Error};
@@ -171,6 +180,69 @@ mod platform {
             Err(_) => Err("Unable to delete the Cloud entitlement from macOS Keychain".to_string()),
         }
     }
+
+    fn get_cloud_sync_key(account: &str) -> Result<Option<[u8; 32]>, String> {
+        match entry(CLOUD_SERVICE, account)?.get_secret() {
+            Ok(secret) => secret
+                .try_into()
+                .map(Some)
+                .map_err(|_| "The Cloud sync key has an invalid format".to_string()),
+            Err(Error::NoEntry) => Ok(None),
+            Err(_) => Err("Unable to read the Cloud sync key from macOS Keychain".to_string()),
+        }
+    }
+
+    fn set_cloud_sync_key(account: &str, key: &[u8; 32]) -> Result<(), String> {
+        entry(CLOUD_SERVICE, account)?
+            .set_secret(key)
+            .map_err(|_| "Unable to save the Cloud sync key in macOS Keychain".to_string())
+    }
+
+    fn delete_cloud_sync_key(account: &str) -> Result<(), String> {
+        match entry(CLOUD_SERVICE, account)?.delete_credential() {
+            Ok(()) | Err(Error::NoEntry) => Ok(()),
+            Err(_) => Err("Unable to delete the Cloud sync key from macOS Keychain".to_string()),
+        }
+    }
+
+    pub fn get_cloud_sync_device_key(account_id: &str) -> Result<Option<[u8; 32]>, String> {
+        get_cloud_sync_key(&cloud_sync_account(
+            CLOUD_SYNC_DEVICE_KEY_PREFIX,
+            account_id,
+        )?)
+    }
+
+    pub fn set_cloud_sync_device_key(account_id: &str, key: &[u8; 32]) -> Result<(), String> {
+        set_cloud_sync_key(
+            &cloud_sync_account(CLOUD_SYNC_DEVICE_KEY_PREFIX, account_id)?,
+            key,
+        )
+    }
+
+    pub fn get_cloud_sync_account_key(account_id: &str) -> Result<Option<[u8; 32]>, String> {
+        get_cloud_sync_key(&cloud_sync_account(
+            CLOUD_SYNC_ACCOUNT_KEY_PREFIX,
+            account_id,
+        )?)
+    }
+
+    pub fn set_cloud_sync_account_key(account_id: &str, key: &[u8; 32]) -> Result<(), String> {
+        set_cloud_sync_key(
+            &cloud_sync_account(CLOUD_SYNC_ACCOUNT_KEY_PREFIX, account_id)?,
+            key,
+        )
+    }
+
+    pub fn delete_cloud_sync_keys(account_id: &str) -> Result<(), String> {
+        delete_cloud_sync_key(&cloud_sync_account(
+            CLOUD_SYNC_DEVICE_KEY_PREFIX,
+            account_id,
+        )?)?;
+        delete_cloud_sync_key(&cloud_sync_account(
+            CLOUD_SYNC_ACCOUNT_KEY_PREFIX,
+            account_id,
+        )?)
+    }
 }
 
 #[cfg(not(target_os = "macos"))]
@@ -226,13 +298,31 @@ mod platform {
     pub fn delete_cloud_entitlement_snapshot() -> Result<(), String> {
         Err("Secure Cloud entitlements are only available in the supported macOS build".to_string())
     }
+
+    pub fn get_cloud_sync_device_key(_account_id: &str) -> Result<Option<[u8; 32]>, String> {
+        Err("Secure Cloud sync is only available in the supported macOS build".to_string())
+    }
+    pub fn set_cloud_sync_device_key(_account_id: &str, _key: &[u8; 32]) -> Result<(), String> {
+        Err("Secure Cloud sync is only available in the supported macOS build".to_string())
+    }
+    pub fn get_cloud_sync_account_key(_account_id: &str) -> Result<Option<[u8; 32]>, String> {
+        Err("Secure Cloud sync is only available in the supported macOS build".to_string())
+    }
+    pub fn set_cloud_sync_account_key(_account_id: &str, _key: &[u8; 32]) -> Result<(), String> {
+        Err("Secure Cloud sync is only available in the supported macOS build".to_string())
+    }
+    pub fn delete_cloud_sync_keys(_account_id: &str) -> Result<(), String> {
+        Err("Secure Cloud sync is only available in the supported macOS build".to_string())
+    }
 }
 
 pub use platform::{
-    delete_cloud_bearer_token, delete_cloud_entitlement_snapshot, delete_history_master_key,
-    get_cloud_bearer_token, get_cloud_entitlement_snapshot, get_history_master_key,
+    delete_cloud_bearer_token, delete_cloud_entitlement_snapshot, delete_cloud_sync_keys,
+    delete_history_master_key, get_cloud_bearer_token, get_cloud_entitlement_snapshot,
+    get_cloud_sync_account_key, get_cloud_sync_device_key, get_history_master_key,
     get_provider_api_key, set_cloud_bearer_token, set_cloud_entitlement_snapshot,
-    set_history_master_key, set_provider_api_key,
+    set_cloud_sync_account_key, set_cloud_sync_device_key, set_history_master_key,
+    set_provider_api_key,
 };
 
 pub fn get_or_create_history_master_key() -> Result<[u8; 32], String> {

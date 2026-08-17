@@ -3,7 +3,9 @@ use tauri_plugin_opener::OpenerExt;
 
 use crate::cloud::{
     self, CloudAccountSnapshot, CloudAuthConfig, CloudAuthProvider, CloudAuthRuntime,
+    CloudSyncSnapshot,
 };
+use crate::cloud_sync::CloudSyncRunReport;
 use crate::settings::get_settings;
 
 fn public_error(error: cloud::CloudFailure) -> String {
@@ -73,4 +75,37 @@ pub async fn disconnect_cloud_account(app: AppHandle) -> Result<(), String> {
 #[specta::specta]
 pub async fn delete_cloud_account(app: AppHandle) -> Result<(), String> {
     cloud::delete_account(&app).await.map_err(public_error)
+}
+
+#[tauri::command]
+#[specta::specta]
+pub async fn get_cloud_sync_snapshot(app: AppHandle) -> Result<CloudSyncSnapshot, String> {
+    cloud::cloud_sync_snapshot(&app).await.map_err(public_error)
+}
+
+#[tauri::command]
+#[specta::specta]
+pub async fn initialize_cloud_sync(app: AppHandle) -> Result<CloudSyncSnapshot, String> {
+    cloud::initialize_cloud_sync(&app)
+        .await
+        .map_err(public_error)
+}
+
+#[tauri::command]
+#[specta::specta]
+pub async fn approve_cloud_sync_device(
+    app: AppHandle,
+    target_device_id: String,
+) -> Result<CloudSyncSnapshot, String> {
+    cloud::approve_cloud_sync_device(&app, &target_device_id)
+        .await
+        .map_err(public_error)
+}
+
+#[tauri::command]
+#[specta::specta]
+pub async fn run_cloud_sync(app: AppHandle) -> Result<CloudSyncRunReport, String> {
+    crate::cloud_sync::run_cloud_sync(&app)
+        .await
+        .map_err(public_error)
 }

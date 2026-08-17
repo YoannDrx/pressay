@@ -8,6 +8,7 @@ mod catalog;
 pub mod cli;
 mod clipboard;
 mod cloud;
+mod cloud_sync;
 mod commands;
 mod helpers;
 mod history_crypto;
@@ -25,6 +26,7 @@ mod selection_context;
 mod settings;
 mod shortcut;
 mod signal_handle;
+mod sync_crypto;
 mod transcription_coordinator;
 mod tray;
 mod tray_i18n;
@@ -690,6 +692,10 @@ pub fn run(cli_args: CliArgs) {
             commands::cloud::get_cloud_account_snapshot,
             commands::cloud::disconnect_cloud_account,
             commands::cloud::delete_cloud_account,
+            commands::cloud::get_cloud_sync_snapshot,
+            commands::cloud::initialize_cloud_sync,
+            commands::cloud::approve_cloud_sync_device,
+            commands::cloud::run_cloud_sync,
             commands::is_portable,
             commands::get_app_dir_path,
             commands::get_app_settings,

@@ -31,6 +31,21 @@
       "delete": "Delete account",
       "confirmDelete": "Delete your Pressay Cloud account and synced settings? This cannot be undone."
     },
+    "sync": {
+      "title": "Encrypted sync",
+      "ready": "Sync keys are ready",
+      "pending": "Waiting for approval from another Mac",
+      "notConfigured": "Encrypted sync is not configured",
+      "privacy": "Only modes, profiles, dictionary and allowed preferences are end-to-end encrypted. Dictations, audio, history and API keys never sync.",
+      "enable": "Set up",
+      "syncNow": "Sync now",
+      "approve": "Approve",
+      "current": "this Mac",
+      "approvedStatus": "Approved",
+      "updated": "Encrypted sync was updated.",
+      "approved": "The Mac was approved.",
+      "error": "Encrypted sync could not be updated."
+    },
     "usage": {
       "title": "Monthly usage",
       "transformations": "Transformations",
