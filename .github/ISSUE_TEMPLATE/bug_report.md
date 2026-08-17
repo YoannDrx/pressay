@@ -8,7 +8,7 @@ assignees: ""
 
 ## Before You Submit
 
-Please check existing private issues first. Never attach transcripts, audio,
+Please check existing issues first. Never attach transcripts, audio,
 clipboard contents, prompts, API keys, or authorization headers.
 
 ## Bug Description

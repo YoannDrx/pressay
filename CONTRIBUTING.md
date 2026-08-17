@@ -1,7 +1,9 @@
 # Contributing to Pressay
 
-Pressay is developed in a private repository. All changes must go through a
-short-lived branch and a pull request into `main`.
+Pressay's desktop application is developed in a public repository. All changes
+must go through a short-lived branch and a pull request into `main`. Never post
+transcripts, audio, API keys, signing material, Cloud credentials, or private
+diagnostics in source, issues, pull requests, or Actions logs.
 
 ## Workflow
 

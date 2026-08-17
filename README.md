@@ -4,9 +4,11 @@ Pressay is a local-first dictation app for Apple Silicon Macs. Hold a shortcut,
 speak, and Pressay transcribes locally before inserting the result in the active
 application.
 
-Pressay is being rebuilt from the Handy codebase. The desktop product is
-developed independently in this private repository. Source attribution is
-documented in [NOTICE](NOTICE); the Pressay repository has no Handy Git remote.
+Pressay is being rebuilt from the Handy codebase. The desktop application is
+developed in this public source repository. Pressay Cloud, billing
+infrastructure, operational configuration, signing material, and product
+secrets remain private. Source attribution is documented in [NOTICE](NOTICE);
+the Pressay repository has no Handy Git remote.
 
 ## Product principles
 
