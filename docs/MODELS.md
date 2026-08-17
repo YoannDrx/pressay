@@ -58,8 +58,10 @@ Production objects live under the immutable key:
 pressay/<preset>/v1/<filename>
 ```
 
-and are served from `https://models.press-say.app`. The app never needs a
-third-party model registry to download its launch presets.
+and are served primarily from `https://models.press-say.app`. Until that CDN is
+fully provisioned, each launch preset also has an audited public Hugging Face
+fallback. The fallback URL is only a transport: the app accepts the artifact
+only when its byte size and SHA-256 match the signed catalogue.
 
 Populate storage only from a local directory containing reviewed artifacts:
 
