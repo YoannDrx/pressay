@@ -250,6 +250,45 @@ function App() {
     };
   }, [t]);
 
+  useEffect(() => {
+    const unlisten = listen<{
+      requestId: string;
+      durationSeconds: number;
+    }>("cloud-transcription-available", (event) => {
+      toast.info(t("cloud.transcription.availableTitle"), {
+        description: t("cloud.transcription.availableDescription", {
+          seconds: event.payload.durationSeconds,
+        }),
+        duration: 120_000,
+        action: {
+          label: t("cloud.transcription.send"),
+          onClick: () => {
+            void (async () => {
+              const result = await commands.retryCloudTranscription(
+                event.payload.requestId,
+              );
+              if (result.status === "error") {
+                toast.error(t("cloud.transcription.error"));
+                return;
+              }
+              toast.success(t("cloud.transcription.ready"), {
+                description: t("cloud.transcription.readyDescription"),
+                action: {
+                  label: t("common.copy"),
+                  onClick: () =>
+                    navigator.clipboard.writeText(result.data.text),
+                },
+              });
+            })();
+          },
+        },
+      });
+    });
+    return () => {
+      unlisten.then((fn) => fn());
+    };
+  }, [t]);
+
   // Listen for model loading failures and show a toast
   useEffect(() => {
     const unlisten = listen<ModelStateEvent>("model-state-changed", (event) => {

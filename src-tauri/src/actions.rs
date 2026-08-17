@@ -783,6 +783,11 @@ impl ShortcutAction for TranscribeAction {
         let start_time = Instant::now();
         debug!("TranscribeAction::start called for binding: {}", binding_id);
         let settings = get_settings(app);
+        if let Some(runtime) =
+            app.try_state::<crate::cloud_transcription::CloudTranscriptionRuntime>()
+        {
+            runtime.clear();
+        }
 
         // Resolve the complete invocation before any overlay can change the
         // frontmost application. Selected text is queried only when the chosen
@@ -1139,6 +1144,7 @@ impl ShortcutAction for TranscribeAction {
                     let file_name =
                         format!("pressay-{}.wav.enc", chrono::Utc::now().timestamp_millis());
                     let samples_for_history = samples.clone();
+                    let samples_for_cloud_fallback = samples.clone();
                     let history_manager = Arc::clone(&hm);
                     let history_file_name = file_name.clone();
                     let audio_handle = history_enabled.then(|| {
@@ -1592,6 +1598,25 @@ impl ShortcutAction for TranscribeAction {
                             // Surface the failure to the UI (toast). The full
                             // The categorized error is also written to pressay.log.
                             let _ = ah.emit("transcription-error", err.to_string());
+                            let cloud_settings = get_settings(&ah);
+                            if cloud_settings.pressay_cloud_account_id.is_some()
+                                && cloud_settings.pressay_cloud_device_id.is_some()
+                            {
+                                let fallback_language = language_override
+                                    .clone()
+                                    .or(Some(cloud_settings.selected_language));
+                                if let Some(runtime) = ah.try_state::<crate::cloud_transcription::CloudTranscriptionRuntime>() {
+                                    if let Some(available) = runtime.offer(
+                                        samples_for_cloud_fallback,
+                                        fallback_language,
+                                    ) {
+                                        let _ = ah.emit(
+                                            "cloud-transcription-available",
+                                            available,
+                                        );
+                                    }
+                                }
+                            }
                             // Save entry with empty text so user can retry
                             if audio_saved {
                                 if let Err(save_err) = hm.save_entry(

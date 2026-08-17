@@ -52,6 +52,14 @@
       "transcription": "Transcription Cloud",
       "minutes": "{{used}} / {{limit}} min"
     },
+    "transcription": {
+      "availableTitle": "La transcription locale a échoué",
+      "availableDescription": "Envoyer cet enregistrement de {{seconds}} secondes à Pressay Cloud ? L’audio reste en mémoire pendant deux minutes et n’est envoyé que si vous choisissez cette action.",
+      "send": "Utiliser le Cloud",
+      "ready": "La transcription Cloud est prête",
+      "readyDescription": "Vérifiez le résultat avant de le copier.",
+      "error": "Impossible de terminer la transcription Cloud. Aucun texte n’a été inséré."
+    },
     "errors": {
       "load": "Impossible de charger l’état du compte Cloud.",
       "auth": "Impossible de terminer la connexion Cloud.",

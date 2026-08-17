@@ -594,6 +594,14 @@ async runCloudSync() : Promise<Result<CloudSyncRunReport, string>> {
     else return { status: "error", error: e  as any };
 }
 },
+async retryCloudTranscription(requestId: string) : Promise<Result<CloudTranscriptionResponse, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("retry_cloud_transcription", { requestId }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
 async isPortable() : Promise<boolean> {
     return await TAURI_INVOKE("is_portable");
 },
@@ -1203,6 +1211,7 @@ export type CloudSyncDevice = { id: string; displayName: string; status: CloudSy
 export type CloudSyncRunReport = { uploaded: number; downloaded: number; conflictsPreserved: number; nextCursor: number }
 export type CloudSyncSnapshot = { status: CloudSyncStatus; devices: CloudSyncDevice[] }
 export type CloudSyncStatus = "not_configured" | "pending_approval" | "ready"
+export type CloudTranscriptionResponse = { text: string; modelAlias: string; operationId: string; durationSeconds: number }
 export type CorrectionStatus = { available: boolean; armed: boolean; target_app_name: string | null; expires_in_seconds: number }
 export type CustomSounds = { start: boolean; stop: boolean }
 export type DictionaryEntry = { id: string; term: string; variants?: string[]; replacement?: string | null; match_kind?: DictionaryMatchKind; language?: string | null; enabled?: boolean }

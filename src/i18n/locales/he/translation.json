@@ -52,6 +52,14 @@
       "transcription": "Cloud transcription",
       "minutes": "{{used}} / {{limit}} min"
     },
+    "transcription": {
+      "availableTitle": "Local transcription failed",
+      "availableDescription": "Send this {{seconds}}-second recording to Pressay Cloud? The audio stays in memory for two minutes and is sent only if you choose this action.",
+      "send": "Use Cloud",
+      "ready": "Cloud transcription is ready",
+      "readyDescription": "Review the result before copying it.",
+      "error": "Cloud transcription could not be completed. No text was inserted."
+    },
     "errors": {
       "load": "Cloud account status could not be loaded.",
       "auth": "Cloud sign-in could not be completed.",

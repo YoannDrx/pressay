@@ -9,6 +9,7 @@ pub mod cli;
 mod clipboard;
 mod cloud;
 mod cloud_sync;
+mod cloud_transcription;
 mod commands;
 mod helpers;
 mod history_crypto;
@@ -696,6 +697,7 @@ pub fn run(cli_args: CliArgs) {
             commands::cloud::initialize_cloud_sync,
             commands::cloud::approve_cloud_sync_device,
             commands::cloud::run_cloud_sync,
+            commands::cloud::retry_cloud_transcription,
             commands::is_portable,
             commands::get_app_dir_path,
             commands::get_app_settings,
@@ -974,6 +976,7 @@ pub fn run(cli_args: CliArgs) {
             app.manage(TranscriptionCoordinator::new(app_handle.clone()));
             app.manage(productivity::ProductivityRuntime::default());
             app.manage(cloud::CloudAuthRuntime::default());
+            app.manage(cloud_transcription::CloudTranscriptionRuntime::default());
 
             // Deep-link payloads can contain one-time credentials. They are
             // parsed in Rust, never forwarded to the webview and never logged.

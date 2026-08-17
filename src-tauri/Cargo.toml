@@ -62,7 +62,7 @@ tokio = { version = "1.43.0", features = ["sync"] }
 vad-rs = { git = "https://github.com/cjpais/vad-rs", rev = "2a412ed858695b9251f3f5a1a20d95b59fa7c498", default-features = false }
 enigo = "0.6.1"
 rodio = "=0.22.2"
-reqwest = { version = "0.12", features = ["json", "stream", "gzip", "brotli", "deflate"] }
+reqwest = { version = "0.12", features = ["json", "stream", "multipart", "gzip", "brotli", "deflate"] }
 base64 = "0.22"
 url = "2"
 uuid = { version = "1", features = ["v4", "serde"] }

@@ -109,3 +109,14 @@ pub async fn run_cloud_sync(app: AppHandle) -> Result<CloudSyncRunReport, String
         .await
         .map_err(public_error)
 }
+
+#[tauri::command]
+#[specta::specta]
+pub async fn retry_cloud_transcription(
+    app: AppHandle,
+    request_id: String,
+) -> Result<crate::cloud::CloudTranscriptionResponse, String> {
+    crate::cloud_transcription::retry_with_cloud(&app, &request_id)
+        .await
+        .map_err(public_error)
+}

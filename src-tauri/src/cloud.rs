@@ -461,6 +461,15 @@ pub struct CloudTransformationResponse {
     pub operation_id: String,
 }
 
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct CloudTranscriptionResponse {
+    pub text: String,
+    pub model_alias: String,
+    pub operation_id: String,
+    pub duration_seconds: f64,
+}
+
 fn client() -> &'static Client {
     static CLIENT: OnceLock<Client> = OnceLock::new();
     CLIENT.get_or_init(|| {
@@ -1233,6 +1242,47 @@ pub async fn transform(
     if response.model_alias != "pressay-transform-v1"
         || response.text.trim().is_empty()
         || response.operation_id.trim().is_empty()
+    {
+        return Err(CloudFailure::new("cloud_response_invalid"));
+    }
+    Ok(response)
+}
+
+pub async fn transcribe_audio(
+    settings: &AppSettings,
+    device_id: &str,
+    wav: Vec<u8>,
+    language: Option<&str>,
+    idempotency_key: &str,
+) -> Result<CloudTranscriptionResponse, CloudFailure> {
+    if wav.is_empty() || wav.len() > 4_000_000 {
+        return Err(CloudFailure::new("cloud_audio_too_large"));
+    }
+    let audio = reqwest::multipart::Part::bytes(wav)
+        .file_name("pressay-recording.wav")
+        .mime_str("audio/wav")
+        .map_err(|_| CloudFailure::new("cloud_audio_invalid"))?;
+    let mut form = reqwest::multipart::Form::new()
+        .text("deviceId", device_id.to_string())
+        .text("contentTransferAcknowledged", "true")
+        .part("audio", audio);
+    if let Some(language) = language.filter(|value| !value.trim().is_empty()) {
+        form = form.text("language", language.to_string());
+    }
+    let response = client()
+        .post(endpoint(settings, "/v1/cloud/transcriptions")?)
+        .bearer_auth(bearer()?)
+        .header("idempotency-key", idempotency_key)
+        .multipart(form)
+        .send()
+        .await
+        .map_err(|_| CloudFailure::new("cloud_network_unavailable"))?;
+    let response: CloudTranscriptionResponse = json(response).await?;
+    if response.model_alias != "pressay-transcribe-v1"
+        || response.text.trim().is_empty()
+        || response.operation_id.trim().is_empty()
+        || !response.duration_seconds.is_finite()
+        || response.duration_seconds <= 0.0
     {
         return Err(CloudFailure::new("cloud_response_invalid"));
     }
