@@ -152,6 +152,12 @@ pub struct CloudSyncSnapshot {
     pub devices: Vec<CloudSyncDevice>,
 }
 
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct CloudSyncRecoveryCode {
+    pub code: String,
+}
+
 #[derive(Serialize, Deserialize, Debug, Clone, Copy, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
 pub enum SyncObjectType {
@@ -379,6 +385,36 @@ struct SyncDeviceEnvelopeResponse {
 #[serde(rename_all = "camelCase")]
 struct ApproveSyncDeviceRequest<'a> {
     approver_device_id: &'a str,
+    encrypted_account_key: &'a str,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct ConfigureSyncRecoveryRequest<'a> {
+    device_id: &'a str,
+    code_hash: &'a str,
+    encrypted_account_key: &'a str,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct BeginSyncRecoveryRequest<'a> {
+    device_id: &'a str,
+    public_key: &'a str,
+    code_hash: &'a str,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct SyncRecoveryEnvelopeResponse {
+    encrypted_account_key: String,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct CompleteSyncRecoveryRequest<'a> {
+    device_id: &'a str,
+    code_hash: &'a str,
     encrypted_account_key: &'a str,
 }
 
@@ -1052,6 +1088,86 @@ pub async fn approve_cloud_sync_device(
         .bearer_auth(bearer()?)
         .json(&ApproveSyncDeviceRequest {
             approver_device_id: current_device_id,
+            encrypted_account_key: &encrypted_account_key,
+        })
+        .send()
+        .await
+        .map_err(|_| CloudFailure::new("cloud_network_unavailable"))?;
+    finish(response).await?;
+    cloud_sync_snapshot(app).await
+}
+
+pub async fn create_cloud_sync_recovery_code(
+    app: &AppHandle,
+) -> Result<CloudSyncRecoveryCode, CloudFailure> {
+    let settings = get_settings(app);
+    let (account_id, device_id) = sync_context(&settings)?;
+    let private = get_cloud_sync_device_key(account_id)
+        .map_err(|_| CloudFailure::new("cloud_keychain_unavailable"))?
+        .ok_or_else(|| CloudFailure::new("cloud_sync_not_configured"))?;
+    let account_key = load_sync_account_key(&settings, account_id, device_id, &private).await?;
+    let (code, code_hash, encrypted_account_key) =
+        crate::sync_crypto::create_recovery_envelope(&account_key)
+            .map_err(|_| CloudFailure::new("cloud_sync_encryption_failed"))?;
+    let response = client()
+        .put(endpoint(&settings, "/v1/sync/recovery")?)
+        .bearer_auth(bearer()?)
+        .json(&ConfigureSyncRecoveryRequest {
+            device_id,
+            code_hash: &STANDARD.encode(code_hash),
+            encrypted_account_key: &STANDARD.encode(encrypted_account_key),
+        })
+        .send()
+        .await
+        .map_err(|_| CloudFailure::new("cloud_network_unavailable"))?;
+    finish(response).await?;
+    Ok(CloudSyncRecoveryCode { code })
+}
+
+pub async fn recover_cloud_sync(
+    app: &AppHandle,
+    recovery_code: &str,
+) -> Result<CloudSyncSnapshot, CloudFailure> {
+    let settings = get_settings(app);
+    let (account_id, device_id) = sync_context(&settings)?;
+    let (_, public) = sync_device_keypair(account_id)?;
+    let code_hash = crate::sync_crypto::recovery_code_hash(recovery_code)
+        .map_err(|_| CloudFailure::new("cloud_sync_recovery_code_invalid"))?;
+    let code_hash = STANDARD.encode(code_hash);
+    let public_key = STANDARD.encode(public);
+    let recovery: SyncRecoveryEnvelopeResponse = json(
+        client()
+            .post(endpoint(&settings, "/v1/sync/recovery/begin")?)
+            .bearer_auth(bearer()?)
+            .json(&BeginSyncRecoveryRequest {
+                device_id,
+                public_key: &public_key,
+                code_hash: &code_hash,
+            })
+            .send()
+            .await
+            .map_err(|_| CloudFailure::new("cloud_network_unavailable"))?,
+    )
+    .await?;
+    let recovery_envelope = STANDARD
+        .decode(recovery.encrypted_account_key)
+        .map_err(|_| CloudFailure::new("cloud_sync_envelope_invalid"))?;
+    let mut account_key =
+        crate::sync_crypto::open_recovery_envelope(recovery_code, &recovery_envelope)
+            .map_err(|_| CloudFailure::new("cloud_sync_recovery_code_invalid"))?;
+    let encrypted_account_key = STANDARD.encode(
+        crate::sync_crypto::seal_account_key(&account_key, &public)
+            .map_err(|_| CloudFailure::new("cloud_sync_encryption_failed"))?,
+    );
+    set_cloud_sync_account_key(account_id, &account_key)
+        .map_err(|_| CloudFailure::new("cloud_keychain_unavailable"))?;
+    account_key.fill(0);
+    let response = client()
+        .post(endpoint(&settings, "/v1/sync/recovery/complete")?)
+        .bearer_auth(bearer()?)
+        .json(&CompleteSyncRecoveryRequest {
+            device_id,
+            code_hash: &code_hash,
             encrypted_account_key: &encrypted_account_key,
         })
         .send()

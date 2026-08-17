@@ -696,6 +696,8 @@ pub fn run(cli_args: CliArgs) {
             commands::cloud::get_cloud_sync_snapshot,
             commands::cloud::initialize_cloud_sync,
             commands::cloud::approve_cloud_sync_device,
+            commands::cloud::create_cloud_sync_recovery_code,
+            commands::cloud::recover_cloud_sync,
             commands::cloud::run_cloud_sync,
             commands::cloud::retry_cloud_transcription,
             commands::is_portable,

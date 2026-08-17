@@ -3,7 +3,7 @@ use tauri_plugin_opener::OpenerExt;
 
 use crate::cloud::{
     self, CloudAccountSnapshot, CloudAuthConfig, CloudAuthProvider, CloudAuthRuntime,
-    CloudSyncSnapshot,
+    CloudSyncRecoveryCode, CloudSyncSnapshot,
 };
 use crate::cloud_sync::CloudSyncRunReport;
 use crate::settings::get_settings;
@@ -98,6 +98,27 @@ pub async fn approve_cloud_sync_device(
     target_device_id: String,
 ) -> Result<CloudSyncSnapshot, String> {
     cloud::approve_cloud_sync_device(&app, &target_device_id)
+        .await
+        .map_err(public_error)
+}
+
+#[tauri::command]
+#[specta::specta]
+pub async fn create_cloud_sync_recovery_code(
+    app: AppHandle,
+) -> Result<CloudSyncRecoveryCode, String> {
+    cloud::create_cloud_sync_recovery_code(&app)
+        .await
+        .map_err(public_error)
+}
+
+#[tauri::command]
+#[specta::specta]
+pub async fn recover_cloud_sync(
+    app: AppHandle,
+    recovery_code: String,
+) -> Result<CloudSyncSnapshot, String> {
+    cloud::recover_cloud_sync(&app, recovery_code.trim())
         .await
         .map_err(public_error)
 }

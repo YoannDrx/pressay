@@ -586,6 +586,22 @@ async approveCloudSyncDevice(targetDeviceId: string) : Promise<Result<CloudSyncS
     else return { status: "error", error: e  as any };
 }
 },
+async createCloudSyncRecoveryCode() : Promise<Result<CloudSyncRecoveryCode, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("create_cloud_sync_recovery_code") };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+async recoverCloudSync(recoveryCode: string) : Promise<Result<CloudSyncSnapshot, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("recover_cloud_sync", { recoveryCode }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
 async runCloudSync() : Promise<Result<CloudSyncRunReport, string>> {
     try {
     return { status: "ok", data: await TAURI_INVOKE("run_cloud_sync") };
@@ -1208,6 +1224,7 @@ export type CloudAccountSnapshot = { connected: boolean; accountId: string | nul
 export type CloudAuthConfig = { magicLink: boolean; providers: CloudAuthProvider[]; callbackUrl: string }
 export type CloudAuthProvider = "google" | "apple"
 export type CloudSyncDevice = { id: string; displayName: string; status: CloudSyncStatus; current: boolean }
+export type CloudSyncRecoveryCode = { code: string }
 export type CloudSyncRunReport = { uploaded: number; downloaded: number; conflictsPreserved: number; nextCursor: number }
 export type CloudSyncSnapshot = { status: CloudSyncStatus; devices: CloudSyncDevice[] }
 export type CloudSyncStatus = "not_configured" | "pending_approval" | "ready"

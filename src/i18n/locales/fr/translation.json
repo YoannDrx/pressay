@@ -44,7 +44,25 @@
       "approvedStatus": "Autorisé",
       "updated": "La synchronisation chiffrée a été mise à jour.",
       "approved": "Le Mac a été autorisé.",
-      "error": "Impossible de mettre à jour la synchronisation chiffrée."
+      "error": "Impossible de mettre à jour la synchronisation chiffrée.",
+      "recovery": {
+        "title": "Code de récupération",
+        "description": "Créez un code de secours à usage unique pour ajouter un Mac lorsqu’aucun appareil autorisé n’est disponible. Un nouveau code invalide le précédent.",
+        "create": "Créer un code",
+        "confirmRotate": "Créer un nouveau code de récupération ? L’ancien code cessera de fonctionner.",
+        "created": "Un nouveau code de récupération a été créé.",
+        "useDescription": "Si vous ne pouvez pas autoriser ce Mac depuis un autre appareil, saisissez le code de récupération enregistré auparavant.",
+        "placeholder": "PRS1. ...",
+        "use": "Récupérer la synchronisation",
+        "saveNow": "Enregistrez ce code maintenant. Pressay ne pourra pas l’afficher à nouveau.",
+        "copy": "Copier le code",
+        "copied": "Code copié. Supprimez-le du presse-papiers après l’avoir enregistré.",
+        "copyError": "Impossible de copier le code de récupération.",
+        "done": "Terminé",
+        "recovered": "La synchronisation chiffrée a été récupérée sur ce Mac.",
+        "invalid": "Le code est invalide, expiré ou déjà utilisé.",
+        "error": "Impossible de créer un code de récupération."
+      }
     },
     "usage": {
       "title": "Utilisation mensuelle",

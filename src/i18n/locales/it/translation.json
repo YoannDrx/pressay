@@ -44,7 +44,25 @@
       "approvedStatus": "Approved",
       "updated": "Encrypted sync was updated.",
       "approved": "The Mac was approved.",
-      "error": "Encrypted sync could not be updated."
+      "error": "Encrypted sync could not be updated.",
+      "recovery": {
+        "title": "Recovery code",
+        "description": "Create a one-time backup code for adding a Mac when no approved device is available. A new code invalidates the previous one.",
+        "create": "Create code",
+        "confirmRotate": "Create a new recovery code? Any previous recovery code will stop working.",
+        "created": "A new recovery code was created.",
+        "useDescription": "If you cannot approve this Mac from another device, enter the recovery code you saved earlier.",
+        "placeholder": "PRS1. ...",
+        "use": "Recover sync",
+        "saveNow": "Save this code now. Pressay cannot show it again.",
+        "copy": "Copy code",
+        "copied": "Recovery code copied. Remove it from the clipboard after saving it.",
+        "copyError": "The recovery code could not be copied.",
+        "done": "Done",
+        "recovered": "Encrypted sync was recovered on this Mac.",
+        "invalid": "The recovery code is invalid, expired or already used.",
+        "error": "A recovery code could not be created."
+      }
     },
     "usage": {
       "title": "Monthly usage",

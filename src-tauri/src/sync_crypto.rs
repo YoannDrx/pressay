@@ -1,15 +1,19 @@
 use anyhow::{anyhow, bail, Result};
+use base64::engine::general_purpose::URL_SAFE_NO_PAD;
+use base64::Engine;
 use chacha20poly1305::{
     aead::{Aead, Generate, KeyInit},
     Key, XChaCha20Poly1305, XNonce,
 };
 use hkdf::Hkdf;
 use rand_core::OsRng;
-use sha2::Sha256;
+use sha2::{Digest, Sha256};
 use x25519_dalek::{PublicKey, StaticSecret};
 
 const SEALED_KEY_MAGIC: &[u8; 8] = b"PRSYSK01";
 const SYNC_DATA_MAGIC: &[u8; 8] = b"PRSYSY01";
+const RECOVERY_KEY_MAGIC: &[u8; 8] = b"PRSYRC01";
+const RECOVERY_CODE_PREFIX: &str = "PRS1";
 const PUBLIC_KEY_LEN: usize = 32;
 const NONCE_LEN: usize = 24;
 pub const KEY_LEN: usize = 32;
@@ -26,6 +30,100 @@ pub fn device_public_key(private: &[u8; KEY_LEN]) -> [u8; PUBLIC_KEY_LEN] {
 
 pub fn generate_account_key() -> [u8; KEY_LEN] {
     Key::generate().into()
+}
+
+fn recovery_secret(code: &str) -> Result<[u8; KEY_LEN]> {
+    let compact = code.split_ascii_whitespace().collect::<String>();
+    let (prefix, encoded) = compact
+        .split_once('.')
+        .ok_or_else(|| anyhow!("Invalid recovery code"))?;
+    if prefix != RECOVERY_CODE_PREFIX || encoded.contains('.') {
+        bail!("Invalid recovery code");
+    }
+    URL_SAFE_NO_PAD
+        .decode(encoded)
+        .map_err(|_| anyhow!("Invalid recovery code"))?
+        .try_into()
+        .map_err(|_| anyhow!("Invalid recovery code"))
+}
+
+fn recovery_wrapping_key(secret: &[u8; KEY_LEN]) -> Result<[u8; KEY_LEN]> {
+    let mut output = [0_u8; KEY_LEN];
+    Hkdf::<Sha256>::new(Some(b"Pressay sync recovery v1"), secret)
+        .expand(b"account key envelope", &mut output)
+        .map_err(|_| anyhow!("Unable to derive recovery wrapping key"))?;
+    Ok(output)
+}
+
+fn format_recovery_code(secret: &[u8; KEY_LEN]) -> String {
+    let encoded = URL_SAFE_NO_PAD.encode(secret);
+    let grouped = encoded
+        .as_bytes()
+        .chunks(5)
+        .map(|chunk| std::str::from_utf8(chunk).expect("base64url is UTF-8"))
+        .collect::<Vec<_>>()
+        .join(" ");
+    format!("{RECOVERY_CODE_PREFIX}.{grouped}")
+}
+
+pub fn recovery_code_hash(code: &str) -> Result<[u8; KEY_LEN]> {
+    let mut secret = recovery_secret(code)?;
+    let hash: [u8; KEY_LEN] = Sha256::digest(secret).into();
+    secret.fill(0);
+    Ok(hash)
+}
+
+pub fn create_recovery_envelope(
+    account_key: &[u8; KEY_LEN],
+) -> Result<(String, [u8; KEY_LEN], Vec<u8>)> {
+    let mut secret: [u8; KEY_LEN] = Key::generate().into();
+    let code = format_recovery_code(&secret);
+    let code_hash: [u8; KEY_LEN] = Sha256::digest(secret).into();
+    let mut wrapping_key = recovery_wrapping_key(&secret)?;
+    let nonce = XNonce::generate();
+    let ciphertext = XChaCha20Poly1305::new(&Key::from(wrapping_key))
+        .encrypt(
+            &nonce,
+            chacha20poly1305::aead::Payload {
+                msg: account_key,
+                aad: RECOVERY_KEY_MAGIC,
+            },
+        )
+        .map_err(|_| anyhow!("Unable to encrypt recovery envelope"))?;
+    secret.fill(0);
+    wrapping_key.fill(0);
+    let mut envelope = Vec::with_capacity(RECOVERY_KEY_MAGIC.len() + NONCE_LEN + ciphertext.len());
+    envelope.extend_from_slice(RECOVERY_KEY_MAGIC);
+    envelope.extend_from_slice(&nonce);
+    envelope.extend_from_slice(&ciphertext);
+    Ok((code, code_hash, envelope))
+}
+
+pub fn open_recovery_envelope(code: &str, envelope: &[u8]) -> Result<[u8; KEY_LEN]> {
+    if envelope.len() != RECOVERY_KEY_MAGIC.len() + NONCE_LEN + KEY_LEN + 16
+        || &envelope[..RECOVERY_KEY_MAGIC.len()] != RECOVERY_KEY_MAGIC
+    {
+        bail!("Unsupported recovery envelope");
+    }
+    let nonce_end = RECOVERY_KEY_MAGIC.len() + NONCE_LEN;
+    let nonce = XNonce::try_from(&envelope[RECOVERY_KEY_MAGIC.len()..nonce_end])
+        .map_err(|_| anyhow!("Unsupported recovery envelope"))?;
+    let mut secret = recovery_secret(code)?;
+    let mut wrapping_key = recovery_wrapping_key(&secret)?;
+    let plaintext = XChaCha20Poly1305::new(&Key::from(wrapping_key))
+        .decrypt(
+            &nonce,
+            chacha20poly1305::aead::Payload {
+                msg: &envelope[nonce_end..],
+                aad: RECOVERY_KEY_MAGIC,
+            },
+        )
+        .map_err(|_| anyhow!("Unable to decrypt recovery envelope"));
+    secret.fill(0);
+    wrapping_key.fill(0);
+    plaintext?
+        .try_into()
+        .map_err(|_| anyhow!("Invalid recovery account key"))
 }
 
 fn wrapping_key(
@@ -171,6 +269,31 @@ mod tests {
     fn device_public_key_is_stable_for_the_keychain_secret() {
         let (private, public) = generate_device_keypair();
         assert_eq!(device_public_key(&private), public);
+    }
+
+    #[test]
+    fn recovery_code_round_trip_is_local_and_whitespace_tolerant() {
+        let account_key = generate_account_key();
+        let (code, code_hash, envelope) = create_recovery_envelope(&account_key).unwrap();
+        assert!(code.starts_with("PRS1."));
+        assert_eq!(recovery_code_hash(&code).unwrap(), code_hash);
+        assert_eq!(
+            open_recovery_envelope(&format!("  {code}  \n"), &envelope).unwrap(),
+            account_key
+        );
+        assert!(!envelope
+            .windows(account_key.len())
+            .any(|part| part == account_key));
+    }
+
+    #[test]
+    fn recovery_envelope_rejects_a_different_code_and_bad_format() {
+        let account_key = generate_account_key();
+        let (_, _, envelope) = create_recovery_envelope(&account_key).unwrap();
+        let (wrong_code, _, _) = create_recovery_envelope(&account_key).unwrap();
+        assert!(open_recovery_envelope(&wrong_code, &envelope).is_err());
+        assert!(recovery_code_hash("PRS1.not-valid").is_err());
+        assert!(recovery_code_hash("not-a-pressay-code").is_err());
     }
 
     #[test]

@@ -55,6 +55,9 @@ mirror publication gates are documented in [docs/MODELS.md](docs/MODELS.md).
 The mirror must be populated from audited artifacts before model download
 testing or any production release.
 
+The E2EE key hierarchy, recovery-code protocol, excluded data, and remaining
+operational checks are documented in [docs/CLOUD_SYNC.md](docs/CLOUD_SYNC.md).
+
 Run the smallest complete local verification set:
 
 ```bash

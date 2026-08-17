@@ -3,6 +3,8 @@ import { listen } from "@tauri-apps/api/event";
 import {
   CheckCircle2,
   Cloud,
+  Copy,
+  KeyRound,
   Laptop,
   LockKeyhole,
   RefreshCw,
@@ -41,6 +43,10 @@ export function AccountSettings() {
   const [account, setAccount] = useState<CloudAccountSnapshot>(EMPTY_ACCOUNT);
   const [email, setEmail] = useState("");
   const [sync, setSync] = useState<CloudSyncSnapshot | null>(null);
+  const [recoveryInput, setRecoveryInput] = useState("");
+  const [generatedRecoveryCode, setGeneratedRecoveryCode] = useState<
+    string | null
+  >(null);
   const [loading, setLoading] = useState(true);
   const [pendingAction, setPendingAction] = useState<string | null>(null);
 
@@ -116,6 +122,8 @@ export function AccountSettings() {
     if (result.status === "ok") {
       setAccount(EMPTY_ACCOUNT);
       setSync(null);
+      setRecoveryInput("");
+      setGeneratedRecoveryCode(null);
     } else {
       toast.error(t("cloud.errors.disconnect"));
     }
@@ -129,6 +137,8 @@ export function AccountSettings() {
     if (result.status === "ok") {
       setAccount(EMPTY_ACCOUNT);
       setSync(null);
+      setRecoveryInput("");
+      setGeneratedRecoveryCode(null);
     } else {
       toast.error(t("cloud.errors.delete"));
     }
@@ -167,6 +177,42 @@ export function AccountSettings() {
       await refresh();
     } else {
       toast.error(t("cloud.sync.error"));
+    }
+  };
+
+  const createRecoveryCode = async () => {
+    if (!window.confirm(t("cloud.sync.recovery.confirmRotate"))) return;
+    setPendingAction("sync-recovery-create");
+    const result = await commands.createCloudSyncRecoveryCode();
+    setPendingAction(null);
+    if (result.status === "ok") {
+      setGeneratedRecoveryCode(result.data.code);
+      toast.success(t("cloud.sync.recovery.created"));
+    } else {
+      toast.error(t("cloud.sync.recovery.error"));
+    }
+  };
+
+  const copyRecoveryCode = async () => {
+    if (!generatedRecoveryCode) return;
+    try {
+      await navigator.clipboard.writeText(generatedRecoveryCode);
+      toast.success(t("cloud.sync.recovery.copied"));
+    } catch {
+      toast.error(t("cloud.sync.recovery.copyError"));
+    }
+  };
+
+  const recoverSync = async () => {
+    setPendingAction("sync-recovery-use");
+    const result = await commands.recoverCloudSync(recoveryInput.trim());
+    setPendingAction(null);
+    if (result.status === "ok") {
+      setSync(result.data);
+      setRecoveryInput("");
+      toast.success(t("cloud.sync.recovery.recovered"));
+    } else {
+      toast.error(t("cloud.sync.recovery.invalid"));
     }
   };
 
@@ -320,6 +366,88 @@ export function AccountSettings() {
                         )}
                       </div>
                     ))}
+                  </div>
+                ) : null}
+
+                {sync?.status === "pending_approval" ? (
+                  <div className="space-y-3 border-t border-mid-gray/10 pt-3">
+                    <div className="flex items-start gap-2">
+                      <KeyRound className="mt-0.5 h-4 w-4 shrink-0 text-mid-gray" />
+                      <p className="text-xs text-mid-gray">
+                        {t("cloud.sync.recovery.useDescription")}
+                      </p>
+                    </div>
+                    <input
+                      type="text"
+                      value={recoveryInput}
+                      onChange={(event) => setRecoveryInput(event.target.value)}
+                      placeholder={t("cloud.sync.recovery.placeholder")}
+                      autoCapitalize="none"
+                      autoCorrect="off"
+                      spellCheck={false}
+                      className="w-full rounded-lg border border-mid-gray/20 bg-background-ui px-3 py-2 font-mono text-xs text-text outline-none focus:border-accent"
+                    />
+                    <Button
+                      size="sm"
+                      variant="secondary"
+                      onClick={() => void recoverSync()}
+                      disabled={
+                        recoveryInput.trim().length < 40 ||
+                        pendingAction !== null
+                      }
+                    >
+                      {t("cloud.sync.recovery.use")}
+                    </Button>
+                  </div>
+                ) : null}
+
+                {sync?.status === "ready" ? (
+                  <div className="space-y-3 border-t border-mid-gray/10 pt-3">
+                    <div className="flex items-start justify-between gap-3">
+                      <div>
+                        <p className="text-xs font-medium text-text">
+                          {t("cloud.sync.recovery.title")}
+                        </p>
+                        <p className="mt-1 text-xs text-mid-gray">
+                          {t("cloud.sync.recovery.description")}
+                        </p>
+                      </div>
+                      <Button
+                        size="sm"
+                        variant="secondary"
+                        onClick={() => void createRecoveryCode()}
+                        disabled={pendingAction !== null}
+                      >
+                        {t("cloud.sync.recovery.create")}
+                      </Button>
+                    </div>
+                    {generatedRecoveryCode ? (
+                      <div className="space-y-2 rounded-lg border border-accent/20 bg-accent/5 p-3">
+                        <p className="text-xs font-medium text-text">
+                          {t("cloud.sync.recovery.saveNow")}
+                        </p>
+                        <code className="block select-all break-all font-mono text-xs leading-5 text-text">
+                          {generatedRecoveryCode}
+                        </code>
+                        <div className="flex gap-2">
+                          <Button
+                            size="sm"
+                            variant="secondary"
+                            onClick={() => void copyRecoveryCode()}
+                          >
+                            <Copy className="mr-1.5 h-3.5 w-3.5" />
+                            {t("cloud.sync.recovery.copy")}
+                          </Button>
+                          <Button
+                            size="sm"
+                            variant="ghost"
+                            onClick={() => setGeneratedRecoveryCode(null)}
+                          >
+                            {t("cloud.sync.recovery.done")}
+                          </Button>
+                        </div>
+                      </div>
+                    ) : null}
                   </div>
                 ) : null}
               </div>
