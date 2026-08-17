@@ -1,6 +1,7 @@
 import { useEffect, useState, useCallback, useRef } from "react";
 import { useTranslation } from "react-i18next";
 import { platform } from "@tauri-apps/plugin-os";
+import { openUrl } from "@tauri-apps/plugin-opener";
 import {
   checkAccessibilityPermission,
   requestAccessibilityPermission,
@@ -12,6 +13,9 @@ import { commands } from "@/bindings";
 import { useSettingsStore } from "@/stores/settingsStore";
 import PressayWordmark from "../icons/PressayWordmark";
 import { Keyboard, Mic, Check, Loader2 } from "lucide-react";
+
+const MACOS_ACCESSIBILITY_SETTINGS_URL =
+  "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility";
 
 interface AccessibilityOnboardingProps {
   onComplete: () => void;
@@ -44,6 +48,7 @@ const AccessibilityOnboarding: React.FC<AccessibilityOnboardingProps> = ({
   const pollingRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const timeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const errorCountRef = useRef<number>(0);
+  const completionStartedRef = useRef(false);
   const MAX_POLLING_ERRORS = 3;
   const MAX_PERMISSION_WAIT_MS = 60_000;
 
@@ -60,9 +65,41 @@ const AccessibilityOnboarding: React.FC<AccessibilityOnboardingProps> = ({
       : true;
 
   const completeOnboarding = useCallback(async () => {
+    if (completionStartedRef.current) return;
+    completionStartedRef.current = true;
+
     await Promise.all([refreshAudioDevices(), refreshOutputDevices()]);
     timeoutRef.current = setTimeout(() => onComplete(), 300);
   }, [onComplete, refreshAudioDevices, refreshOutputDevices]);
+
+  const refreshMacOSPermissions = useCallback(async () => {
+    const [accessibilityGranted, microphoneGranted] = await Promise.all([
+      checkAccessibilityPermission(),
+      checkMicrophonePermission(),
+    ]);
+
+    if (accessibilityGranted) {
+      try {
+        await Promise.all([
+          commands.initializeEnigo(),
+          commands.initializeShortcuts(),
+        ]);
+      } catch (error) {
+        console.warn("Failed to initialize after permission grant:", error);
+      }
+    }
+
+    setPermissions({
+      accessibility: accessibilityGranted ? "granted" : "needed",
+      microphone: microphoneGranted ? "granted" : "needed",
+    });
+
+    if (accessibilityGranted && microphoneGranted) {
+      await completeOnboarding();
+    }
+
+    return { accessibilityGranted, microphoneGranted };
+  }, [completeOnboarding]);
 
   const hasWindowsMicrophoneAccess = useCallback(async (): Promise<boolean> => {
     const microphoneStatus =
@@ -96,33 +133,7 @@ const AccessibilityOnboarding: React.FC<AccessibilityOnboardingProps> = ({
     const checkInitial = async () => {
       if (nextPlatform === "macos") {
         try {
-          const [accessibilityGranted, microphoneGranted] = await Promise.all([
-            checkAccessibilityPermission(),
-            checkMicrophonePermission(),
-          ]);
-
-          // If accessibility is granted, initialize Enigo and shortcuts
-          if (accessibilityGranted) {
-            try {
-              await Promise.all([
-                commands.initializeEnigo(),
-                commands.initializeShortcuts(),
-              ]);
-            } catch (e) {
-              console.warn("Failed to initialize after permission grant:", e);
-            }
-          }
-
-          const newState: PermissionsState = {
-            accessibility: accessibilityGranted ? "granted" : "needed",
-            microphone: microphoneGranted ? "granted" : "needed",
-          };
-
-          setPermissions(newState);
-
-          if (accessibilityGranted && microphoneGranted) {
-            await completeOnboarding();
-          }
+          await refreshMacOSPermissions();
         } catch (error) {
           console.error("Failed to check macOS permissions:", error);
           toast.error(t("onboarding.permissions.errors.checkFailed"));
@@ -157,7 +168,28 @@ const AccessibilityOnboarding: React.FC<AccessibilityOnboardingProps> = ({
     };
 
     checkInitial();
-  }, [completeOnboarding, hasWindowsMicrophoneAccess, onComplete, t]);
+  }, [
+    completeOnboarding,
+    hasWindowsMicrophoneAccess,
+    onComplete,
+    refreshMacOSPermissions,
+    t,
+  ]);
+
+  // macOS does not notify the webview when a privacy setting changes. Recheck
+  // as soon as the user returns from System Settings, even if polling timed out.
+  useEffect(() => {
+    if (!isMacOS) return;
+
+    const handleWindowFocus = () => {
+      refreshMacOSPermissions().catch((error) => {
+        console.warn("Failed to recheck macOS permissions on focus:", error);
+      });
+    };
+
+    window.addEventListener("focus", handleWindowFocus);
+    return () => window.removeEventListener("focus", handleWindowFocus);
+  }, [isMacOS, refreshMacOSPermissions]);
 
   // Polling for permissions after user clicks a button
   const startPolling = useCallback(() => {
@@ -284,6 +316,11 @@ const AccessibilityOnboarding: React.FC<AccessibilityOnboardingProps> = ({
       await requestAccessibilityPermission();
       setPermissions((prev) => ({ ...prev, accessibility: "waiting" }));
       startPolling();
+
+      // AXIsProcessTrustedWithOptions only presents its explanatory prompt the
+      // first time. Opening the pane explicitly also repairs denied or stale
+      // entries and keeps repeat attempts actionable.
+      await openUrl(MACOS_ACCESSIBILITY_SETTINGS_URL);
     } catch (error) {
       console.error("Failed to request accessibility permission:", error);
       toast.error(t("onboarding.permissions.errors.requestFailed"));
@@ -412,9 +449,17 @@ const AccessibilityOnboarding: React.FC<AccessibilityOnboardingProps> = ({
                     {t("onboarding.permissions.granted")}
                   </div>
                 ) : permissions.accessibility === "waiting" ? (
-                  <div className="flex items-center gap-2 text-text/50 text-sm">
-                    <Loader2 className="w-4 h-4 animate-spin" />
-                    {t("onboarding.permissions.waiting")}
+                  <div className="flex flex-col items-start gap-3">
+                    <div className="flex items-center gap-2 text-text/50 text-sm">
+                      <Loader2 className="w-4 h-4 animate-spin" />
+                      {t("onboarding.permissions.waiting")}
+                    </div>
+                    <button
+                      onClick={handleGrantAccessibility}
+                      className="px-4 py-2 rounded-lg border border-mid-gray/30 bg-white/5 hover:border-logo-primary text-text text-sm font-medium transition-colors"
+                    >
+                      {t("accessibility.openSettings")}
+                    </button>
                   </div>
                 ) : (
                   <button
