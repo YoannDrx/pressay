@@ -1,4 +1,91 @@
 {
+  "cloud": {
+    "title": "Pressay Cloud",
+    "description": "Connect only for optional Cloud transformations, sync and Pro access.",
+    "privacy": "Local dictation stays available without an account. Pressay Cloud sends content only when you explicitly choose a Cloud mode.",
+    "status": {
+      "connected": "Connected",
+      "disconnected": "Connect your account",
+      "offline": "Offline — verified local entitlement"
+    },
+    "tier": {
+      "free": "Free plan",
+      "pro": "Pro plan"
+    },
+    "email": {
+      "label": "Email",
+      "placeholder": "you@example.com",
+      "send": "Send link",
+      "sent": "Check your inbox to continue."
+    },
+    "providers": {
+      "or": "or",
+      "google": "Continue with Google",
+      "apple": "Continue with Apple",
+      "unavailable": "Cloud sign-in is not enabled on this environment yet."
+    },
+    "actions": {
+      "loading": "Checking Cloud availability…",
+      "refresh": "Refresh",
+      "disconnect": "Disconnect",
+      "delete": "Delete account",
+      "confirmDelete": "Delete your Pressay Cloud account and synced settings? This cannot be undone."
+    },
+    "sync": {
+      "title": "Encrypted sync",
+      "ready": "Sync keys are ready",
+      "pending": "Waiting for approval from another Mac",
+      "notConfigured": "Encrypted sync is not configured",
+      "privacy": "Only modes, profiles, dictionary and allowed preferences are end-to-end encrypted. Dictations, audio, history and API keys never sync.",
+      "enable": "Set up",
+      "syncNow": "Sync now",
+      "approve": "Approve",
+      "current": "this Mac",
+      "approvedStatus": "Approved",
+      "updated": "Encrypted sync was updated.",
+      "approved": "The Mac was approved.",
+      "error": "Encrypted sync could not be updated.",
+      "recovery": {
+        "title": "Recovery code",
+        "description": "Create a one-time backup code for adding a Mac when no approved device is available. A new code invalidates the previous one.",
+        "create": "Create code",
+        "confirmRotate": "Create a new recovery code? Any previous recovery code will stop working.",
+        "created": "A new recovery code was created.",
+        "useDescription": "If you cannot approve this Mac from another device, enter the recovery code you saved earlier.",
+        "placeholder": "PRS1. ...",
+        "use": "Recover sync",
+        "saveNow": "Save this code now. Pressay cannot show it again.",
+        "copy": "Copy code",
+        "copied": "Recovery code copied. Remove it from the clipboard after saving it.",
+        "copyError": "The recovery code could not be copied.",
+        "done": "Done",
+        "recovered": "Encrypted sync was recovered on this Mac.",
+        "invalid": "The recovery code is invalid, expired or already used.",
+        "error": "A recovery code could not be created."
+      }
+    },
+    "usage": {
+      "title": "Monthly usage",
+      "transformations": "Transformations",
+      "transcription": "Cloud transcription",
+      "minutes": "{{used}} / {{limit}} min"
+    },
+    "transcription": {
+      "availableTitle": "Local transcription failed",
+      "availableDescription": "Send this {{seconds}}-second recording to Pressay Cloud? The audio stays in memory for two minutes and is sent only if you choose this action.",
+      "send": "Use Cloud",
+      "ready": "Cloud transcription is ready",
+      "readyDescription": "Review the result before copying it.",
+      "error": "Cloud transcription could not be completed. No text was inserted."
+    },
+    "errors": {
+      "load": "Cloud account status could not be loaded.",
+      "auth": "Cloud sign-in could not be completed.",
+      "start": "Cloud sign-in could not be started.",
+      "disconnect": "The account could not be disconnected.",
+      "delete": "The account could not be deleted."
+    }
+  },
   "tray": {
     "settings": "Ayarlar...",
     "checkUpdates": "Güncellemeleri Kontrol Et...",
@@ -10,6 +97,8 @@
     "secureInputWarning": "⚠ Kısayollar Secure Input tarafından engelleniyor"
   },
   "sidebar": {
+    "account": "Account",
+    "home": "Home",
     "general": "Genel",
     "models": "Modeller",
     "advanced": "Gelişmiş",
@@ -94,6 +183,18 @@
       "cohere-int8": {
         "name": "Cohere",
         "description": "Büyük, daha yavaş, ancak çok doğru çok dilli bir model."
+      },
+      "pressay/parakeet-v3": {
+        "name": "Parakeet V3",
+        "description": "Fast local transcription for French and 24 other European languages."
+      },
+      "pressay/whisper-small": {
+        "name": "Whisper Small",
+        "description": "Polyglot local transcription across 99 languages, with translation to English."
+      },
+      "pressay/whisper-large": {
+        "name": "Whisper Large v3",
+        "description": "The most accurate Pressay preset for capable Apple Silicon Macs."
       }
     },
     "errors": {
@@ -101,7 +202,7 @@
     },
     "permissions": {
       "title": "İzinler Gerekli",
-      "description": "Handy'nin düzgün çalışabilmesi için birkaç izne ihtiyacı var.",
+      "description": "Pressay'nin düzgün çalışabilmesi için birkaç izne ihtiyacı var.",
       "microphone": {
         "title": "Mikrofon Erişimi",
         "description": "Sesinizi transkripsiyon için alabilmek için gereklidir."
@@ -152,7 +253,12 @@
     },
     "cancel": "İptal",
     "cancelDownload": "İndirmeyi iptal et",
-    "legacy": "Eski"
+    "legacy": "Eski",
+    "presets": {
+      "fast": "Fast",
+      "polyglot": "Polyglot",
+      "precise": "Precise"
+    }
   },
   "settings": {
     "modelSettings": {
@@ -175,13 +281,13 @@
       "searchPlaceholder": "Modelleri ada göre ara…",
       "rescan": {
         "label": "Yeniden Tara",
-        "tooltip": "Handy dışında modeller klasörüne veya Hugging Face önbelleğine eklenen modelleri yeniden tara"
+        "tooltip": "Rescan models added to the Pressay models folder"
       }
     },
     "general": {
       "title": "Genel",
       "shortcut": {
-        "title": "Handy Kısayolları",
+        "title": "Pressay Kısayolları",
         "description": "Sesle yazma kaydını başlatmak için klavye kısayollarını yapılandırın",
         "loading": "Kısayollar yükleniyor...",
         "none": "Kısayol yapılandırılmadı",
@@ -283,11 +389,11 @@
       },
       "autostart": {
         "label": "Başlangıçta Çalıştır",
-        "description": "Bilgisayara giriş yaptığınızda Handy otomatik olarak başlatılır."
+        "description": "Bilgisayara giriş yaptığınızda Pressay otomatik olarak başlatılır."
       },
       "showTrayIcon": {
         "label": "Tepsi Simgesini Göster",
-        "description": "Handy simgesini sistem tepsisinde göster."
+        "description": "Pressay simgesini sistem tepsisinde göster."
       },
       "overlay": {
         "style": {
@@ -474,7 +580,7 @@
       },
       "updateChecks": {
         "label": "Güncellemeleri Kontrol Et",
-        "description": "Handy için yeni sürümleri otomatik olarak kontrol eder"
+        "description": "Pressay için yeni sürümleri otomatik olarak kontrol eder"
       },
       "soundTheme": {
         "label": "Ses Teması",
@@ -547,7 +653,7 @@
       },
       "keyboardDiagnostic": {
         "title": "Klavye Tanılaması",
-        "description": "Klavye olaylarının Handy'ye ulaşıp ulaşmadığını denetler. Yalnızca olay sayıları kaydedilir — hangi tuşlara bastığınız asla kaydedilmez.",
+        "description": "Klavye olaylarının Pressay'ye ulaşıp ulaşmadığını denetler. Yalnızca olay sayıları kaydedilir — hangi tuşlara bastığınız asla kaydedilmez.",
         "run": "10 sn'lik tanılamayı çalıştır",
         "running": "Dinleniyor… kısayolunuza birkaç kez basın (ör. Option+Space)",
         "secureInputLabel": "Secure Input",
@@ -561,7 +667,7 @@
         "mouse": "Fare",
         "verdictBlocked": "Secure Input tuş olaylarını engelliyor — normal tuş içeren kısayollar bu sorun çözülene kadar çalışamaz.",
         "verdictSuspicious": "Değiştirici olayları geldi ancak hiç tuş olayı gelmedi — Secure Input devre dışı görünmesine rağmen bir şey tuşları bastırıyor. Lütfen bunu GitHub'da bildirin.",
-        "verdictOk": "Tuş olayları Handy'ye normal şekilde ulaşıyor.",
+        "verdictOk": "Tuş olayları Pressay'ye normal şekilde ulaşıyor.",
         "verdictNoEvents": "Hiç olay yakalanmadı — test sırasında herhangi bir tuşa bastınız mı?",
         "failed": "Tanılama başarısız: {{error}}"
       },
@@ -577,20 +683,20 @@
       "title": "Hakkında",
       "version": {
         "title": "Sürüm",
-        "description": "Handy'nin mevcut sürümü"
+        "description": "Pressay'nin mevcut sürümü"
       },
       "appDataDirectory": {
         "title": "Uygulama Veri Dizini",
-        "description": "Handy'nin verilerini sakladığı konum"
+        "description": "Pressay'nin verilerini sakladığı konum"
       },
       "sourceCode": {
         "title": "Kaynak Kodu",
         "description": "Kaynak kodunu görüntüle ve katkıda bulun",
-        "button": "GitHub'da Görüntüle"
+        "license": "MIT"
       },
       "supportDevelopment": {
         "title": "Geliştirmeyi Destekle",
-        "description": "Handy'yi geliştirmeye devam etmemize yardımcı olun",
+        "description": "Pressay'yi geliştirmeye devam etmemize yardımcı olun",
         "button": "Bağış Yap"
       },
       "acknowledgments": {
@@ -598,12 +704,17 @@
         "ggml": {
           "title": "ggml",
           "description": "Cihaz üzerinde makine öğrenmesi çıkarımı için yüksek performanslı tensör kütüphanesi",
-          "details": "Handy'nin yerel konuşmadan metne dönüştürme özelliği transcribe.cpp ve ggml üzerine kuruludur. Georgi Gerganov'a ve katkıda bulunanlara harika çalışmaları için teşekkür ederiz."
+          "details": "Pressay'nin yerel konuşmadan metne dönüştürme özelliği transcribe.cpp ve ggml üzerine kuruludur. Georgi Gerganov'a ve katkıda bulunanlara harika çalışmaları için teşekkür ederiz."
+        },
+        "models": {
+          "title": "Local models",
+          "description": "Attribution and licences for the Pressay presets",
+          "details": "Parakeet TDT 0.6B v3 © NVIDIA, licensed under CC BY 4.0. Whisper Small and Whisper Large v3 © OpenAI, model weights and code licensed under MIT."
         }
       },
       "whatsNewUpdates": {
         "label": "Yenilikleri Göster",
-        "description": "Handy güncellemelerinden sonra sürüm notlarını göster"
+        "description": "Pressay güncellemelerinden sonra sürüm notlarını göster"
       }
     }
   },
@@ -632,7 +743,7 @@
     "noOptionsFound": "Seçenek bulunamadı"
   },
   "accessibility": {
-    "permissionsDescription": "Handy, transkribe edilen metni yazabilmek için erişilebilirlik izinlerine ihtiyaç duyar.",
+    "permissionsDescription": "Pressay, transkribe edilen metni yazabilmek için erişilebilirlik izinlerine ihtiyaç duyar.",
     "openSettings": "Sistem Ayarlarını Aç"
   },
   "errors": {
@@ -646,6 +757,8 @@
     },
     "noInputDeviceTitle": "Mikrofon bulunamadı",
     "noInputDevice": "Ses giriş aygıtı algılanamadı. Lütfen bir mikrofon veya kulaklık bağlayın ve tekrar deneyin.",
+    "silentInputTitle": "Ses algılanmadı",
+    "silentInput": "Seçili mikrofonu veya giriş aygıtını kontrol edip tekrar deneyin.",
     "recordingFailed": "Kayıt başlatılamadı: {{error}}",
     "modelLoadFailed": "Model yüklenemedi: {{model}}",
     "modelLoadFailedUnknown": "bilinmeyen model",
@@ -655,11 +768,11 @@
   },
   "appLanguage": {
     "title": "Uygulama Dili",
-    "description": "Handy arayüzünün dilini değiştirin"
+    "description": "Pressay arayüzünün dilini değiştirin"
   },
   "theme": {
     "title": "Uygulama Teması",
-    "description": "Handy'nin sistem temasını izlemesini ya da açık veya koyu kalmasını seçin",
+    "description": "Pressay'nin sistem temasını izlemesini ya da açık veya koyu kalmasını seçin",
     "options": {
       "system": "Sistem",
       "light": "Açık",
@@ -671,7 +784,7 @@
     "processing": "İşleniyor..."
   },
   "whatsNew": {
-    "title": "Handy v{{version}} yenilikleri"
+    "title": "Pressay v{{version}} yenilikleri"
   },
   "secureInput": {
     "blockedWithCulprit_one": "{{name}} 1 kısayolu engelliyor olabilir",

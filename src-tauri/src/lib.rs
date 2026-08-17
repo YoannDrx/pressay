@@ -7,8 +7,12 @@ mod autostart;
 mod catalog;
 pub mod cli;
 mod clipboard;
+mod cloud;
+mod cloud_sync;
+mod cloud_transcription;
 mod commands;
 mod helpers;
+mod history_crypto;
 mod input;
 mod llm_client;
 mod managers;
@@ -16,10 +20,14 @@ mod memory;
 mod overlay;
 mod paste_tx;
 pub mod portable;
+pub mod productivity;
+mod secrets;
 mod secure_input;
+mod selection_context;
 mod settings;
 mod shortcut;
 mod signal_handle;
+mod sync_crypto;
 mod transcription_coordinator;
 mod tray;
 mod tray_i18n;
@@ -43,6 +51,7 @@ pub use transcription_coordinator::TranscriptionCoordinator;
 use tauri::tray::TrayIconBuilder;
 use tauri::{AppHandle, Emitter, Listener, Manager};
 use tauri_plugin_autostart::MacosLauncher;
+use tauri_plugin_deep_link::DeepLinkExt;
 use tauri_plugin_log::{Builder as LogBuilder, RotationStrategy, Target, TargetKind};
 
 use crate::settings::get_settings;
@@ -591,9 +600,9 @@ pub fn run(cli_args: CliArgs) {
     // Avoid ggml-metal residency-set teardown assertions when a native engine
     // outlives the Tauri shutdown sequence (#1902). This must happen before
     // transcribe-cpp initializes its Metal device. Advanced users can restore
-    // upstream residency behavior with HANDY_METAL_RESIDENCY=1.
+    // upstream residency behavior with PRESSAY_METAL_RESIDENCY=1.
     #[cfg(target_os = "macos")]
-    if std::env::var("HANDY_METAL_RESIDENCY").as_deref() == Ok("1") {
+    if std::env::var("PRESSAY_METAL_RESIDENCY").as_deref() == Ok("1") {
         // ggml treats GGML_METAL_NO_RESIDENCY as presence-based, so remove an
         // inherited value as well when explicitly opting back in.
         std::env::remove_var("GGML_METAL_NO_RESIDENCY");
@@ -678,6 +687,19 @@ pub fn run(cli_args: CliArgs) {
             trigger_update_check,
             show_main_window_command,
             commands::cancel_operation,
+            commands::cloud::get_cloud_auth_config,
+            commands::cloud::request_cloud_magic_link,
+            commands::cloud::begin_cloud_social_login,
+            commands::cloud::get_cloud_account_snapshot,
+            commands::cloud::disconnect_cloud_account,
+            commands::cloud::delete_cloud_account,
+            commands::cloud::get_cloud_sync_snapshot,
+            commands::cloud::initialize_cloud_sync,
+            commands::cloud::approve_cloud_sync_device,
+            commands::cloud::create_cloud_sync_recovery_code,
+            commands::cloud::recover_cloud_sync,
+            commands::cloud::run_cloud_sync,
+            commands::cloud::retry_cloud_transcription,
             commands::is_portable,
             commands::get_app_dir_path,
             commands::get_app_settings,
@@ -722,17 +744,37 @@ pub fn run(cli_args: CliArgs) {
             commands::transcription::unload_model_manually,
             commands::history::get_history_entries,
             commands::history::toggle_history_entry_saved,
-            commands::history::get_audio_file_path,
+            commands::history::toggle_history_audio_saved,
+            commands::history::get_history_audio,
             commands::history::delete_history_entry,
             commands::history::retry_history_entry_transcription,
             commands::history::update_history_limit,
+            commands::history::update_history_enabled,
+            commands::history::update_history_text_retention,
+            commands::history::update_history_audio_retention,
+            commands::history::delete_all_history,
             commands::history::update_recording_retention_period,
+            commands::productivity::get_productivity_config,
+            commands::productivity::upsert_pressay_mode,
+            commands::productivity::delete_pressay_mode,
+            commands::productivity::set_active_pressay_mode,
+            commands::productivity::set_temporary_pressay_mode,
+            commands::productivity::replace_dictionary_entries,
+            commands::productivity::upsert_app_profile,
+            commands::productivity::delete_app_profile,
+            commands::productivity::get_correction_status,
+            commands::productivity::arm_voice_correction,
+            commands::productivity::cancel_voice_correction,
+            commands::productivity::export_productivity_config,
+            commands::productivity::import_productivity_config,
+            transcription_coordinator::get_pipeline_state,
             helpers::clamshell::is_laptop,
         ])
         .events(collect_events![
             managers::history::HistoryUpdatePayload,
             managers::transcription::StreamTextEvent,
             managers::transcription::StreamPhaseEvent,
+            transcription_coordinator::PipelineState,
         ]);
 
     #[cfg(debug_assertions)] // <- Only export on non-release builds
@@ -751,8 +793,27 @@ pub fn run(cli_args: CliArgs) {
         cli_args.transcribe_file.is_some() || cli_args.list_devices || cli_args.list_models;
 
     #[allow(unused_mut)]
-    let mut builder = tauri::Builder::default()
-        .device_event_filter(tauri::DeviceEventFilter::Always)
+    let mut builder =
+        tauri::Builder::default().device_event_filter(tauri::DeviceEventFilter::Always);
+
+    // Register single-instance before every other plugin so deep-link launches
+    // are forwarded to the existing process before another plugin consumes them.
+    if !headless_mode {
+        builder = builder.plugin(tauri_plugin_single_instance::init(|app, args, _cwd| {
+            if args.iter().any(|a| a == "--toggle-transcription") {
+                signal_handle::send_transcription_input(app, "transcribe", "CLI");
+            } else if args.iter().any(|a| a == "--toggle-post-process") {
+                signal_handle::send_transcription_input(app, "transcribe_with_post_process", "CLI");
+            } else if args.iter().any(|a| a == "--cancel") {
+                crate::utils::cancel_current_operation(app);
+            } else {
+                show_main_window(app);
+            }
+        }));
+    }
+
+    builder = builder
+        .plugin(tauri_plugin_deep_link::init())
         .plugin(tauri_plugin_dialog::init())
         .plugin(
             LogBuilder::new()
@@ -778,11 +839,11 @@ pub fn run(cli_args: CliArgs) {
                     Target::new(if let Some(data_dir) = portable::data_dir() {
                         TargetKind::Folder {
                             path: data_dir.join("logs"),
-                            file_name: Some("handy".into()),
+                            file_name: Some("pressay".into()),
                         }
                     } else {
                         TargetKind::LogDir {
-                            file_name: Some("handy".into()),
+                            file_name: Some("pressay".into()),
                         }
                     })
                     .filter(|metadata| {
@@ -802,34 +863,21 @@ pub fn run(cli_args: CliArgs) {
                 .build(),
         );
 
-    #[cfg(target_os = "macos")]
+    #[cfg(all(target_os = "macos", feature = "direct"))]
     {
         builder = builder.plugin(tauri_nspanel::init());
     }
 
-    // Single-instance forwards CLI args to an already-running Handy and exits.
-    // That would make the headless path
-    // (--transcribe-file/--list-devices/--list-models) a silent no-op whenever the
-    // app is already open, so skip it in headless mode and run a standalone
-    // instance instead.
-    if !headless_mode {
-        builder = builder.plugin(tauri_plugin_single_instance::init(|app, args, _cwd| {
-            if args.iter().any(|a| a == "--toggle-transcription") {
-                signal_handle::send_transcription_input(app, "transcribe", "CLI");
-            } else if args.iter().any(|a| a == "--toggle-post-process") {
-                signal_handle::send_transcription_input(app, "transcribe_with_post_process", "CLI");
-            } else if args.iter().any(|a| a == "--cancel") {
-                crate::utils::cancel_current_operation(app);
-            } else {
-                show_main_window(app);
-            }
-        }));
+    builder = builder
+        .plugin(tauri_plugin_fs::init())
+        .plugin(tauri_plugin_process::init());
+
+    #[cfg(feature = "updater")]
+    {
+        builder = builder.plugin(tauri_plugin_updater::Builder::new().build());
     }
 
     builder
-        .plugin(tauri_plugin_fs::init())
-        .plugin(tauri_plugin_process::init())
-        .plugin(tauri_plugin_updater::Builder::new().build())
         .plugin(tauri_plugin_os::init())
         .plugin(tauri_plugin_clipboard_manager::init())
         .plugin(tauri_plugin_macos_permissions::init())
@@ -890,7 +938,7 @@ pub fn run(cli_args: CliArgs) {
             // for portable mode (redirects WebView2 cache to portable Data dir)
             let mut win_builder =
                 tauri::WebviewWindowBuilder::new(app, "main", tauri::WebviewUrl::App("/".into()))
-                    .title("Handy")
+                    .title("Pressay")
                     .inner_size(680.0, 570.0)
                     .min_inner_size(680.0, 570.0)
                     .resizable(true)
@@ -928,6 +976,23 @@ pub fn run(cli_args: CliArgs) {
             WEBVIEW_LOG_STREAMING.store(settings.debug_mode, Ordering::Relaxed);
             let app_handle = app.handle().clone();
             app.manage(TranscriptionCoordinator::new(app_handle.clone()));
+            app.manage(productivity::ProductivityRuntime::default());
+            app.manage(cloud::CloudAuthRuntime::default());
+            app.manage(cloud_transcription::CloudTranscriptionRuntime::default());
+
+            // Deep-link payloads can contain one-time credentials. They are
+            // parsed in Rust, never forwarded to the webview and never logged.
+            let deep_link_handle = app_handle.clone();
+            app.deep_link().on_open_url(move |event| {
+                for url in event.urls() {
+                    cloud::handle_deep_link(deep_link_handle.clone(), url);
+                }
+            });
+            if let Ok(Some(urls)) = app.deep_link().get_current() {
+                for url in urls {
+                    cloud::handle_deep_link(app_handle.clone(), url);
+                }
+            }
 
             initialize_core_logic(&app_handle);
 

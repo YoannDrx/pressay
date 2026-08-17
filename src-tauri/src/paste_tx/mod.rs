@@ -1,4 +1,4 @@
-//! Receipt-sequenced clipboard paste ("reliable paste", debug-gated).
+//! Receipt-sequenced clipboard paste.
 //!
 //! The legacy clipboard paste (`clipboard::paste_via_clipboard`) restores the
 //! previous clipboard after a fixed delay. The paste keystroke is only
@@ -36,6 +36,7 @@
 #![cfg_attr(not(any(target_os = "macos", target_os = "windows")), allow(dead_code))]
 
 use std::time::{Duration, Instant};
+use tauri::{Emitter, Manager};
 
 #[cfg(target_os = "macos")]
 mod macos;
@@ -46,6 +47,13 @@ mod windows;
 use macos as platform;
 #[cfg(target_os = "windows")]
 use windows as platform;
+
+pub(crate) struct PasteOptions {
+    pub auto_submit: bool,
+    pub auto_submit_key: crate::settings::AutoSubmitKey,
+    pub clipboard_handling: crate::settings::ClipboardHandling,
+    pub operation_id: u64,
+}
 
 /// How long after the *last* observed read the transcript stays on the
 /// clipboard before restoring. Covers applications that read the clipboard
@@ -185,30 +193,67 @@ pub(crate) fn send_chord(
     }
 }
 
-/// Attempts the receipt-sequenced paste. Returns `Err` before anything has
-/// been published when the platform transaction cannot start, in which case
-/// the caller should fall back to the legacy paste path. On `Ok`, publishing
-/// and chord injection have completed and the guarded restore (plus
-/// auto-submit) finishes asynchronously.
+/// Starts the receipt-sequenced paste. Returns `Err` when the platform
+/// transaction cannot be started; callers must surface the transcript instead
+/// of falling back to a timed clipboard paste. On `Ok`, publishing and chord
+/// injection have completed and the guarded restore (plus auto-submit)
+/// finishes asynchronously.
 #[cfg(any(target_os = "macos", target_os = "windows"))]
 pub(crate) fn try_reliable_paste(
     text: &str,
     app_handle: &tauri::AppHandle,
     paste_method: &crate::settings::PasteMethod,
     enigo: &mut enigo::Enigo,
-    auto_submit: bool,
-    auto_submit_key: crate::settings::AutoSubmitKey,
-    clipboard_handling: crate::settings::ClipboardHandling,
+    options: PasteOptions,
 ) -> Result<(), String> {
-    platform::run(
-        text,
-        app_handle,
-        paste_method,
-        enigo,
-        auto_submit,
-        auto_submit_key,
-        clipboard_handling,
-    )
+    platform::run(text, app_handle, paste_method, enigo, options)
+}
+
+#[derive(Clone, serde::Serialize)]
+struct UnconfirmedPasteEvent {
+    text: String,
+}
+
+pub(crate) fn report_unconfirmed_paste(
+    app_handle: &tauri::AppHandle,
+    operation_id: u64,
+    text: &str,
+) {
+    if let Some(runtime) = app_handle.try_state::<crate::productivity::ProductivityRuntime>() {
+        runtime.discard_staged_correction(operation_id);
+        crate::commands::productivity::emit_correction_status(app_handle);
+    }
+    let _ = app_handle.emit(
+        "paste-error",
+        UnconfirmedPasteEvent {
+            text: text.to_string(),
+        },
+    );
+    if let Some(coordinator) =
+        app_handle.try_state::<crate::transcription_coordinator::TranscriptionCoordinator>()
+    {
+        coordinator.fail(
+            operation_id,
+            crate::transcription_coordinator::PipelinePhase::Pasting,
+            "paste_not_confirmed",
+            true,
+        );
+    }
+}
+
+pub(crate) fn report_confirmed_paste(app_handle: &tauri::AppHandle, operation_id: u64) {
+    if let Some(runtime) = app_handle.try_state::<crate::productivity::ProductivityRuntime>() {
+        runtime.confirm_correction(operation_id);
+        crate::commands::productivity::emit_correction_status(app_handle);
+    }
+    if let Some(coordinator) =
+        app_handle.try_state::<crate::transcription_coordinator::TranscriptionCoordinator>()
+    {
+        coordinator.transition(
+            operation_id,
+            crate::transcription_coordinator::PipelinePhase::Idle,
+        );
+    }
 }
 
 #[cfg(test)]

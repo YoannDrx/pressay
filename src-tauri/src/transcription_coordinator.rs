@@ -1,11 +1,14 @@
 use crate::actions::ACTION_MAP;
 use crate::managers::audio::AudioRecordingManager;
 use log::{debug, error, warn};
+use serde::{Deserialize, Serialize};
+use specta::Type;
 use std::sync::mpsc::{self, Sender};
-use std::sync::Arc;
+use std::sync::{Arc, RwLock};
 use std::thread;
 use std::time::{Duration, Instant};
 use tauri::{AppHandle, Manager};
+use tauri_specta::Event;
 
 const DEBOUNCE: Duration = Duration::from_millis(30);
 const RELEASE_GRACE: Duration = Duration::from_millis(50);
@@ -23,6 +26,59 @@ struct PendingRelease {
     deadline: Instant,
 }
 
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize, Type)]
+#[serde(rename_all = "snake_case")]
+pub enum PipelinePhase {
+    Idle,
+    Recording,
+    Transcribing,
+    Transforming,
+    Pasting,
+    Cancelled,
+    Failed,
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize, Type)]
+pub struct PipelineFailure {
+    pub stage: PipelinePhase,
+    pub code: String,
+    pub recoverable: bool,
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize, Type, tauri_specta::Event)]
+pub struct PipelineState {
+    pub phase: PipelinePhase,
+    pub operation_id: u64,
+    pub binding_id: Option<String>,
+    pub failure: Option<PipelineFailure>,
+}
+
+impl Default for PipelineState {
+    fn default() -> Self {
+        Self {
+            phase: PipelinePhase::Idle,
+            operation_id: 0,
+            binding_id: None,
+            failure: None,
+        }
+    }
+}
+
+impl PipelineState {
+    fn accepts_start(&self) -> bool {
+        matches!(
+            self.phase,
+            PipelinePhase::Idle | PipelinePhase::Cancelled | PipelinePhase::Failed
+        )
+    }
+
+    fn recording_binding(&self) -> Option<&str> {
+        (self.phase == PipelinePhase::Recording)
+            .then_some(self.binding_id.as_deref())
+            .flatten()
+    }
+}
+
 /// Commands processed sequentially by the coordinator thread.
 enum Command {
     Input {
@@ -34,14 +90,14 @@ enum Command {
     Cancel {
         recording_was_active: bool,
     },
-    ProcessingFinished,
-}
-
-/// Pipeline lifecycle, owned exclusively by the coordinator thread.
-enum Stage {
-    Idle,
-    Recording(String), // binding_id
-    Processing,
+    Transition {
+        operation_id: u64,
+        phase: PipelinePhase,
+        failure: Option<PipelineFailure>,
+    },
+    ProcessingFinished {
+        operation_id: u64,
+    },
 }
 
 fn classify_ptt_event(
@@ -73,19 +129,30 @@ fn classify_ptt_event(
 /// the async transcribe-paste pipeline.
 pub struct TranscriptionCoordinator {
     tx: Sender<Command>,
+    state: Arc<RwLock<PipelineState>>,
 }
 
 pub fn is_transcribe_binding(id: &str) -> bool {
     id == "transcribe" || id == "transcribe_with_post_process"
 }
 
+#[tauri::command]
+#[specta::specta]
+pub fn get_pipeline_state(
+    coordinator: tauri::State<'_, TranscriptionCoordinator>,
+) -> PipelineState {
+    coordinator.current_state()
+}
+
 impl TranscriptionCoordinator {
     pub fn new(app: AppHandle) -> Self {
         let (tx, rx) = mpsc::channel();
+        let state = Arc::new(RwLock::new(PipelineState::default()));
+        let shared_state = Arc::clone(&state);
 
         thread::spawn(move || {
             let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-                let mut stage = Stage::Idle;
+                let mut pipeline = PipelineState::default();
                 let mut last_press: Option<Instant> = None;
                 let mut pending_release: Option<PendingRelease> = None;
 
@@ -97,11 +164,13 @@ impl TranscriptionCoordinator {
                             Ok(cmd) => cmd,
                             Err(mpsc::RecvTimeoutError::Timeout) => {
                                 if let Some(pending) = pending_release.take() {
-                                    if matches!(&stage, Stage::Recording(id) if id == &pending.binding_id)
+                                    if pipeline.recording_binding()
+                                        == Some(pending.binding_id.as_str())
                                     {
-                                        stop(
+                                        begin_stop(
                                             &app,
-                                            &mut stage,
+                                            &shared_state,
+                                            &mut pipeline,
                                             &pending.binding_id,
                                             &pending.hotkey_string,
                                         );
@@ -128,10 +197,7 @@ impl TranscriptionCoordinator {
                             let pending_release_binding = pending_release
                                 .as_ref()
                                 .map(|pending| pending.binding_id.as_str());
-                            let recording_binding = match &stage {
-                                Stage::Recording(id) => Some(id.as_str()),
-                                _ => None,
-                            };
+                            let recording_binding = pipeline.recording_binding();
 
                             match classify_ptt_event(
                                 pending_release_binding,
@@ -167,24 +233,45 @@ impl TranscriptionCoordinator {
                             }
 
                             if push_to_talk {
-                                if is_pressed && matches!(stage, Stage::Idle) {
-                                    start(&app, &mut stage, &binding_id, &hotkey_string);
+                                if is_pressed && pipeline.accepts_start() {
+                                    begin_start(
+                                        &app,
+                                        &shared_state,
+                                        &mut pipeline,
+                                        &binding_id,
+                                        &hotkey_string,
+                                    );
                                 } else if !is_pressed
-                                    && matches!(&stage, Stage::Recording(id) if id == &binding_id)
+                                    && pipeline.recording_binding() == Some(binding_id.as_str())
                                 {
-                                    stop(&app, &mut stage, &binding_id, &hotkey_string);
+                                    begin_stop(
+                                        &app,
+                                        &shared_state,
+                                        &mut pipeline,
+                                        &binding_id,
+                                        &hotkey_string,
+                                    );
                                 }
                             } else if is_pressed {
-                                match &stage {
-                                    Stage::Idle => {
-                                        start(&app, &mut stage, &binding_id, &hotkey_string);
-                                    }
-                                    Stage::Recording(id) if id == &binding_id => {
-                                        stop(&app, &mut stage, &binding_id, &hotkey_string);
-                                    }
-                                    _ => {
-                                        debug!("Ignoring press for '{binding_id}': pipeline busy")
-                                    }
+                                if pipeline.accepts_start() {
+                                    begin_start(
+                                        &app,
+                                        &shared_state,
+                                        &mut pipeline,
+                                        &binding_id,
+                                        &hotkey_string,
+                                    );
+                                } else if pipeline.recording_binding() == Some(binding_id.as_str())
+                                {
+                                    begin_stop(
+                                        &app,
+                                        &shared_state,
+                                        &mut pipeline,
+                                        &binding_id,
+                                        &hotkey_string,
+                                    );
+                                } else {
+                                    debug!("Ignoring press for '{binding_id}': pipeline busy")
                                 }
                             }
                         }
@@ -192,15 +279,49 @@ impl TranscriptionCoordinator {
                             recording_was_active,
                         } => {
                             pending_release = None;
-                            // Don't reset during processing — wait for the pipeline to finish.
-                            if !matches!(stage, Stage::Processing)
-                                && (recording_was_active || matches!(stage, Stage::Recording(_)))
+                            if recording_was_active
+                                || !matches!(
+                                    pipeline.phase,
+                                    PipelinePhase::Idle
+                                        | PipelinePhase::Cancelled
+                                        | PipelinePhase::Failed
+                                )
                             {
-                                stage = Stage::Idle;
+                                pipeline.phase = PipelinePhase::Cancelled;
+                                pipeline.failure = None;
+                                publish_state(&app, &shared_state, &pipeline);
                             }
                         }
-                        Command::ProcessingFinished => {
-                            stage = Stage::Idle;
+                        Command::Transition {
+                            operation_id,
+                            phase,
+                            failure,
+                        } => {
+                            if operation_id == pipeline.operation_id
+                                && transition_allowed(pipeline.phase, phase)
+                            {
+                                pipeline.phase = phase;
+                                pipeline.failure = failure;
+                                publish_state(&app, &shared_state, &pipeline);
+                            } else {
+                                debug!(
+                                    "Ignoring stale or invalid pipeline transition: op={} {:?}->{:?}",
+                                    operation_id, pipeline.phase, phase
+                                );
+                            }
+                        }
+                        Command::ProcessingFinished { operation_id } => {
+                            if operation_id == pipeline.operation_id
+                                && !matches!(
+                                    pipeline.phase,
+                                    PipelinePhase::Cancelled | PipelinePhase::Failed
+                                )
+                            {
+                                pipeline.phase = PipelinePhase::Idle;
+                                pipeline.binding_id = None;
+                                pipeline.failure = None;
+                                publish_state(&app, &shared_state, &pipeline);
+                            }
                         }
                     }
                 }
@@ -211,7 +332,7 @@ impl TranscriptionCoordinator {
             }
         });
 
-        Self { tx }
+        Self { tx, state }
     }
 
     /// Send a keyboard/signal input event for a transcribe binding.
@@ -249,36 +370,165 @@ impl TranscriptionCoordinator {
         }
     }
 
-    pub fn notify_processing_finished(&self) {
-        if self.tx.send(Command::ProcessingFinished).is_err() {
+    pub fn current_state(&self) -> PipelineState {
+        self.state
+            .read()
+            .map(|state| state.clone())
+            .unwrap_or_default()
+    }
+
+    pub fn current_operation_id(&self) -> u64 {
+        self.current_state().operation_id
+    }
+
+    pub fn transition(&self, operation_id: u64, phase: PipelinePhase) {
+        if self
+            .tx
+            .send(Command::Transition {
+                operation_id,
+                phase,
+                failure: None,
+            })
+            .is_err()
+        {
+            warn!("Transcription coordinator channel closed");
+        }
+    }
+
+    pub fn fail(
+        &self,
+        operation_id: u64,
+        stage: PipelinePhase,
+        code: impl Into<String>,
+        recoverable: bool,
+    ) {
+        let failure = PipelineFailure {
+            stage,
+            code: code.into(),
+            recoverable,
+        };
+        if self
+            .tx
+            .send(Command::Transition {
+                operation_id,
+                phase: PipelinePhase::Failed,
+                failure: Some(failure),
+            })
+            .is_err()
+        {
+            warn!("Transcription coordinator channel closed");
+        }
+    }
+
+    pub fn notify_processing_finished(&self, operation_id: u64) {
+        if self
+            .tx
+            .send(Command::ProcessingFinished { operation_id })
+            .is_err()
+        {
             warn!("Transcription coordinator channel closed");
         }
     }
 }
 
-fn start(app: &AppHandle, stage: &mut Stage, binding_id: &str, hotkey_string: &str) {
-    let Some(action) = ACTION_MAP.get(binding_id) else {
-        warn!("No action in ACTION_MAP for '{binding_id}'");
-        return;
-    };
-    action.start(app, binding_id, hotkey_string);
-    if app
-        .try_state::<Arc<AudioRecordingManager>>()
-        .is_some_and(|a| a.is_recording())
-    {
-        *stage = Stage::Recording(binding_id.to_string());
-    } else {
-        debug!("Start for '{binding_id}' did not begin recording; staying idle");
+fn publish_state(app: &AppHandle, shared: &RwLock<PipelineState>, state: &PipelineState) {
+    if let Ok(mut snapshot) = shared.write() {
+        *snapshot = state.clone();
+    }
+    if let Err(error) = state.clone().emit(app) {
+        warn!("Failed to emit pipeline state: {error}");
     }
 }
 
-fn stop(app: &AppHandle, stage: &mut Stage, binding_id: &str, hotkey_string: &str) {
+fn transition_allowed(current: PipelinePhase, next: PipelinePhase) -> bool {
+    if current == next {
+        return true;
+    }
+    match current {
+        PipelinePhase::Recording => matches!(
+            next,
+            PipelinePhase::Transcribing | PipelinePhase::Cancelled | PipelinePhase::Failed
+        ),
+        PipelinePhase::Transcribing => matches!(
+            next,
+            PipelinePhase::Transforming
+                | PipelinePhase::Pasting
+                | PipelinePhase::Idle
+                | PipelinePhase::Cancelled
+                | PipelinePhase::Failed
+        ),
+        PipelinePhase::Transforming => matches!(
+            next,
+            PipelinePhase::Pasting
+                | PipelinePhase::Idle
+                | PipelinePhase::Cancelled
+                | PipelinePhase::Failed
+        ),
+        PipelinePhase::Pasting => matches!(
+            next,
+            PipelinePhase::Idle | PipelinePhase::Cancelled | PipelinePhase::Failed
+        ),
+        // A receipt timeout is asynchronous and can arrive after the immediate
+        // paste call completed. It may still fail the same operation while idle;
+        // operation IDs prevent it from affecting a newer dictation.
+        PipelinePhase::Idle => next == PipelinePhase::Failed,
+        PipelinePhase::Cancelled | PipelinePhase::Failed => false,
+    }
+}
+
+fn begin_start(
+    app: &AppHandle,
+    shared: &RwLock<PipelineState>,
+    state: &mut PipelineState,
+    binding_id: &str,
+    hotkey_string: &str,
+) {
+    state.operation_id = state.operation_id.saturating_add(1);
+    state.phase = PipelinePhase::Recording;
+    state.binding_id = Some(binding_id.to_string());
+    state.failure = None;
+    publish_state(app, shared, state);
+
+    let Some(action) = ACTION_MAP.get(binding_id) else {
+        warn!("No action in ACTION_MAP for '{binding_id}'");
+        state.phase = PipelinePhase::Failed;
+        state.failure = Some(PipelineFailure {
+            stage: PipelinePhase::Recording,
+            code: "unknown_binding".to_string(),
+            recoverable: true,
+        });
+        publish_state(app, shared, state);
+        return;
+    };
+    action.start(app, binding_id, hotkey_string);
+    if !app
+        .try_state::<Arc<AudioRecordingManager>>()
+        .is_some_and(|a| a.is_recording())
+    {
+        state.phase = PipelinePhase::Failed;
+        state.failure = Some(PipelineFailure {
+            stage: PipelinePhase::Recording,
+            code: "recording_start_failed".to_string(),
+            recoverable: true,
+        });
+        publish_state(app, shared, state);
+    }
+}
+
+fn begin_stop(
+    app: &AppHandle,
+    shared: &RwLock<PipelineState>,
+    state: &mut PipelineState,
+    binding_id: &str,
+    hotkey_string: &str,
+) {
     let Some(action) = ACTION_MAP.get(binding_id) else {
         warn!("No action in ACTION_MAP for '{binding_id}'");
         return;
     };
+    state.phase = PipelinePhase::Transcribing;
+    publish_state(app, shared, state);
     action.stop(app, binding_id, hotkey_string);
-    *stage = Stage::Processing;
 }
 
 #[cfg(test)]
@@ -345,6 +595,58 @@ mod tests {
             classify_ptt_event(Some("transcribe"), true, true, "transcribe", None),
             PttAction::CancelRelease
         );
+    }
+
+    #[test]
+    fn pipeline_accepts_only_ordered_forward_transitions() {
+        assert!(transition_allowed(
+            PipelinePhase::Recording,
+            PipelinePhase::Transcribing
+        ));
+        assert!(transition_allowed(
+            PipelinePhase::Transcribing,
+            PipelinePhase::Transforming
+        ));
+        assert!(transition_allowed(
+            PipelinePhase::Transforming,
+            PipelinePhase::Pasting
+        ));
+        assert!(transition_allowed(
+            PipelinePhase::Pasting,
+            PipelinePhase::Idle
+        ));
+        assert!(!transition_allowed(
+            PipelinePhase::Pasting,
+            PipelinePhase::Recording
+        ));
+        assert!(!transition_allowed(
+            PipelinePhase::Idle,
+            PipelinePhase::Pasting
+        ));
+        assert!(transition_allowed(
+            PipelinePhase::Idle,
+            PipelinePhase::Failed
+        ));
+    }
+
+    #[test]
+    fn failed_and_cancelled_states_allow_a_fresh_operation() {
+        for phase in [
+            PipelinePhase::Idle,
+            PipelinePhase::Failed,
+            PipelinePhase::Cancelled,
+        ] {
+            let state = PipelineState {
+                phase,
+                ..PipelineState::default()
+            };
+            assert!(state.accepts_start());
+        }
+        let busy = PipelineState {
+            phase: PipelinePhase::Transforming,
+            ..PipelineState::default()
+        };
+        assert!(!busy.accepts_start());
     }
 
     // ---------------------------------------------------------------------

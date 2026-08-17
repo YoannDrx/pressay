@@ -1,4 +1,5 @@
 use crate::input::{self, EnigoState};
+use crate::productivity::OutputBehavior;
 #[cfg(target_os = "linux")]
 use crate::settings::TypingTool;
 use crate::settings::{get_settings, AutoSubmitKey, ClipboardHandling, PasteMethod};
@@ -41,6 +42,7 @@ fn write_text_to_clipboard(app_handle: &AppHandle, text: &str) -> Result<(), Str
         .map_err(|e| format!("Failed to write to clipboard: {}", e))
 }
 
+#[cfg(any(test, not(any(target_os = "macos", target_os = "windows"))))]
 fn finish_clipboard_paste(
     paste_result: Result<(), String>,
     paste_delay_after_ms: u64,
@@ -52,6 +54,7 @@ fn finish_clipboard_paste(
 }
 
 /// Pastes text using the clipboard: saves current content, writes text, sends paste keystroke, restores clipboard.
+#[cfg(not(any(target_os = "macos", target_os = "windows")))]
 fn paste_via_clipboard(
     text: &str,
     app_handle: &AppHandle,
@@ -721,7 +724,13 @@ fn should_send_auto_submit(auto_submit: bool, paste_method: PasteMethod) -> bool
     auto_submit && paste_method != PasteMethod::None
 }
 
-pub fn paste(text: String, app_handle: AppHandle) -> Result<(), String> {
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PasteDispatch {
+    Completed,
+    AwaitingReceipt,
+}
+
+pub fn paste(text: String, app_handle: AppHandle) -> Result<PasteDispatch, String> {
     let settings = get_settings(&app_handle);
     let paste_method = settings.paste_method;
     let paste_delay_ms = settings.paste_delay_ms;
@@ -753,38 +762,40 @@ pub fn paste(text: String, app_handle: AppHandle) -> Result<(), String> {
             )?;
         }
         PasteMethod::CtrlV | PasteMethod::CtrlShiftV | PasteMethod::ShiftInsert => {
-            // Debug-gated receipt-sequenced paste (#502): restore the clipboard
-            // after the target actually reads the transcript, not on a timer.
-            // On success it fully handles the paste (including auto-submit and
-            // clipboard handling) asynchronously; on failure fall through to
-            // the legacy path untouched.
+            // Receipt-sequenced paste is the only clipboard path on supported
+            // desktop builds. Falling back to a fixed restoration delay can
+            // make a slow target read the previous clipboard value (#502).
             #[cfg(any(target_os = "macos", target_os = "windows"))]
-            if settings.reliable_paste {
-                let reliable_result = with_enigo(&app_handle, |enigo| {
+            {
+                with_enigo(&app_handle, |enigo| {
                     crate::paste_tx::try_reliable_paste(
                         &text,
                         &app_handle,
                         &paste_method,
                         enigo,
-                        settings.auto_submit,
-                        settings.auto_submit_key,
-                        settings.clipboard_handling,
+                        crate::paste_tx::PasteOptions {
+                            auto_submit: settings.auto_submit,
+                            auto_submit_key: settings.auto_submit_key,
+                            clipboard_handling: settings.clipboard_handling,
+                            operation_id: app_handle
+                                .try_state::<crate::TranscriptionCoordinator>()
+                                .map(|coordinator| coordinator.current_operation_id())
+                                .unwrap_or(0),
+                        },
                     )
-                });
-                match reliable_result {
-                    Ok(()) => return Ok(()),
-                    Err(e) => {
-                        log::warn!("Reliable paste unavailable ({e}); falling back to legacy paste")
-                    }
-                }
+                })?;
+                return Ok(PasteDispatch::AwaitingReceipt);
             }
-            paste_via_clipboard(
-                &text,
-                &app_handle,
-                &paste_method,
-                paste_delay_ms,
-                paste_delay_after_ms,
-            )?
+            #[cfg(not(any(target_os = "macos", target_os = "windows")))]
+            {
+                paste_via_clipboard(
+                    &text,
+                    &app_handle,
+                    &paste_method,
+                    paste_delay_ms,
+                    paste_delay_after_ms,
+                )?
+            }
         }
         PasteMethod::ExternalScript => {
             let script_path = settings
@@ -810,7 +821,52 @@ pub fn paste(text: String, app_handle: AppHandle) -> Result<(), String> {
         write_text_to_clipboard(&app_handle, &text)?;
     }
 
-    Ok(())
+    Ok(PasteDispatch::Completed)
+}
+
+pub fn deliver(
+    text: String,
+    app_handle: AppHandle,
+    behavior: OutputBehavior,
+) -> Result<PasteDispatch, String> {
+    match behavior {
+        OutputBehavior::Paste => paste(text, app_handle),
+        OutputBehavior::Copy => {
+            write_text_to_clipboard(&app_handle, &text)?;
+            Ok(PasteDispatch::Completed)
+        }
+        OutputBehavior::Type => {
+            let settings = get_settings(&app_handle);
+            let text = if settings.append_trailing_space {
+                format!("{text} ")
+            } else {
+                text
+            };
+            paste_direct(
+                &text,
+                &app_handle,
+                #[cfg(target_os = "linux")]
+                settings.typing_tool,
+            )?;
+            if settings.auto_submit {
+                std::thread::sleep(Duration::from_millis(50));
+                if let Err(error) = with_enigo(&app_handle, |enigo| {
+                    send_return_key(enigo, settings.auto_submit_key)
+                }) {
+                    log::warn!("Direct typing succeeded, but auto-submit failed: {error}");
+                }
+            }
+            Ok(PasteDispatch::Completed)
+        }
+    }
+}
+
+pub fn undo_last_insertion(app_handle: &AppHandle) -> Result<(), String> {
+    with_enigo(app_handle, input::send_undo)
+}
+
+pub fn redo_last_insertion(app_handle: &AppHandle) -> Result<(), String> {
+    with_enigo(app_handle, input::send_redo)
 }
 
 #[cfg(test)]

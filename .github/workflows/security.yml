@@ -1,0 +1,44 @@
+name: "security"
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  schedule:
+    - cron: "17 5 * * 1"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pull-requests: read
+
+jobs:
+  dependency-audit:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version-file: ".bun-version"
+      - uses: dtolnay/rust-toolchain@stable
+      - run: bun install --frozen-lockfile
+      - name: Audit JavaScript dependencies
+        run: bun audit --json
+      - name: Install cargo-audit
+        uses: taiki-e/install-action@cargo-audit
+      - name: Audit Rust dependencies
+        working-directory: src-tauri
+        # rust_decimal declares vulnerable rkyv 0.7 as an optional dependency,
+        # but no enabled Pressay feature selects it (`cargo tree -i rkyv` is
+        # empty). Keep this narrow exception visible until its upstream moves.
+        run: cargo audit --ignore RUSTSEC-2026-0235
+
+  secret-scan:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+      - uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

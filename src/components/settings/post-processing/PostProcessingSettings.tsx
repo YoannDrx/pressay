@@ -85,12 +85,24 @@ const PostProcessingSettingsApiComponent: React.FC = () => {
               <ApiKeyField
                 value={state.apiKey}
                 onBlur={state.handleApiKeyChange}
-                placeholder={t(
-                  "settings.postProcessing.api.apiKey.placeholder",
-                )}
+                placeholder={
+                  state.apiKeyConfigured
+                    ? "••••••••"
+                    : t("settings.postProcessing.api.apiKey.placeholder")
+                }
                 disabled={state.isApiKeyUpdating}
                 className="min-w-[320px]"
               />
+              {state.apiKeyConfigured && (
+                <Button
+                  variant="danger-ghost"
+                  size="sm"
+                  onClick={state.handleApiKeyRemove}
+                  disabled={state.isApiKeyUpdating}
+                >
+                  {t("common.delete")}
+                </Button>
+              )}
             </div>
           </SettingContainer>
         </>

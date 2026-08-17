@@ -1,4 +1,91 @@
 {
+  "cloud": {
+    "title": "Pressay Cloud",
+    "description": "Connect only for optional Cloud transformations, sync and Pro access.",
+    "privacy": "Local dictation stays available without an account. Pressay Cloud sends content only when you explicitly choose a Cloud mode.",
+    "status": {
+      "connected": "Connected",
+      "disconnected": "Connect your account",
+      "offline": "Offline — verified local entitlement"
+    },
+    "tier": {
+      "free": "Free plan",
+      "pro": "Pro plan"
+    },
+    "email": {
+      "label": "Email",
+      "placeholder": "you@example.com",
+      "send": "Send link",
+      "sent": "Check your inbox to continue."
+    },
+    "providers": {
+      "or": "or",
+      "google": "Continue with Google",
+      "apple": "Continue with Apple",
+      "unavailable": "Cloud sign-in is not enabled on this environment yet."
+    },
+    "actions": {
+      "loading": "Checking Cloud availability…",
+      "refresh": "Refresh",
+      "disconnect": "Disconnect",
+      "delete": "Delete account",
+      "confirmDelete": "Delete your Pressay Cloud account and synced settings? This cannot be undone."
+    },
+    "sync": {
+      "title": "Encrypted sync",
+      "ready": "Sync keys are ready",
+      "pending": "Waiting for approval from another Mac",
+      "notConfigured": "Encrypted sync is not configured",
+      "privacy": "Only modes, profiles, dictionary and allowed preferences are end-to-end encrypted. Dictations, audio, history and API keys never sync.",
+      "enable": "Set up",
+      "syncNow": "Sync now",
+      "approve": "Approve",
+      "current": "this Mac",
+      "approvedStatus": "Approved",
+      "updated": "Encrypted sync was updated.",
+      "approved": "The Mac was approved.",
+      "error": "Encrypted sync could not be updated.",
+      "recovery": {
+        "title": "Recovery code",
+        "description": "Create a one-time backup code for adding a Mac when no approved device is available. A new code invalidates the previous one.",
+        "create": "Create code",
+        "confirmRotate": "Create a new recovery code? Any previous recovery code will stop working.",
+        "created": "A new recovery code was created.",
+        "useDescription": "If you cannot approve this Mac from another device, enter the recovery code you saved earlier.",
+        "placeholder": "PRS1. ...",
+        "use": "Recover sync",
+        "saveNow": "Save this code now. Pressay cannot show it again.",
+        "copy": "Copy code",
+        "copied": "Recovery code copied. Remove it from the clipboard after saving it.",
+        "copyError": "The recovery code could not be copied.",
+        "done": "Done",
+        "recovered": "Encrypted sync was recovered on this Mac.",
+        "invalid": "The recovery code is invalid, expired or already used.",
+        "error": "A recovery code could not be created."
+      }
+    },
+    "usage": {
+      "title": "Monthly usage",
+      "transformations": "Transformations",
+      "transcription": "Cloud transcription",
+      "minutes": "{{used}} / {{limit}} min"
+    },
+    "transcription": {
+      "availableTitle": "Local transcription failed",
+      "availableDescription": "Send this {{seconds}}-second recording to Pressay Cloud? The audio stays in memory for two minutes and is sent only if you choose this action.",
+      "send": "Use Cloud",
+      "ready": "Cloud transcription is ready",
+      "readyDescription": "Review the result before copying it.",
+      "error": "Cloud transcription could not be completed. No text was inserted."
+    },
+    "errors": {
+      "load": "Cloud account status could not be loaded.",
+      "auth": "Cloud sign-in could not be completed.",
+      "start": "Cloud sign-in could not be started.",
+      "disconnect": "The account could not be disconnected.",
+      "delete": "The account could not be deleted."
+    }
+  },
   "tray": {
     "settings": "Impostazioni...",
     "checkUpdates": "Verifica aggiornamenti...",
@@ -10,6 +97,8 @@
     "secureInputWarning": "⚠ Scorciatoie bloccate da Secure Input"
   },
   "sidebar": {
+    "account": "Account",
+    "home": "Home",
     "general": "Generale",
     "models": "Modelli",
     "advanced": "Avanzate",
@@ -94,6 +183,18 @@
       "cohere-int8": {
         "name": "Cohere",
         "description": "Un modello grande, più lento, ma molto accurato e multilingue."
+      },
+      "pressay/parakeet-v3": {
+        "name": "Parakeet V3",
+        "description": "Fast local transcription for French and 24 other European languages."
+      },
+      "pressay/whisper-small": {
+        "name": "Whisper Small",
+        "description": "Polyglot local transcription across 99 languages, with translation to English."
+      },
+      "pressay/whisper-large": {
+        "name": "Whisper Large v3",
+        "description": "The most accurate Pressay preset for capable Apple Silicon Macs."
       }
     },
     "errors": {
@@ -101,7 +202,7 @@
     },
     "permissions": {
       "title": "Permessi Richiesti",
-      "description": "Handy ha bisogno di alcuni permessi per funzionare correttamente.",
+      "description": "Pressay ha bisogno di alcuni permessi per funzionare correttamente.",
       "microphone": {
         "title": "Accesso al Microfono",
         "description": "Necessario per sentire la tua voce per la trascrizione."
@@ -152,7 +253,12 @@
     },
     "cancel": "Annulla",
     "cancelDownload": "Annulla download",
-    "legacy": "Obsoleto"
+    "legacy": "Obsoleto",
+    "presets": {
+      "fast": "Fast",
+      "polyglot": "Polyglot",
+      "precise": "Precise"
+    }
   },
   "settings": {
     "modelSettings": {
@@ -175,13 +281,13 @@
       "searchPlaceholder": "Cerca modelli per nome…",
       "rescan": {
         "label": "Riscansiona",
-        "tooltip": "Riscansiona per trovare modelli aggiunti alla cartella dei modelli o alla cache di Hugging Face al di fuori di Handy"
+        "tooltip": "Rescan models added to the Pressay models folder"
       }
     },
     "general": {
       "title": "Generale",
       "shortcut": {
-        "title": "Scorciatoie di Handy",
+        "title": "Scorciatoie di Pressay",
         "description": "Configura le scorciatoie per attivare la trascrizione vocale",
         "loading": "Caricamento delle scorciatoie...",
         "none": "Nessuna scorciatoia configurata",
@@ -283,11 +389,11 @@
       },
       "autostart": {
         "label": "Avvia all'Accensione",
-        "description": "Avvia Handy automaticamente quando accedi al computer."
+        "description": "Avvia Pressay automaticamente quando accedi al computer."
       },
       "showTrayIcon": {
         "label": "Mostra icona nella barra di sistema",
-        "description": "Mostra l'icona di Handy nella barra di sistema."
+        "description": "Mostra l'icona di Pressay nella barra di sistema."
       },
       "overlay": {
         "style": {
@@ -474,7 +580,7 @@
       },
       "updateChecks": {
         "label": "Controlla aggiornamenti",
-        "description": "Controlla automaticamente la disponibilità di nuove versioni di Handy"
+        "description": "Controlla automaticamente la disponibilità di nuove versioni di Pressay"
       },
       "soundTheme": {
         "label": "Tema Sonoro",
@@ -547,7 +653,7 @@
       },
       "keyboardDiagnostic": {
         "title": "Diagnostica tastiera",
-        "description": "Verifica se gli eventi della tastiera arrivano a Handy. Viene registrato solo il numero di eventi, mai quali tasti premi.",
+        "description": "Verifica se gli eventi della tastiera arrivano a Pressay. Viene registrato solo il numero di eventi, mai quali tasti premi.",
         "run": "Esegui diagnostica di 10 s",
         "running": "In ascolto… premi la tua scorciatoia alcune volte (ad es. Option+Space)",
         "secureInputLabel": "Secure Input",
@@ -561,7 +667,7 @@
         "mouse": "Mouse",
         "verdictBlocked": "Secure Input sta bloccando gli eventi dei tasti: le scorciatoie che includono un tasto normale non possono funzionare finché non viene risolto.",
         "verdictSuspicious": "Sono arrivati eventi dei modificatori ma nessun evento dei tasti: qualcosa sta sopprimendo i tasti anche se Secure Input risulta disabilitato. Segnalalo su GitHub.",
-        "verdictOk": "Gli eventi dei tasti arrivano a Handy normalmente.",
+        "verdictOk": "Gli eventi dei tasti arrivano a Pressay normalmente.",
         "verdictNoEvents": "Nessun evento rilevato: hai premuto qualche tasto durante il test?",
         "failed": "Diagnostica non riuscita: {{error}}"
       },
@@ -577,20 +683,20 @@
       "title": "Informazioni",
       "version": {
         "title": "Versione",
-        "description": "Versione attuale di Handy"
+        "description": "Versione attuale di Pressay"
       },
       "appDataDirectory": {
         "title": "Cartella Dati App",
-        "description": "Cartella in cui Handy salva i dati"
+        "description": "Cartella in cui Pressay salva i dati"
       },
       "sourceCode": {
         "title": "Codice Sorgente",
         "description": "Vedi e contribuisci al codice sorgente",
-        "button": "Vedi su GitHub"
+        "license": "MIT"
       },
       "supportDevelopment": {
         "title": "Supporta lo Sviluppo",
-        "description": "Aiutaci a sviluppare Handy",
+        "description": "Aiutaci a sviluppare Pressay",
         "button": "Dona"
       },
       "acknowledgments": {
@@ -598,12 +704,17 @@
         "ggml": {
           "title": "ggml",
           "description": "Inferenza ad alte prestazioni del modello di riconoscimento vocale automatico Whisper di OpenAI",
-          "details": "Handy usa ggml per il riconoscimento vocale veloce in locale. Grazie a Georgi Gerganov e collaboratori per il fantastico lavoro."
+          "details": "Pressay usa ggml per il riconoscimento vocale veloce in locale. Grazie a Georgi Gerganov e collaboratori per il fantastico lavoro."
+        },
+        "models": {
+          "title": "Local models",
+          "description": "Attribution and licences for the Pressay presets",
+          "details": "Parakeet TDT 0.6B v3 © NVIDIA, licensed under CC BY 4.0. Whisper Small and Whisper Large v3 © OpenAI, model weights and code licensed under MIT."
         }
       },
       "whatsNewUpdates": {
         "label": "Mostra novità",
-        "description": "Mostra le note di rilascio dopo gli aggiornamenti di Handy"
+        "description": "Mostra le note di rilascio dopo gli aggiornamenti di Pressay"
       }
     }
   },
@@ -632,7 +743,7 @@
     "noOptionsFound": "Nessuna opzione trovata"
   },
   "accessibility": {
-    "permissionsDescription": "Handy ha bisogno dei permessi di accessibilità per digitare il testo trascritto.",
+    "permissionsDescription": "Pressay ha bisogno dei permessi di accessibilità per digitare il testo trascritto.",
     "openSettings": "Apri Impostazioni di Sistema"
   },
   "errors": {
@@ -646,6 +757,8 @@
     },
     "noInputDeviceTitle": "Nessun microfono trovato",
     "noInputDevice": "Non è stato rilevato alcun dispositivo di ingresso audio. Collega un microfono o delle cuffie e riprova.",
+    "silentInputTitle": "Nessun audio rilevato",
+    "silentInput": "Controlla il microfono o il dispositivo di ingresso selezionato e riprova.",
     "recordingFailed": "Impossibile avviare la registrazione: {{error}}",
     "modelLoadFailed": "Impossibile caricare il modello: {{model}}",
     "modelLoadFailedUnknown": "modello sconosciuto",
@@ -655,11 +768,11 @@
   },
   "appLanguage": {
     "title": "Lingua Applicazione",
-    "description": "Cambia la lingua dell'interfaccia di Handy"
+    "description": "Cambia la lingua dell'interfaccia di Pressay"
   },
   "theme": {
     "title": "Tema dell'applicazione",
-    "description": "Scegli se Handy segue il tema di sistema o resta chiaro o scuro",
+    "description": "Scegli se Pressay segue il tema di sistema o resta chiaro o scuro",
     "options": {
       "system": "Sistema",
       "light": "Chiaro",
@@ -671,7 +784,7 @@
     "processing": "Elaborazione..."
   },
   "whatsNew": {
-    "title": "Novità in Handy v{{version}}"
+    "title": "Novità in Pressay v{{version}}"
   },
   "secureInput": {
     "blockedWithCulprit_one": "{{name}} potrebbe bloccare 1 scorciatoia",

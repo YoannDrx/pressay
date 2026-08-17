@@ -1,4 +1,91 @@
 {
+  "cloud": {
+    "title": "Pressay Cloud",
+    "description": "Connect only for optional Cloud transformations, sync and Pro access.",
+    "privacy": "Local dictation stays available without an account. Pressay Cloud sends content only when you explicitly choose a Cloud mode.",
+    "status": {
+      "connected": "Connected",
+      "disconnected": "Connect your account",
+      "offline": "Offline — verified local entitlement"
+    },
+    "tier": {
+      "free": "Free plan",
+      "pro": "Pro plan"
+    },
+    "email": {
+      "label": "Email",
+      "placeholder": "you@example.com",
+      "send": "Send link",
+      "sent": "Check your inbox to continue."
+    },
+    "providers": {
+      "or": "or",
+      "google": "Continue with Google",
+      "apple": "Continue with Apple",
+      "unavailable": "Cloud sign-in is not enabled on this environment yet."
+    },
+    "actions": {
+      "loading": "Checking Cloud availability…",
+      "refresh": "Refresh",
+      "disconnect": "Disconnect",
+      "delete": "Delete account",
+      "confirmDelete": "Delete your Pressay Cloud account and synced settings? This cannot be undone."
+    },
+    "sync": {
+      "title": "Encrypted sync",
+      "ready": "Sync keys are ready",
+      "pending": "Waiting for approval from another Mac",
+      "notConfigured": "Encrypted sync is not configured",
+      "privacy": "Only modes, profiles, dictionary and allowed preferences are end-to-end encrypted. Dictations, audio, history and API keys never sync.",
+      "enable": "Set up",
+      "syncNow": "Sync now",
+      "approve": "Approve",
+      "current": "this Mac",
+      "approvedStatus": "Approved",
+      "updated": "Encrypted sync was updated.",
+      "approved": "The Mac was approved.",
+      "error": "Encrypted sync could not be updated.",
+      "recovery": {
+        "title": "Recovery code",
+        "description": "Create a one-time backup code for adding a Mac when no approved device is available. A new code invalidates the previous one.",
+        "create": "Create code",
+        "confirmRotate": "Create a new recovery code? Any previous recovery code will stop working.",
+        "created": "A new recovery code was created.",
+        "useDescription": "If you cannot approve this Mac from another device, enter the recovery code you saved earlier.",
+        "placeholder": "PRS1. ...",
+        "use": "Recover sync",
+        "saveNow": "Save this code now. Pressay cannot show it again.",
+        "copy": "Copy code",
+        "copied": "Recovery code copied. Remove it from the clipboard after saving it.",
+        "copyError": "The recovery code could not be copied.",
+        "done": "Done",
+        "recovered": "Encrypted sync was recovered on this Mac.",
+        "invalid": "The recovery code is invalid, expired or already used.",
+        "error": "A recovery code could not be created."
+      }
+    },
+    "usage": {
+      "title": "Monthly usage",
+      "transformations": "Transformations",
+      "transcription": "Cloud transcription",
+      "minutes": "{{used}} / {{limit}} min"
+    },
+    "transcription": {
+      "availableTitle": "Local transcription failed",
+      "availableDescription": "Send this {{seconds}}-second recording to Pressay Cloud? The audio stays in memory for two minutes and is sent only if you choose this action.",
+      "send": "Use Cloud",
+      "ready": "Cloud transcription is ready",
+      "readyDescription": "Review the result before copying it.",
+      "error": "Cloud transcription could not be completed. No text was inserted."
+    },
+    "errors": {
+      "load": "Cloud account status could not be loaded.",
+      "auth": "Cloud sign-in could not be completed.",
+      "start": "Cloud sign-in could not be started.",
+      "disconnect": "The account could not be disconnected.",
+      "delete": "The account could not be deleted."
+    }
+  },
   "tray": {
     "settings": "設定…",
     "checkUpdates": "アップデートを確認…",
@@ -10,6 +97,8 @@
     "secureInputWarning": "⚠ Secure Input でショートカットがブロック中"
   },
   "sidebar": {
+    "account": "Account",
+    "home": "Home",
     "general": "一般",
     "models": "モデル",
     "advanced": "詳細設定",
@@ -94,6 +183,18 @@
       "cohere-int8": {
         "name": "Cohere",
         "description": "大型で低速ですが、非常に高精度な多言語モデル。"
+      },
+      "pressay/parakeet-v3": {
+        "name": "Parakeet V3",
+        "description": "Fast local transcription for French and 24 other European languages."
+      },
+      "pressay/whisper-small": {
+        "name": "Whisper Small",
+        "description": "Polyglot local transcription across 99 languages, with translation to English."
+      },
+      "pressay/whisper-large": {
+        "name": "Whisper Large v3",
+        "description": "The most accurate Pressay preset for capable Apple Silicon Macs."
       }
     },
     "errors": {
@@ -101,7 +202,7 @@
     },
     "permissions": {
       "title": "権限が必要です",
-      "description": "Handy が正常に動作するにはいくつかの権限が必要です。",
+      "description": "Pressay が正常に動作するにはいくつかの権限が必要です。",
       "microphone": {
         "title": "マイクへのアクセス",
         "description": "文字起こしのためにあなたの声を聞くために必要です。"
@@ -152,7 +253,12 @@
     },
     "cancel": "キャンセル",
     "cancelDownload": "ダウンロードをキャンセル",
-    "legacy": "旧式"
+    "legacy": "旧式",
+    "presets": {
+      "fast": "Fast",
+      "polyglot": "Polyglot",
+      "precise": "Precise"
+    }
   },
   "settings": {
     "modelSettings": {
@@ -175,13 +281,13 @@
       "searchPlaceholder": "モデルを名前で検索…",
       "rescan": {
         "label": "再スキャン",
-        "tooltip": "Handy を使わずに models フォルダーまたは Hugging Face キャッシュに追加されたモデルを再スキャンします"
+        "tooltip": "Rescan models added to the Pressay models folder"
       }
     },
     "general": {
       "title": "一般",
       "shortcut": {
-        "title": "Handy ショートカット",
+        "title": "Pressay ショートカット",
         "description": "音声録音を開始するキーボードショートカットを設定",
         "loading": "ショートカットを読み込み中…",
         "none": "ショートカットが設定されていません",
@@ -283,11 +389,11 @@
       },
       "autostart": {
         "label": "起動時に実行",
-        "description": "コンピューターにログインしたときに Handy を自動的に起動。"
+        "description": "コンピューターにログインしたときに Pressay を自動的に起動。"
       },
       "showTrayIcon": {
         "label": "トレイアイコンを表示",
-        "description": "システムトレイに Handy のアイコンを表示します。"
+        "description": "システムトレイに Pressay のアイコンを表示します。"
       },
       "overlay": {
         "style": {
@@ -474,7 +580,7 @@
       },
       "updateChecks": {
         "label": "アップデートを確認",
-        "description": "Handy の新しいバージョンを自動的にチェック"
+        "description": "Pressay の新しいバージョンを自動的にチェック"
       },
       "soundTheme": {
         "label": "サウンドテーマ",
@@ -547,7 +653,7 @@
       },
       "keyboardDiagnostic": {
         "title": "キーボード診断",
-        "description": "キーボードイベントが Handy に届いているかを確認します。記録されるのはイベント数のみで、押したキーの内容は記録されません。",
+        "description": "キーボードイベントが Pressay に届いているかを確認します。記録されるのはイベント数のみで、押したキーの内容は記録されません。",
         "run": "10 秒間の診断を実行",
         "running": "待機中… ショートカットを数回押してください (例: Option+Space)",
         "secureInputLabel": "Secure Input",
@@ -561,7 +667,7 @@
         "mouse": "マウス",
         "verdictBlocked": "Secure Input がキーイベントをブロックしています。解消されるまで、通常キーを含むショートカットは動作しません。",
         "verdictSuspicious": "修飾キーのイベントは届いていますが、キーイベントは届いていません。Secure Input は無効と報告されているのに、何かがキーを抑制しています。GitHub で報告してください。",
-        "verdictOk": "キーイベントは Handy に正常に届いています。",
+        "verdictOk": "キーイベントは Pressay に正常に届いています。",
         "verdictNoEvents": "イベントを検出できませんでした。テスト中にキーを押しましたか？",
         "failed": "診断に失敗しました: {{error}}"
       },
@@ -577,20 +683,20 @@
       "title": "概要",
       "version": {
         "title": "バージョン",
-        "description": "Handy の現在のバージョン"
+        "description": "Pressay の現在のバージョン"
       },
       "appDataDirectory": {
         "title": "アプリデータディレクトリ",
-        "description": "Handy がデータを保存する場所"
+        "description": "Pressay がデータを保存する場所"
       },
       "sourceCode": {
         "title": "ソースコード",
         "description": "ソースコードを見て貢献する",
-        "button": "GitHub で見る"
+        "license": "MIT"
       },
       "supportDevelopment": {
         "title": "開発を支援",
-        "description": "Handy の開発を支援してください",
+        "description": "Pressay の開発を支援してください",
         "button": "寄付する"
       },
       "acknowledgments": {
@@ -598,12 +704,17 @@
         "ggml": {
           "title": "ggml",
           "description": "オンデバイス機械学習推論のための高性能テンソルライブラリ",
-          "details": "Handy のローカルの音声からテキストへの文字起こしは transcribe.cpp と ggml を基盤としています。Georgi Gerganov 氏と貢献者の皆様の素晴らしい仕事に感謝します。"
+          "details": "Pressay のローカルの音声からテキストへの文字起こしは transcribe.cpp と ggml を基盤としています。Georgi Gerganov 氏と貢献者の皆様の素晴らしい仕事に感謝します。"
+        },
+        "models": {
+          "title": "Local models",
+          "description": "Attribution and licences for the Pressay presets",
+          "details": "Parakeet TDT 0.6B v3 © NVIDIA, licensed under CC BY 4.0. Whisper Small and Whisper Large v3 © OpenAI, model weights and code licensed under MIT."
         }
       },
       "whatsNewUpdates": {
         "label": "新機能を表示",
-        "description": "Handy のアップデート後にリリースノートを表示"
+        "description": "Pressay のアップデート後にリリースノートを表示"
       }
     }
   },
@@ -632,7 +743,7 @@
     "noOptionsFound": "オプションが見つかりません"
   },
   "accessibility": {
-    "permissionsDescription": "Handy が文字起こしテキストを入力するには、アクセシビリティ権限が必要です。",
+    "permissionsDescription": "Pressay が文字起こしテキストを入力するには、アクセシビリティ権限が必要です。",
     "openSettings": "システム設定を開く"
   },
   "errors": {
@@ -646,6 +757,8 @@
     },
     "noInputDeviceTitle": "マイクが見つかりません",
     "noInputDevice": "オーディオ入力デバイスが検出されませんでした。マイクまたはヘッドセットを接続してから再試行してください。",
+    "silentInputTitle": "音声が検出されませんでした",
+    "silentInput": "選択したマイクまたは入力デバイスを確認して、もう一度お試しください。",
     "recordingFailed": "録音の開始に失敗しました: {{error}}",
     "modelLoadFailed": "モデルの読み込みに失敗しました: {{model}}",
     "modelLoadFailedUnknown": "不明なモデル",
@@ -655,11 +768,11 @@
   },
   "appLanguage": {
     "title": "アプリの言語",
-    "description": "Handy インターフェースの言語を変更"
+    "description": "Pressay インターフェースの言語を変更"
   },
   "theme": {
     "title": "アプリのテーマ",
-    "description": "Handy をシステムのテーマに合わせるか、ライトまたはダークで固定するかを選択します",
+    "description": "Pressay をシステムのテーマに合わせるか、ライトまたはダークで固定するかを選択します",
     "options": {
       "system": "システム",
       "light": "ライト",
@@ -671,7 +784,7 @@
     "processing": "処理中…"
   },
   "whatsNew": {
-    "title": "Handy v{{version}} の新機能"
+    "title": "Pressay v{{version}} の新機能"
   },
   "secureInput": {
     "blockedWithCulprit_one": "{{name}} が1個のショートカットをブロックしている可能性があります",

@@ -1,4 +1,91 @@
 {
+  "cloud": {
+    "title": "Pressay Cloud",
+    "description": "Connect only for optional Cloud transformations, sync and Pro access.",
+    "privacy": "Local dictation stays available without an account. Pressay Cloud sends content only when you explicitly choose a Cloud mode.",
+    "status": {
+      "connected": "Connected",
+      "disconnected": "Connect your account",
+      "offline": "Offline — verified local entitlement"
+    },
+    "tier": {
+      "free": "Free plan",
+      "pro": "Pro plan"
+    },
+    "email": {
+      "label": "Email",
+      "placeholder": "you@example.com",
+      "send": "Send link",
+      "sent": "Check your inbox to continue."
+    },
+    "providers": {
+      "or": "or",
+      "google": "Continue with Google",
+      "apple": "Continue with Apple",
+      "unavailable": "Cloud sign-in is not enabled on this environment yet."
+    },
+    "actions": {
+      "loading": "Checking Cloud availability…",
+      "refresh": "Refresh",
+      "disconnect": "Disconnect",
+      "delete": "Delete account",
+      "confirmDelete": "Delete your Pressay Cloud account and synced settings? This cannot be undone."
+    },
+    "sync": {
+      "title": "Encrypted sync",
+      "ready": "Sync keys are ready",
+      "pending": "Waiting for approval from another Mac",
+      "notConfigured": "Encrypted sync is not configured",
+      "privacy": "Only modes, profiles, dictionary and allowed preferences are end-to-end encrypted. Dictations, audio, history and API keys never sync.",
+      "enable": "Set up",
+      "syncNow": "Sync now",
+      "approve": "Approve",
+      "current": "this Mac",
+      "approvedStatus": "Approved",
+      "updated": "Encrypted sync was updated.",
+      "approved": "The Mac was approved.",
+      "error": "Encrypted sync could not be updated.",
+      "recovery": {
+        "title": "Recovery code",
+        "description": "Create a one-time backup code for adding a Mac when no approved device is available. A new code invalidates the previous one.",
+        "create": "Create code",
+        "confirmRotate": "Create a new recovery code? Any previous recovery code will stop working.",
+        "created": "A new recovery code was created.",
+        "useDescription": "If you cannot approve this Mac from another device, enter the recovery code you saved earlier.",
+        "placeholder": "PRS1. ...",
+        "use": "Recover sync",
+        "saveNow": "Save this code now. Pressay cannot show it again.",
+        "copy": "Copy code",
+        "copied": "Recovery code copied. Remove it from the clipboard after saving it.",
+        "copyError": "The recovery code could not be copied.",
+        "done": "Done",
+        "recovered": "Encrypted sync was recovered on this Mac.",
+        "invalid": "The recovery code is invalid, expired or already used.",
+        "error": "A recovery code could not be created."
+      }
+    },
+    "usage": {
+      "title": "Monthly usage",
+      "transformations": "Transformations",
+      "transcription": "Cloud transcription",
+      "minutes": "{{used}} / {{limit}} min"
+    },
+    "transcription": {
+      "availableTitle": "Local transcription failed",
+      "availableDescription": "Send this {{seconds}}-second recording to Pressay Cloud? The audio stays in memory for two minutes and is sent only if you choose this action.",
+      "send": "Use Cloud",
+      "ready": "Cloud transcription is ready",
+      "readyDescription": "Review the result before copying it.",
+      "error": "Cloud transcription could not be completed. No text was inserted."
+    },
+    "errors": {
+      "load": "Cloud account status could not be loaded.",
+      "auth": "Cloud sign-in could not be completed.",
+      "start": "Cloud sign-in could not be started.",
+      "disconnect": "The account could not be disconnected.",
+      "delete": "The account could not be deleted."
+    }
+  },
   "tray": {
     "settings": "设置...",
     "checkUpdates": "检查更新...",
@@ -10,6 +97,8 @@
     "secureInputWarning": "⚠ 快捷键被 Secure Input 阻止"
   },
   "sidebar": {
+    "account": "Account",
+    "home": "Home",
     "general": "通用",
     "models": "模型",
     "advanced": "高级",
@@ -94,6 +183,18 @@
       "cohere-int8": {
         "name": "Cohere",
         "description": "大型模型，速度较慢，但多语言识别非常准确。"
+      },
+      "pressay/parakeet-v3": {
+        "name": "Parakeet V3",
+        "description": "Fast local transcription for French and 24 other European languages."
+      },
+      "pressay/whisper-small": {
+        "name": "Whisper Small",
+        "description": "Polyglot local transcription across 99 languages, with translation to English."
+      },
+      "pressay/whisper-large": {
+        "name": "Whisper Large v3",
+        "description": "The most accurate Pressay preset for capable Apple Silicon Macs."
       }
     },
     "errors": {
@@ -101,7 +202,7 @@
     },
     "permissions": {
       "title": "需要权限",
-      "description": "Handy 需要一些权限才能正常工作。",
+      "description": "Pressay 需要一些权限才能正常工作。",
       "microphone": {
         "title": "麦克风访问",
         "description": "需要听取您的语音进行转录。"
@@ -152,7 +253,12 @@
     },
     "cancel": "取消",
     "cancelDownload": "取消下载",
-    "legacy": "旧版"
+    "legacy": "旧版",
+    "presets": {
+      "fast": "Fast",
+      "polyglot": "Polyglot",
+      "precise": "Precise"
+    }
   },
   "settings": {
     "modelSettings": {
@@ -175,13 +281,13 @@
       "searchPlaceholder": "按名称搜索模型…",
       "rescan": {
         "label": "重新扫描",
-        "tooltip": "重新扫描在 Handy 之外添加到模型文件夹或 Hugging Face 缓存中的模型"
+        "tooltip": "Rescan models added to the Pressay models folder"
       }
     },
     "general": {
       "title": "通用",
       "shortcut": {
-        "title": "Handy 快捷键",
+        "title": "Pressay 快捷键",
         "description": "配置启动语音转文字录制的键盘快捷键",
         "loading": "加载快捷键中...",
         "none": "未配置快捷键",
@@ -283,11 +389,11 @@
       },
       "autostart": {
         "label": "开机启动",
-        "description": "登录计算机时自动启动 Handy。"
+        "description": "登录计算机时自动启动 Pressay。"
       },
       "showTrayIcon": {
         "label": "显示托盘图标",
-        "description": "在系统托盘中显示 Handy 图标。"
+        "description": "在系统托盘中显示 Pressay 图标。"
       },
       "overlay": {
         "style": {
@@ -474,7 +580,7 @@
       },
       "updateChecks": {
         "label": "检查更新",
-        "description": "自动检查 Handy 的新版本"
+        "description": "自动检查 Pressay 的新版本"
       },
       "soundTheme": {
         "label": "声音主题",
@@ -547,7 +653,7 @@
       },
       "keyboardDiagnostic": {
         "title": "键盘诊断",
-        "description": "检查键盘事件是否能到达 Handy。仅记录事件数量，绝不记录您按了哪些键。",
+        "description": "检查键盘事件是否能到达 Pressay。仅记录事件数量，绝不记录您按了哪些键。",
         "run": "运行 10 秒诊断",
         "running": "正在监听… 请按几次您的快捷键（例如 Option+Space）",
         "secureInputLabel": "Secure Input",
@@ -561,7 +667,7 @@
         "mouse": "鼠标",
         "verdictBlocked": "Secure Input 正在阻止按键事件——在问题解决前，包含普通按键的快捷键无法工作。",
         "verdictSuspicious": "收到了修饰键事件，但没有按键事件——尽管 Secure Input 报告为已禁用，仍有程序在抑制按键。请在 GitHub 上反馈此问题。",
-        "verdictOk": "按键事件正常到达 Handy。",
+        "verdictOk": "按键事件正常到达 Pressay。",
         "verdictNoEvents": "未捕获到任何事件——测试期间您按过键吗？",
         "failed": "诊断失败：{{error}}"
       },
@@ -577,20 +683,20 @@
       "title": "关于",
       "version": {
         "title": "版本",
-        "description": "Handy 的当前版本"
+        "description": "Pressay 的当前版本"
       },
       "appDataDirectory": {
         "title": "应用数据目录",
-        "description": "Handy 存储数据的位置"
+        "description": "Pressay 存储数据的位置"
       },
       "sourceCode": {
         "title": "源代码",
         "description": "查看源代码并贡献",
-        "button": "在 GitHub 上查看"
+        "license": "MIT"
       },
       "supportDevelopment": {
         "title": "支持开发",
-        "description": "帮助我们继续开发 Handy",
+        "description": "帮助我们继续开发 Pressay",
         "button": "捐赠"
       },
       "acknowledgments": {
@@ -598,12 +704,17 @@
         "ggml": {
           "title": "ggml",
           "description": "OpenAI Whisper 自动语音识别模型的高性能推理",
-          "details": "Handy 使用 ggml 进行快速的本地语音转文字处理。感谢 Georgi Gerganov 和贡献者们的出色工作。"
+          "details": "Pressay 使用 ggml 进行快速的本地语音转文字处理。感谢 Georgi Gerganov 和贡献者们的出色工作。"
+        },
+        "models": {
+          "title": "Local models",
+          "description": "Attribution and licences for the Pressay presets",
+          "details": "Parakeet TDT 0.6B v3 © NVIDIA, licensed under CC BY 4.0. Whisper Small and Whisper Large v3 © OpenAI, model weights and code licensed under MIT."
         }
       },
       "whatsNewUpdates": {
         "label": "显示新功能",
-        "description": "Handy 更新后显示发行说明"
+        "description": "Pressay 更新后显示发行说明"
       }
     }
   },
@@ -632,7 +743,7 @@
     "noOptionsFound": "未找到选项"
   },
   "accessibility": {
-    "permissionsDescription": "Handy 需要辅助功能权限才能输入转录的文字。",
+    "permissionsDescription": "Pressay 需要辅助功能权限才能输入转录的文字。",
     "openSettings": "打开系统设置"
   },
   "errors": {
@@ -646,6 +757,8 @@
     },
     "noInputDeviceTitle": "未找到麦克风",
     "noInputDevice": "未检测到音频输入设备。请连接麦克风或耳机后重试。",
+    "silentInputTitle": "未检测到音频",
+    "silentInput": "请检查所选的麦克风或输入设备，然后重试。",
     "recordingFailed": "录音启动失败: {{error}}",
     "modelLoadFailed": "加载模型失败: {{model}}",
     "modelLoadFailedUnknown": "未知模型",
@@ -655,11 +768,11 @@
   },
   "appLanguage": {
     "title": "应用语言",
-    "description": "更改 Handy 界面的语言"
+    "description": "更改 Pressay 界面的语言"
   },
   "theme": {
     "title": "应用主题",
-    "description": "选择 Handy 跟随系统主题，还是保持浅色或深色",
+    "description": "选择 Pressay 跟随系统主题，还是保持浅色或深色",
     "options": {
       "system": "跟随系统",
       "light": "浅色",
@@ -671,7 +784,7 @@
     "processing": "处理中..."
   },
   "whatsNew": {
-    "title": "Handy v{{version}} 新功能"
+    "title": "Pressay v{{version}} 新功能"
   },
   "secureInput": {
     "blockedWithCulprit_one": "{{name}} 可能正在阻止 1 个快捷键",

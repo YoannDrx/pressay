@@ -1,9 +1,9 @@
 import React from "react";
 import { useTranslation } from "react-i18next";
+import { HistoryRetentionPeriod } from "@/bindings";
+import { useSettings } from "../../hooks/useSettings";
 import { Dropdown } from "../ui/Dropdown";
 import { SettingContainer } from "../ui/SettingContainer";
-import { useSettings } from "../../hooks/useSettings";
-import { RecordingRetentionPeriod } from "@/bindings";
 
 interface RecordingRetentionPeriodProps {
   descriptionMode?: "inline" | "tooltip";
@@ -14,49 +14,83 @@ export const RecordingRetentionPeriodSelector: React.FC<RecordingRetentionPeriod
   React.memo(({ descriptionMode = "tooltip", grouped = false }) => {
     const { t } = useTranslation();
     const { getSetting, updateSetting, isUpdating } = useSettings();
+    const enabled = getSetting("history_enabled") ?? false;
 
-    const selectedRetentionPeriod =
-      getSetting("recording_retention_period") || "never";
-    const historyLimit = getSetting("history_limit") || 5;
-
-    const handleRetentionPeriodSelect = async (period: string) => {
-      await updateSetting(
-        "recording_retention_period",
-        period as RecordingRetentionPeriod,
-      );
-    };
-
-    const retentionOptions = [
-      { value: "never", label: t("settings.debug.recordingRetention.never") },
+    const options = [
       {
-        value: "preserve_limit",
-        label: t("settings.debug.recordingRetention.preserveLimit", {
-          count: Number(historyLimit),
+        value: "hours_24",
+        label: t("settings.historyPolicy.hours24", {
+          defaultValue: "After 24 hours",
         }),
       },
-      { value: "days3", label: t("settings.debug.recordingRetention.days3") },
-      { value: "weeks2", label: t("settings.debug.recordingRetention.weeks2") },
       {
-        value: "months3",
-        label: t("settings.debug.recordingRetention.months3"),
+        value: "days_7",
+        label: t("settings.historyPolicy.days7", {
+          defaultValue: "After 7 days",
+        }),
+      },
+      {
+        value: "days_30",
+        label: t("settings.historyPolicy.days30", {
+          defaultValue: "After 30 days",
+        }),
+      },
+      {
+        value: "forever",
+        label: t("settings.historyPolicy.forever", {
+          defaultValue: "Never delete automatically",
+        }),
       },
     ];
 
-    return (
+    const retentionSelector = (
+      setting: "history_text_retention" | "history_audio_retention",
+      title: string,
+      description: string,
+    ) => (
       <SettingContainer
-        title={t("settings.debug.recordingRetention.title")}
-        description={t("settings.debug.recordingRetention.description")}
+        title={title}
+        description={description}
         descriptionMode={descriptionMode}
         grouped={grouped}
       >
         <Dropdown
-          options={retentionOptions}
-          selectedValue={selectedRetentionPeriod}
-          onSelect={handleRetentionPeriodSelect}
-          placeholder={t("settings.debug.recordingRetention.placeholder")}
-          disabled={isUpdating("recording_retention_period")}
+          options={options}
+          selectedValue={getSetting(setting) ?? "forever"}
+          onSelect={(period) =>
+            updateSetting(setting, period as HistoryRetentionPeriod)
+          }
+          placeholder={t("settings.historyPolicy.placeholder", {
+            defaultValue: "Select a retention period",
+          })}
+          disabled={!enabled || isUpdating(setting)}
         />
       </SettingContainer>
+    );
+
+    return (
+      <>
+        {retentionSelector(
+          "history_text_retention",
+          t("settings.historyPolicy.textTitle", {
+            defaultValue: "Text retention",
+          }),
+          t("settings.historyPolicy.textDescription", {
+            defaultValue:
+              "Saved favorites are exempt from automatic text deletion.",
+          }),
+        )}
+        {retentionSelector(
+          "history_audio_retention",
+          t("settings.historyPolicy.audioTitle", {
+            defaultValue: "Audio retention",
+          }),
+          t("settings.historyPolicy.audioDescription", {
+            defaultValue:
+              "Audio expires independently, including for text favorites unless explicitly preserved.",
+          }),
+        )}
+      </>
     );
   });
 

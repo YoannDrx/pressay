@@ -3,6 +3,8 @@ use once_cell::sync::Lazy;
 use regex::Regex;
 use strsim::levenshtein;
 
+use crate::productivity::{DictionaryEntry, DictionaryMatchKind};
+
 /// Builds an n-gram string by cleaning and concatenating words
 ///
 /// Strips punctuation from each word, lowercases, and joins without spaces.
@@ -216,6 +218,145 @@ pub fn apply_custom_words(text: &str, custom_words: &[String], threshold: f64) -
         }
     }
 
+    result.join(" ")
+}
+
+struct DictionaryRule<'a> {
+    entry_index: usize,
+    output: &'a str,
+    alias_key: String,
+    token_count: usize,
+}
+
+fn dictionary_rules(entries: &[DictionaryEntry]) -> Vec<DictionaryRule<'_>> {
+    entries
+        .iter()
+        .enumerate()
+        .filter(|(_, entry)| entry.enabled)
+        .flat_map(|(entry_index, entry)| {
+            let output = entry
+                .replacement
+                .as_deref()
+                .filter(|replacement| !replacement.trim().is_empty())
+                .unwrap_or(&entry.term);
+            std::iter::once(entry.term.as_str())
+                .chain(entry.variants.iter().map(String::as_str))
+                .filter(|alias| !alias.trim().is_empty())
+                .map(move |alias| DictionaryRule {
+                    entry_index,
+                    output,
+                    alias_key: build_match_key(alias),
+                    token_count: alias.split_whitespace().count().max(1),
+                })
+        })
+        .collect()
+}
+
+fn dictionary_replacement(
+    words: &[&str],
+    entries: &[DictionaryEntry],
+    rules: &[DictionaryRule<'_>],
+    threshold: f64,
+) -> Option<(usize, String)> {
+    let max_exact_tokens = rules
+        .iter()
+        .filter(|rule| entries[rule.entry_index].match_kind == DictionaryMatchKind::Exact)
+        .map(|rule| rule.token_count)
+        .max()
+        .unwrap_or(0)
+        .min(words.len());
+
+    // Exact rules have deterministic priority over fuzzy rules. Longest phrase
+    // wins, then the stable dictionary/variant order resolves a tie.
+    for count in (1..=max_exact_tokens).rev() {
+        if words[..count.saturating_sub(1)]
+            .iter()
+            .any(|word| !extract_punctuation(word).1.is_empty())
+        {
+            continue;
+        }
+        let candidate = build_ngram(&words[..count]);
+        if let Some(rule) = rules.iter().find(|rule| {
+            entries[rule.entry_index].match_kind == DictionaryMatchKind::Exact
+                && rule.token_count == count
+                && rule.alias_key == candidate
+        }) {
+            return Some((count, rule.output.to_string()));
+        }
+    }
+
+    let mut best: Option<(usize, &DictionaryRule<'_>, f64)> = None;
+    for count in (1..=3.min(words.len())).rev() {
+        if words[..count.saturating_sub(1)]
+            .iter()
+            .any(|word| !extract_punctuation(word).1.is_empty())
+        {
+            continue;
+        }
+        let candidate = build_ngram(&words[..count]);
+        if !is_supported_fuzzy_key(&candidate) || candidate.chars().count() > 50 {
+            continue;
+        }
+
+        for rule in rules.iter().filter(|rule| {
+            entries[rule.entry_index].match_kind == DictionaryMatchKind::Fuzzy
+                && is_supported_fuzzy_key(&rule.alias_key)
+        }) {
+            let candidate_len = candidate.chars().count();
+            let rule_len = rule.alias_key.chars().count();
+            let max_len = candidate_len.max(rule_len) as f64;
+            let len_diff = candidate_len.abs_diff(rule_len) as f64;
+            if len_diff > (max_len * 0.25).max(2.0) {
+                continue;
+            }
+            let edit_score = levenshtein(&candidate, &rule.alias_key) as f64 / max_len;
+            let phonetic_match = supports_soundex(&candidate)
+                && supports_soundex(&rule.alias_key)
+                && soundex(&candidate, &rule.alias_key);
+            let score = if phonetic_match {
+                edit_score * 0.3
+            } else {
+                edit_score
+            };
+            if score < threshold
+                && best
+                    .as_ref()
+                    .is_none_or(|(_, _, best_score)| score < *best_score)
+            {
+                best = Some((count, rule, score));
+            }
+        }
+    }
+
+    best.map(|(count, rule, _)| (count, rule.output.to_string()))
+}
+
+/// Applies enabled Pressay dictionary entries without ever matching through a
+/// whitespace or punctuation boundary. Exact entries support phrases and
+/// explicit variants; fuzzy entries reuse the conservative ASCII phonetic/edit
+/// distance policy of the legacy custom-word engine.
+pub fn apply_dictionary_entries(text: &str, entries: &[DictionaryEntry], threshold: f64) -> String {
+    let rules = dictionary_rules(entries);
+    if rules.is_empty() {
+        return text.to_string();
+    }
+
+    let words: Vec<&str> = text.split_whitespace().collect();
+    let mut result = Vec::with_capacity(words.len());
+    let mut index = 0;
+    while index < words.len() {
+        if let Some((count, output)) =
+            dictionary_replacement(&words[index..], entries, &rules, threshold)
+        {
+            let (prefix, _) = extract_punctuation(words[index]);
+            let (_, suffix) = extract_punctuation(words[index + count - 1]);
+            result.push(format!("{prefix}{output}{suffix}"));
+            index += count;
+        } else {
+            result.push(words[index].to_string());
+            index += 1;
+        }
+    }
     result.join(" ")
 }
 
@@ -493,6 +634,108 @@ mod tests {
         let custom_words = vec![];
         let result = apply_custom_words(text, &custom_words, 0.5);
         assert_eq!(result, "hello world");
+    }
+
+    fn dictionary_entry(
+        id: &str,
+        term: &str,
+        variants: &[&str],
+        replacement: Option<&str>,
+        match_kind: DictionaryMatchKind,
+    ) -> DictionaryEntry {
+        DictionaryEntry {
+            id: id.into(),
+            term: term.into(),
+            variants: variants.iter().map(|variant| (*variant).into()).collect(),
+            replacement: replacement.map(str::to_string),
+            match_kind,
+            language: None,
+            enabled: true,
+        }
+    }
+
+    #[test]
+    fn dictionary_exact_phrase_uses_variant_and_explicit_casing() {
+        let entries = vec![dictionary_entry(
+            "pressay",
+            "Pressay",
+            &["press say", "presser"],
+            Some("Pressay"),
+            DictionaryMatchKind::Exact,
+        )];
+        assert_eq!(
+            apply_dictionary_entries("J'utilise press say, maintenant", &entries, 0.18),
+            "J'utilise Pressay, maintenant"
+        );
+    }
+
+    #[test]
+    fn dictionary_exact_never_replaces_a_substring() {
+        let entries = vec![dictionary_entry(
+            "notion",
+            "Notion",
+            &[],
+            None,
+            DictionaryMatchKind::Exact,
+        )];
+        assert_eq!(
+            apply_dictionary_entries("notional notion", &entries, 0.5),
+            "notional Notion"
+        );
+    }
+
+    #[test]
+    fn dictionary_exact_supports_accent_variants() {
+        let entries = vec![dictionary_entry(
+            "eleonore",
+            "Éléonore",
+            &["Eleonore"],
+            None,
+            DictionaryMatchKind::Exact,
+        )];
+        assert_eq!(
+            apply_dictionary_entries("Bonjour Eleonore !", &entries, 0.18),
+            "Bonjour Éléonore !"
+        );
+    }
+
+    #[test]
+    fn dictionary_fuzzy_maps_spoken_form_to_replacement() {
+        let entries = vec![dictionary_entry(
+            "chargebee",
+            "Charge Bee",
+            &["Charge B"],
+            Some("ChargeBee"),
+            DictionaryMatchKind::Fuzzy,
+        )];
+        assert_eq!(
+            apply_dictionary_entries("ouvre Charge B, merci", &entries, 0.5),
+            "ouvre ChargeBee, merci"
+        );
+    }
+
+    #[test]
+    fn dictionary_prefers_longest_exact_phrase_and_skips_disabled_entries() {
+        let short = dictionary_entry("mac", "Mac", &[], Some("SHORT"), DictionaryMatchKind::Exact);
+        let long = dictionary_entry(
+            "macbook",
+            "Mac Book Pro",
+            &[],
+            Some("MacBook Pro"),
+            DictionaryMatchKind::Exact,
+        );
+        let mut disabled = dictionary_entry(
+            "secret",
+            "secret",
+            &[],
+            Some("REDACTED"),
+            DictionaryMatchKind::Exact,
+        );
+        disabled.enabled = false;
+        assert_eq!(
+            apply_dictionary_entries("Mac Book Pro secret", &[short, long, disabled], 0.18),
+            "MacBook Pro secret"
+        );
     }
 
     #[test]

@@ -1,10 +1,9 @@
-//! The bundled, offline model catalog.
+//! The bundled, signed Pressay model catalog.
 //!
-//! `catalog.json` is generated at build time by `scripts/gen_catalog.py` from the
-//! `handy-computer` Hugging Face org (card `transcribe_cpp` capabilities +
-//! benchmarks, a GGUF header probe for name/params, and local curation for the
-//! recommended set). It is compiled into the binary so Handy ships a complete
-//! model list with zero network access.
+//! `catalog.json` is intentionally small and release-curated. Its detached
+//! Ed25519 signature is verified before parsing, and every artifact has a pinned
+//! SHA-256 checked again after download. The catalog therefore remains usable
+//! offline without trusting the model CDN at runtime.
 //!
 //! Each entry is normalised into a [`ModelDescriptor`] — the same source-agnostic
 //! shape every other producer (HF discovery, on-disk scans, the legacy table)
@@ -15,6 +14,7 @@
 
 use std::collections::HashMap;
 
+use ed25519_dalek::{Signature, Verifier, VerifyingKey};
 use once_cell::sync::Lazy;
 use serde::Deserialize;
 
@@ -25,9 +25,8 @@ use crate::managers::model_capabilities::{CapabilityProbe, Compatibility};
 
 #[derive(Deserialize)]
 struct CatalogRoot {
-    /// Base URLs tried in order when the Hugging Face download fails. The full
-    /// file URL is `{mirror}/{repo_id}/{revision}/{filename}` — the same three
-    /// values that form the HF resolve URL, so a mirror is a plain static host.
+    /// Static HTTPS origins tried in order. Objects are addressed as
+    /// `{mirror}/{model_id}/{revision}/{filename}`.
     #[serde(default)]
     mirrors: Vec<String>,
     models: Vec<CatalogModel>,
@@ -37,19 +36,16 @@ struct CatalogRoot {
 /// are declared; serde ignores the rest (slug, family, license, …).
 #[derive(Deserialize)]
 struct CatalogModel {
-    /// HF repo id, e.g. `handy-computer/whisper-small-gguf`.
+    /// Stable public Pressay model id, e.g. `pressay/whisper-small`.
     id: String,
-    /// Commit sha the catalog's sizes/hashes were generated from. Both HF
-    /// acquisition and mirror keys use it, so downloaded bytes provably match
-    /// the hashes regardless of source. Cache *lookup* additionally falls back
-    /// to `main` (see `hf_cached_path`) so downloads that predate pinning keep
-    /// resolving.
+    /// Immutable artifact revision used in the CDN object path.
     revision: Option<String>,
     name: String,
     description: String,
     architecture: Option<String>,
     languages: Vec<String>,
     capabilities: CatalogCaps,
+    license: String,
     speed_score: Option<f32>,
     accuracy_score: Option<f32>,
     files: Vec<QuantFile>,
@@ -70,29 +66,33 @@ struct CatalogCaps {
     // `CapabilityProbe` field yet — wire it through when the probe gains one.
 }
 
-impl From<&CatalogModel> for ModelDescriptor {
-    fn from(m: &CatalogModel) -> Self {
-        // The default download file. Its name is folded into the id so a catalog
-        // entry collides (dedups) with the very same file later discovered in
-        // the HF cache — both compute `"{repo_id}/{filename}"`.
+impl CatalogModel {
+    fn to_descriptor(&self, mirror: &str) -> ModelDescriptor {
+        let m = self;
+        // Fold the selected artifact name into the public id so each immutable
+        // model build is independently selectable and cacheable.
         let default_filename = default_quant_file(&m.files, m.default_quant.as_deref())
             .map(|f| f.filename.clone())
             .unwrap_or_default();
 
         ModelDescriptor {
             id: format!("{}/{}", m.id, default_filename),
-            source: ModelSource::HuggingFace {
-                repo_id: m.id.clone(),
-                // Acquire at the pin: `resolve/<sha>` is immutable (CDN-friendly)
-                // and guarantees the bytes match the catalog's hashes. `main`
-                // only remains as a lookup fallback for pre-pinning caches.
-                revision: m.revision.clone().unwrap_or_else(|| "main".to_string()),
+            source: ModelSource::Url {
+                url: format!(
+                    "{}/{}/{}/{}",
+                    mirror.trim_end_matches('/'),
+                    m.id,
+                    m.revision.as_deref().unwrap_or("v1"),
+                    default_filename
+                ),
+                sha256: default_quant_file(&m.files, m.default_quant.as_deref())
+                    .and_then(|file| file.sha256.clone()),
             },
             name: m.name.clone(),
             description: m.description.clone(),
             engine_type: EngineType::TranscribeCpp,
             caps: CapabilityProbe {
-                verdict: Compatibility::Compatible, // curated org models we ship support for
+                verdict: Compatibility::Compatible,
                 display_name: None,
                 architecture: m.architecture.clone(),
                 variant: None,
@@ -115,13 +115,36 @@ impl From<&CatalogModel> for ModelDescriptor {
 /// The raw parsed catalog. Kept alive (not consumed) so mirror metadata that
 /// deliberately stays out of [`ModelDescriptor`] can be looked up separately.
 static ROOT: Lazy<CatalogRoot> = Lazy::new(|| {
-    serde_json::from_str(include_str!("catalog.json"))
+    verify_catalog_signature().expect("bundled catalog has a valid Pressay signature");
+    serde_json::from_slice(include_bytes!("catalog.json"))
         .expect("bundled catalog.json is valid JSON matching the catalog schema")
 });
 
+fn verify_catalog_signature() -> Result<(), ed25519_dalek::SignatureError> {
+    let public_key = VerifyingKey::from_bytes(include_bytes!("catalog.pub"))?;
+    let signature = Signature::from_bytes(include_bytes!("catalog.sig"));
+    public_key.verify(include_bytes!("catalog.json"), &signature)
+}
+
 /// The bundled catalog, parsed once and normalised into descriptors.
-pub static CATALOG: Lazy<Vec<ModelDescriptor>> =
-    Lazy::new(|| ROOT.models.iter().map(ModelDescriptor::from).collect());
+pub static CATALOG: Lazy<Vec<ModelDescriptor>> = Lazy::new(|| {
+    let mirror = ROOT
+        .mirrors
+        .first()
+        .expect("signed catalog must declare a primary HTTPS mirror");
+    ROOT.models
+        .iter()
+        .filter(|model| is_commercially_audited_license(&model.license))
+        .map(|model| model.to_descriptor(mirror))
+        .collect()
+});
+
+/// Pressay only exposes models whose redistribution terms have been reviewed
+/// for commercial use. Unknown (`other`) and non-commercial licenses fail
+/// closed even if a stale catalog generator includes them.
+fn is_commercially_audited_license(license: &str) -> bool {
+    matches!(license, "mit" | "apache-2.0" | "cc-by-4.0")
+}
 
 /// A mirror copy of a catalog model's default file, with the expected content
 /// hash for end-to-end verification. Mirrors are untrusted bit-pipes: the
@@ -135,11 +158,8 @@ pub struct MirrorFile {
     pub size_bytes: u64,
 }
 
-/// Ordered mirror URLs for a catalog model's file — any listed quant, not just
-/// the default — or empty when the model isn't from the catalog / no mirrors
-/// are configured. `model_id` is the registry id (`"{repo_id}/{filename}"`).
-/// (The mirror may only host default quants; a miss there just 404s and the
-/// caller reports it, so listing every quant here costs nothing.)
+/// Ordered CDN URLs for a catalog model's file, or empty when the model is not
+/// in the signed catalog.
 pub fn mirror_fallbacks(model_id: &str) -> Vec<MirrorFile> {
     let Some((m, file)) = ROOT.models.iter().find_map(|m| {
         m.files
@@ -174,9 +194,9 @@ pub fn mirror_fallbacks(model_id: &str) -> Vec<MirrorFile> {
 }
 
 /// The catalog descriptor + specific `files[]` entry owning `filename`,
-/// matched across every listed quant (not just the default). `repo_id`, when
-/// given, must also match — the HF-cache scan uses it to keep a foreign repo
-/// that happens to reuse a catalog filename from masquerading as ours.
+/// matched across every listed quant. `repo_id` is only used by the optional
+/// Hugging Face cache discovery path; Pressay CDN entries never claim those
+/// cache files.
 pub fn file_in_catalog(
     filename: &str,
     repo_id: Option<&str>,
@@ -220,6 +240,36 @@ mod tests {
     #[test]
     fn catalog_parses_and_is_nonempty() {
         assert!(!CATALOG.is_empty(), "bundled catalog should contain models");
+    }
+
+    #[test]
+    fn catalog_only_contains_commercially_audited_models() {
+        assert!(ROOT
+            .models
+            .iter()
+            .all(|model| is_commercially_audited_license(&model.license)));
+    }
+
+    #[test]
+    fn launch_catalog_is_exactly_the_three_pressay_presets() {
+        let ids: BTreeSet<&str> = ROOT.models.iter().map(|model| model.id.as_str()).collect();
+        assert_eq!(
+            ids,
+            BTreeSet::from([
+                "pressay/parakeet-v3",
+                "pressay/whisper-large",
+                "pressay/whisper-small",
+            ])
+        );
+        assert!(ROOT.models.iter().all(|model| model.recommended));
+        assert!(CATALOG.iter().all(|model| {
+            model.id.starts_with("pressay/") && matches!(model.source, ModelSource::Url { .. })
+        }));
+    }
+
+    #[test]
+    fn catalog_signature_is_valid() {
+        verify_catalog_signature().expect("catalog signature must verify");
     }
 
     #[test]

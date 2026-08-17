@@ -1,54 +1,35 @@
-name: "PR Test Build"
+name: "Pressay PR Test Build"
 
-on:
-  workflow_dispatch:
-    inputs:
-      pr_number:
-        description: "PR number to build"
-        required: true
-        type: string
+on: pull_request
 
 jobs:
   build-test:
+    runs-on: macos-26
     permissions:
-      contents: write
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - platform: "macos-26"
-            args: "--target aarch64-apple-darwin"
-            target: "aarch64-apple-darwin"
-          - platform: "macos-latest"
-            args: "--target x86_64-apple-darwin"
-            target: "x86_64-apple-darwin"
-          - platform: "ubuntu-22.04"
-            args: "--bundles deb"
-            target: "x86_64-unknown-linux-gnu"
-          - platform: "ubuntu-24.04"
-            args: "--bundles appimage,rpm"
-            target: "x86_64-unknown-linux-gnu"
-          - platform: "ubuntu-24.04-arm" # Build for ARM64 Linux
-            args: "--bundles appimage,deb,rpm"
-            target: "aarch64-unknown-linux-gnu"
-          - platform: "windows-latest"
-            args: ""
-            target: "x86_64-pc-windows-msvc"
-          - platform: "windows-11-arm"
-            args: "--target aarch64-pc-windows-msvc"
-            target: "aarch64-pc-windows-msvc"
-
-    uses: ./.github/workflows/build.yml
-    with:
-      platform: ${{ matrix.platform }}
-      target: ${{ matrix.target }}
-      build-args: ${{ matrix.args }}
-      sign-binaries: true
-      asset-prefix: "handy-pr-${{ inputs.pr_number }}"
-      upload-artifacts: true
-      is-debug-build: ${{ contains(matrix.args, '--debug') }}
-      ref: ${{ format('refs/pull/{0}/merge', inputs.pr_number) }}
-    secrets: inherit
+      contents: read
+    steps:
+      - uses: actions/checkout@v5
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version-file: ".bun-version"
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-apple-darwin
+      - uses: swatinem/rust-cache@v2
+        with:
+          workspaces: "./src-tauri -> target"
+          key: pressay-pr-arm64
+      - run: bun install --frozen-lockfile
+      - name: Build unsigned Apple Silicon app
+        run: >-
+          bun tauri build
+          --target aarch64-apple-darwin
+          --bundles app
+      - uses: actions/upload-artifact@v7
+        with:
+          name: pressay-pr-${{ github.event.pull_request.number }}-arm64
+          path: src-tauri/target/aarch64-apple-darwin/release/bundle/macos/Pressay.app
+          retention-days: 14
 
   comment-on-pr:
     needs: build-test
@@ -64,6 +45,6 @@ jobs:
             await github.rest.issues.createComment({
               owner: context.repo.owner,
               repo: context.repo.repo,
-              issue_number: ${{ inputs.pr_number }},
-              body: `## 🧪 Test Build Ready\n\nBuild artifacts for PR #${{ inputs.pr_number }} are available for testing.\n\n**[Download artifacts from workflow run](${runUrl})**\n\nArtifacts expire after 30 days.`
+              issue_number: context.issue.number,
+              body: `## Pressay test build\n\nThe unsigned Apple Silicon artifact is available in [this workflow run](${runUrl}).`
             });

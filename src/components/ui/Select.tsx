@@ -17,6 +17,7 @@ export type SelectOption = {
 type BaseProps = {
   value: string | null;
   options: SelectOption[];
+  ariaLabel?: string;
   placeholder?: string;
   disabled?: boolean;
   isLoading?: boolean;
@@ -123,6 +124,7 @@ export const Select: React.FC<SelectProps> = React.memo(
   ({
     value,
     options,
+    ariaLabel,
     placeholder,
     disabled,
     isLoading,
@@ -151,6 +153,7 @@ export const Select: React.FC<SelectProps> = React.memo(
     const sharedProps: Partial<ReactSelectProps<SelectOption, false>> = {
       className,
       classNamePrefix: "app-select",
+      "aria-label": ariaLabel,
       value: selectValue,
       options,
       onChange: handleChange,

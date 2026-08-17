@@ -1,6 +1,6 @@
 ---
 name: Bug Report
-about: Create a report to help us improve Handy
+about: Create a report to help us improve Pressay
 title: "[BUG] "
 labels: ["bug"]
 assignees: ""
@@ -8,7 +8,8 @@ assignees: ""
 
 ## Before You Submit
 
-**Please search [existing issues](https://github.com/cjpais/Handy/issues) to avoid duplicates.** Your bug may already be reported! Right now it's just me maintaining this project so many issues can be overwhelming! Help me out by checking first.
+Please check existing issues first. Never attach transcripts, audio,
+clipboard contents, prompts, API keys, or authorization headers.
 
 ## Bug Description
 
@@ -22,16 +23,16 @@ A clear and concise description of what the bug is.
 
 **Operating System:**
 
-<!-- e.g., macOS 14.1, Windows 11, Ubuntu 22.04 -->
+<!-- e.g., macOS 14.6 -->
 
 **CPU:**
 
-<!-- e.g., Apple M2, Intel i7-12700K, AMD Ryzen 7 5800X -->
+<!-- e.g., Apple M2 -->
 
-**GPU:**
+**Distribution channel:**
 
-<!-- e.g., Apple M2 GPU, NVIDIA RTX 4080, AMD RX 6800 XT, Intel UHD Graphics -->
+<!-- DMG or Mac App Store -->
 
 ## Logs
 
-<!-- Please attach relevant logs to help us diagnose the issue. You can find the log directory by going to Settings > About in the app. -->
+<!-- Attach only the redacted diagnostic export from Settings > Help. -->

@@ -4,6 +4,7 @@ import { listen } from "@tauri-apps/api/event";
 import type {
   AppSettings as Settings,
   AudioDevice,
+  HistoryRetentionPeriod,
   TranscribeAcceleratorSetting,
   OrtAcceleratorSetting,
 } from "@/bindings";
@@ -119,6 +120,11 @@ const settingUpdaters: {
     ),
   recording_retention_period: (value) =>
     commands.updateRecordingRetentionPeriod(value as string),
+  history_enabled: (value) => commands.updateHistoryEnabled(value as boolean),
+  history_text_retention: (value) =>
+    commands.updateHistoryTextRetention(value as HistoryRetentionPeriod),
+  history_audio_retention: (value) =>
+    commands.updateHistoryAudioRetention(value as HistoryRetentionPeriod),
   translate_to_english: (value) =>
     commands.changeTranslateToEnglishSetting(value as boolean),
   selected_language: (value) =>
@@ -468,11 +474,23 @@ export const useSettingsStore = create<SettingsStore>()(
 
       try {
         if (settingType === "base_url") {
-          await commands.changePostProcessBaseUrlSetting(providerId, value);
+          const result = await commands.changePostProcessBaseUrlSetting(
+            providerId,
+            value,
+          );
+          if (result.status === "error") throw new Error(result.error);
         } else if (settingType === "api_key") {
-          await commands.changePostProcessApiKeySetting(providerId, value);
+          const result = await commands.changePostProcessApiKeySetting(
+            providerId,
+            value,
+          );
+          if (result.status === "error") throw new Error(result.error);
         } else if (settingType === "model") {
-          await commands.changePostProcessModelSetting(providerId, value);
+          const result = await commands.changePostProcessModelSetting(
+            providerId,
+            value,
+          );
+          if (result.status === "error") throw new Error(result.error);
         }
         await refreshSettings();
       } catch (error) {
@@ -610,6 +628,9 @@ export const useSettingsStore = create<SettingsStore>()(
       // Re-fetch settings when the backend changes them (e.g. language
       // reset during model switch). The backend is the source of truth.
       listen("model-state-changed", () => {
+        get().refreshSettings();
+      });
+      listen("settings-changed", () => {
         get().refreshSettings();
       });
     },

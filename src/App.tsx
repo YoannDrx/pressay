@@ -12,7 +12,12 @@ import "./App.css";
 import AccessibilityPermissions from "./components/AccessibilityPermissions";
 import SecureInputWarning from "./components/SecureInputWarning";
 import Footer from "./components/footer";
-import Onboarding, { AccessibilityOnboarding } from "./components/onboarding";
+import Onboarding, {
+  AccessibilityOnboarding,
+  OnboardingProgress,
+  ShortcutOnboarding,
+  WelcomeOnboarding,
+} from "./components/onboarding";
 import { ErrorBoundary } from "./components/ErrorBoundary";
 import { Sidebar, SidebarSection, SECTIONS_CONFIG } from "./components/Sidebar";
 import { WhatsNewGate } from "./components/whats-new";
@@ -21,7 +26,8 @@ import { useSettingsStore } from "./stores/settingsStore";
 import { commands } from "@/bindings";
 import { getLanguageDirection, initializeRTL } from "@/lib/utils/rtl";
 
-type OnboardingStep = "accessibility" | "model" | "done";
+type OnboardingStep =
+  "welcome" | "accessibility" | "shortcut" | "model" | "done";
 
 const renderSettingsContent = (section: SidebarSection) => {
   const ActiveComponent =
@@ -37,8 +43,7 @@ function App() {
   // Track if this is a returning user who just needs to grant permissions
   // (vs a new user who needs full onboarding including model selection)
   const [isReturningUser, setIsReturningUser] = useState(false);
-  const [currentSection, setCurrentSection] =
-    useState<SidebarSection>("general");
+  const [currentSection, setCurrentSection] = useState<SidebarSection>("home");
   const { settings, updateSetting } = useSettings();
   const direction = getLanguageDirection(i18n.language);
   const refreshAudioDevices = useSettingsStore(
@@ -73,8 +78,11 @@ function App() {
     }
   }, [onboardingStep, refreshAudioDevices, refreshOutputDevices]);
 
-  // Handle keyboard shortcuts for debug mode toggle
+  // Developer-only keyboard shortcut for the inherited debug panel. Production
+  // builds expose only the redacted diagnostic export from Help.
   useEffect(() => {
+    if (!import.meta.env.DEV) return;
+
     const handleKeyDown = (event: KeyboardEvent) => {
       // Check for Ctrl+Shift+D (Windows/Linux) or Cmd+Shift+D (macOS)
       const isDebugShortcut =
@@ -114,6 +122,16 @@ function App() {
         toast.error(t("errors.noInputDeviceTitle"), {
           description: t("errors.noInputDevice"),
         });
+      } else if (error_type === "silent_input") {
+        toast.warning(
+          t("errors.silentInputTitle", { defaultValue: "No audio detected" }),
+          {
+            description: t("errors.silentInput", {
+              defaultValue:
+                "Check the selected microphone or input device and try again.",
+            }),
+          },
+        );
       } else {
         toast.error(
           t("errors.recordingFailed", { error: detail ?? "Unknown error" }),
@@ -126,13 +144,17 @@ function App() {
   }, [t]);
 
   // Listen for paste failures and show a toast.
-  // The technical error detail is logged to handy.log on the Rust side
+  // The technical error detail is logged to pressay.log on the Rust side
   // (see actions.rs `error!("Failed to paste transcription: ...")`),
   // so we show a localized, user-friendly message here instead of the raw error.
   useEffect(() => {
-    const unlisten = listen("paste-error", () => {
+    const unlisten = listen<{ text: string }>("paste-error", (event) => {
       toast.error(t("errors.pasteFailedTitle"), {
         description: t("errors.pasteFailed"),
+        action: {
+          label: t("common.copy", { defaultValue: "Copy text" }),
+          onClick: () => navigator.clipboard.writeText(event.payload.text),
+        },
       });
     });
     return () => {
@@ -140,12 +162,126 @@ function App() {
     };
   }, [t]);
 
+  useEffect(() => {
+    const unlisten = listen<{ code: string; text: string }>(
+      "transform-error",
+      (event) => {
+        toast.error(
+          t("errors.transformFailedTitle", {
+            defaultValue: "Transformation interrupted",
+          }),
+          {
+            description: t("errors.transformFailed", {
+              defaultValue:
+                "Your local transcription is safe. You can copy it and try the transformation again.",
+            }),
+            action: {
+              label: t("common.copy", { defaultValue: "Copy text" }),
+              onClick: () => navigator.clipboard.writeText(event.payload.text),
+            },
+          },
+        );
+      },
+    );
+    return () => {
+      unlisten.then((fn) => fn());
+    };
+  }, [t]);
+
+  useEffect(() => {
+    const unlisten = listen<{ code: string; text?: string }>(
+      "correction-error",
+      (event) => {
+        const isFrench = i18n.resolvedLanguage?.startsWith("fr");
+        const targetChanged =
+          event.payload.code === "correction_target_changed";
+        const expired = event.payload.code === "correction_session_expired";
+        const description = targetChanged
+          ? isFrench
+            ? "Revenez dans l’application d’origine et placez le focus dans le champ dicté."
+            : "Return to the original application and focus the field you dictated into."
+          : expired
+            ? isFrench
+              ? "La fenêtre de correction privée de deux minutes a expiré."
+              : "The private two-minute correction window has expired."
+            : isFrench
+              ? "L’insertion d’origine est restée intacte. Vérifiez votre fournisseur BYOK et réessayez."
+              : "Your original insertion was left untouched. Check your BYOK provider and try again.";
+        toast.error(
+          isFrench ? "Correction non appliquée" : "Correction not applied",
+          {
+            description,
+          },
+        );
+      },
+    );
+    return () => {
+      unlisten.then((fn) => fn());
+    };
+  }, [i18n.resolvedLanguage]);
+
+  useEffect(() => {
+    const unlisten = listen<{ code: string; text?: string }>(
+      "correction-fallback",
+      () => {
+        const isFrench = i18n.resolvedLanguage?.startsWith("fr");
+        toast.info(isFrench ? "Correction copiée" : "Correction copied", {
+          description: isFrench
+            ? "Pressay n’a pas pu vérifier le champ d’origine de façon sûre. La correction a été copiée sans modifier l’application."
+            : "Pressay could not safely verify the original field, so it copied the correction without changing the app.",
+        });
+      },
+    );
+    return () => {
+      unlisten.then((fn) => fn());
+    };
+  }, [i18n.resolvedLanguage]);
+
   // Listen for transcription failures and show a toast.
-  // The payload is the backend error message (also logged to handy.log).
+  // The payload is the backend error message (also logged to pressay.log).
   useEffect(() => {
     const unlisten = listen<string>("transcription-error", (event) => {
       toast.error(t("errors.transcriptionFailedTitle"), {
         description: event.payload,
+      });
+    });
+    return () => {
+      unlisten.then((fn) => fn());
+    };
+  }, [t]);
+
+  useEffect(() => {
+    const unlisten = listen<{
+      requestId: string;
+      durationSeconds: number;
+    }>("cloud-transcription-available", (event) => {
+      toast.info(t("cloud.transcription.availableTitle"), {
+        description: t("cloud.transcription.availableDescription", {
+          seconds: event.payload.durationSeconds,
+        }),
+        duration: 120_000,
+        action: {
+          label: t("cloud.transcription.send"),
+          onClick: () => {
+            void (async () => {
+              const result = await commands.retryCloudTranscription(
+                event.payload.requestId,
+              );
+              if (result.status === "error") {
+                toast.error(t("cloud.transcription.error"));
+                return;
+              }
+              toast.success(t("cloud.transcription.ready"), {
+                description: t("cloud.transcription.readyDescription"),
+                action: {
+                  label: t("common.copy"),
+                  onClick: () =>
+                    navigator.clipboard.writeText(result.data.text),
+                },
+              });
+            })();
+          },
+        },
       });
     });
     return () => {
@@ -232,19 +368,26 @@ function App() {
       } else {
         // New user - start full onboarding
         setIsReturningUser(false);
-        setOnboardingStep("accessibility");
+        setOnboardingStep("welcome");
       }
     } catch (error) {
       console.error("Failed to check onboarding status:", error);
-      setOnboardingStep("accessibility");
+      setOnboardingStep("welcome");
     }
   };
 
   const handleAccessibilityComplete = () => {
     // Returning users already have models, skip to main app
     // New users need to select a model
-    setOnboardingStep(isReturningUser ? "done" : "model");
+    setOnboardingStep(isReturningUser ? "done" : "shortcut");
   };
+
+  const onboardingProgress = {
+    welcome: 1,
+    accessibility: 2,
+    shortcut: 3,
+    model: 4,
+  } as const;
 
   const handleModelSelected = () => {
     // Transition to main app - user has started a download
@@ -254,7 +397,7 @@ function App() {
   // Rendered once around every step below (including onboarding) so
   // toast.error() calls surface to the user. sonner renders via a portal, so
   // its position in the tree doesn't affect layout. Without this, errors during
-  // onboarding (e.g. a model download failing because blob.handy.computer is
+  // onboarding (e.g. a model download failing because models.press-say.app is
   // unreachable) are silently swallowed and the wizard just appears to "blink".
   const toaster = (
     <Toaster
@@ -282,37 +425,44 @@ function App() {
   // stable wrapper around this node, so crossing between onboarding steps and
   // the main app never remounts it (which would drop any in-flight toast).
   let content: ReactNode;
-  if (onboardingStep === "accessibility") {
+  if (onboardingStep === "welcome") {
+    content = (
+      <WelcomeOnboarding
+        onComplete={() => setOnboardingStep("accessibility")}
+      />
+    );
+  } else if (onboardingStep === "accessibility") {
     content = (
       <AccessibilityOnboarding onComplete={handleAccessibilityComplete} />
+    );
+  } else if (onboardingStep === "shortcut") {
+    content = (
+      <ShortcutOnboarding onComplete={() => setOnboardingStep("model")} />
     );
   } else if (onboardingStep === "model") {
     content = <Onboarding onModelSelected={handleModelSelected} />;
   } else {
     content = (
-      <div
-        dir={direction}
-        className="h-screen flex flex-col select-none cursor-default"
-      >
+      <div dir={direction} className="product-shell select-none cursor-default">
         <ErrorBoundary context="What's New">
           <WhatsNewGate />
         </ErrorBoundary>
         {/* Main content area that takes remaining space */}
-        <div className="flex-1 flex overflow-hidden">
+        <div className="product-shell-main">
           <Sidebar
             activeSection={currentSection}
             onSectionChange={setCurrentSection}
           />
           {/* Scrollable content area */}
-          <div className="flex-1 flex flex-col overflow-hidden">
-            <div className="flex-1 overflow-y-auto">
-              <div className="flex flex-col items-center p-4 gap-4">
+          <main className="product-content">
+            <div className="product-scroll-region">
+              <div className="product-content-inner">
                 <AccessibilityPermissions />
                 <SecureInputWarning />
                 {renderSettingsContent(currentSection)}
               </div>
             </div>
-          </div>
+          </main>
         </div>
         {/* Fixed footer at bottom */}
         <Footer />
@@ -323,6 +473,9 @@ function App() {
   return (
     <>
       {toaster}
+      {onboardingStep !== "done" ? (
+        <OnboardingProgress current={onboardingProgress[onboardingStep]} />
+      ) : null}
       {content}
     </>
   );

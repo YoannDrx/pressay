@@ -6,6 +6,10 @@ use serde_json::Value;
 use std::collections::HashSet;
 use std::error::Error as StdError;
 use std::sync::{Mutex, OnceLock};
+use std::time::Duration;
+
+const HTTP_CONNECT_TIMEOUT: Duration = Duration::from_secs(10);
+const HTTP_REQUEST_TIMEOUT: Duration = Duration::from_secs(60);
 
 #[derive(Debug, Serialize)]
 struct ChatMessage {
@@ -141,15 +145,12 @@ fn build_headers(provider: &PostProcessProvider, api_key: &str) -> Result<Header
 
     // Common headers
     headers.insert(CONTENT_TYPE, HeaderValue::from_static("application/json"));
-    headers.insert(
-        REFERER,
-        HeaderValue::from_static("https://github.com/cjpais/Handy"),
-    );
+    headers.insert(REFERER, HeaderValue::from_static("https://press-say.app"));
     headers.insert(
         USER_AGENT,
-        HeaderValue::from_static("Handy/1.0 (+https://github.com/cjpais/Handy)"),
+        HeaderValue::from_static("Pressay/2.0 (+https://press-say.app)"),
     );
-    headers.insert("X-Title", HeaderValue::from_static("Handy"));
+    headers.insert("X-Title", HeaderValue::from_static("Pressay"));
 
     // Provider-specific auth headers
     if !api_key.is_empty() {
@@ -177,6 +178,8 @@ fn create_client(provider: &PostProcessProvider, api_key: &str) -> Result<reqwes
     let headers = build_headers(provider, api_key)?;
     reqwest::Client::builder()
         .default_headers(headers)
+        .connect_timeout(HTTP_CONNECT_TIMEOUT)
+        .timeout(HTTP_REQUEST_TIMEOUT)
         .build()
         .map_err(|e| report_reqwest_error("Failed to build HTTP client", &e))
 }
@@ -407,12 +410,9 @@ pub async fn send_chat_completion_with_schema(
         && matches!(status.as_u16(), 400 | 422)
         && !request_body.reasoning.is_empty()
     {
-        let error_text = response.text().await.unwrap_or_else(|e| {
-            report_reqwest_error("Failed to read reasoning rejection response", &e)
-        });
         info!(
-            "Endpoint rejected request with reasoning disabled (status {}): {}. Retrying without reasoning fields",
-            status, error_text
+            "Endpoint rejected request with reasoning disabled (status {}). Retrying without reasoning fields",
+            status
         );
 
         request_body.reasoning = ReasoningParams::default();
@@ -440,14 +440,9 @@ pub async fn send_chat_completion_with_schema(
     }
 
     if !status.is_success() {
-        let error_text = response
-            .text()
-            .await
-            .unwrap_or_else(|e| report_reqwest_error("Failed to read API error response", &e));
-        return Err(format!(
-            "API request failed with status {}: {}",
-            status, error_text
-        ));
+        // Provider bodies can echo the prompt or transcript. Never return or
+        // log them; status and the sanitized endpoint are enough for diagnosis.
+        return Err(format!("API request failed with status {}", status));
     }
 
     let completion: ChatCompletionResponse = response
@@ -488,14 +483,7 @@ pub async fn fetch_models(
         sanitized_url(response.url())
     );
     if !status.is_success() {
-        let error_text = response
-            .text()
-            .await
-            .unwrap_or_else(|e| report_reqwest_error("Failed to read model list error", &e));
-        return Err(format!(
-            "Model list request failed ({}): {}",
-            status, error_text
-        ));
+        return Err(format!("Model list request failed ({})", status));
     }
 
     let parsed: serde_json::Value = response
@@ -660,6 +648,24 @@ mod tests {
         assert!(details.contains(&format!("url: {base_url}/private")));
         assert!(!details.contains("SECRET_QUERY_TOKEN"));
         assert!(!details.contains("#private"));
+    }
+
+    #[tokio::test]
+    async fn provider_error_body_is_never_returned() {
+        let base_url = serve_one_response("400 Bad Request", "PRIVATE TRANSCRIPTION CONTENT").await;
+        let error = send_chat_completion(
+            &provider("custom", &base_url),
+            "secret-key".to_string(),
+            "test-model",
+            "private prompt".to_string(),
+            false,
+        )
+        .await
+        .unwrap_err();
+
+        assert_eq!(error, "API request failed with status 400 Bad Request");
+        assert!(!error.contains("PRIVATE TRANSCRIPTION CONTENT"));
+        assert!(!error.contains("private prompt"));
     }
 
     #[test]

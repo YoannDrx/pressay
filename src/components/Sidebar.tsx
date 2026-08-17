@@ -1,8 +1,19 @@
 import React from "react";
 import { useTranslation } from "react-i18next";
-import { Cog, FlaskConical, History, Info, Sparkles, Cpu } from "lucide-react";
-import HandyTextLogo from "./icons/HandyTextLogo";
-import HandyHand from "./icons/HandyHand";
+import {
+  Cog,
+  BookOpen,
+  FlaskConical,
+  History,
+  House,
+  Info,
+  Sparkles,
+  Cpu,
+  Layers3,
+  UserRound,
+} from "lucide-react";
+import PressayWordmark from "./icons/PressayWordmark";
+import PressayMark from "./icons/PressayMark";
 import { useSettings } from "../hooks/useSettings";
 import {
   GeneralSettings,
@@ -12,7 +23,11 @@ import {
   AboutSettings,
   PostProcessingSettings,
   ModelsSettings,
+  DictionarySettings,
+  ModesSettings,
+  AccountSettings,
 } from "./settings";
+import { HomeDashboard } from "./dashboard/HomeDashboard";
 
 export type SidebarSection = keyof typeof SECTIONS_CONFIG;
 
@@ -26,53 +41,102 @@ interface IconProps {
 
 interface SectionConfig {
   labelKey: string;
+  labelDefault: string;
   icon: React.ComponentType<IconProps>;
   component: React.ComponentType;
   enabled: (settings: any) => boolean;
+  group: "primary" | "secondary";
 }
 
 export const SECTIONS_CONFIG = {
+  home: {
+    labelKey: "sidebar.home",
+    labelDefault: "Home",
+    icon: House,
+    component: HomeDashboard,
+    enabled: () => true,
+    group: "primary",
+  },
+  modes: {
+    labelKey: "pressay.sidebar.modes",
+    labelDefault: "Modes",
+    icon: Layers3,
+    component: ModesSettings,
+    enabled: () => true,
+    group: "primary",
+  },
+  dictionary: {
+    labelKey: "pressay.sidebar.dictionary",
+    labelDefault: "Dictionary",
+    icon: BookOpen,
+    component: DictionarySettings,
+    enabled: () => true,
+    group: "primary",
+  },
   general: {
-    labelKey: "sidebar.general",
-    icon: HandyHand,
+    labelKey: "pressay.sidebar.settings",
+    labelDefault: "Settings",
+    icon: PressayMark,
     component: GeneralSettings,
     enabled: () => true,
+    group: "primary",
   },
   history: {
     labelKey: "sidebar.history",
+    labelDefault: "History",
     icon: History,
     component: HistorySettings,
+    enabled: (settings) => settings?.history_enabled ?? false,
+    group: "primary",
+  },
+  account: {
+    labelKey: "sidebar.account",
+    labelDefault: "Account",
+    icon: UserRound,
+    component: AccountSettings,
     enabled: () => true,
+    group: "primary",
   },
   models: {
     labelKey: "sidebar.models",
+    labelDefault: "Models",
     icon: Cpu,
     component: ModelsSettings,
     enabled: () => true,
+    group: "secondary",
   },
   advanced: {
     labelKey: "sidebar.advanced",
+    labelDefault: "Advanced",
     icon: Cog,
     component: AdvancedSettings,
     enabled: () => true,
+    group: "secondary",
   },
   postprocessing: {
     labelKey: "sidebar.postProcessing",
+    labelDefault: "Providers",
     icon: Sparkles,
     component: PostProcessingSettings,
     enabled: (settings) => settings?.post_process_enabled ?? false,
+    group: "secondary",
   },
   debug: {
     labelKey: "sidebar.debug",
+    labelDefault: "Debug",
     icon: FlaskConical,
     component: DebugSettings,
-    enabled: (settings) => settings?.debug_mode ?? false,
+    enabled: (settings) =>
+      import.meta.env.DEV && (settings?.debug_mode ?? false),
+    group: "secondary",
   },
   about: {
     labelKey: "sidebar.about",
+    labelDefault: "About",
     icon: Info,
     component: AboutSettings,
     enabled: () => true,
+    group: "secondary",
   },
 } as const satisfies Record<string, SectionConfig>;
 
@@ -93,34 +157,46 @@ export const Sidebar: React.FC<SidebarProps> = ({
     .map(([id, config]) => ({ id: id as SidebarSection, ...config }));
 
   return (
-    <div className="flex flex-col w-40 h-full border-e border-mid-gray/20 items-center px-2">
-      <HandyTextLogo width={120} className="m-4" />
-      <div className="flex flex-col w-full items-center gap-1 pt-2 border-t border-mid-gray/20">
-        {availableSections.map((section) => {
+    <aside className="product-sidebar">
+      <div className="sidebar-brand">
+        <PressayWordmark width={118} />
+        <span className="beta-label">BETA</span>
+      </div>
+      <nav className="sidebar-navigation" aria-label="Primary">
+        {availableSections.map((section, index) => {
           const Icon = section.icon;
           const isActive = activeSection === section.id;
+          const startsSecondary =
+            section.group === "secondary" &&
+            availableSections[index - 1]?.group !== "secondary";
 
           return (
-            <div
-              key={section.id}
-              className={`flex gap-2 items-center p-2 w-full rounded-lg cursor-pointer transition-colors ${
-                isActive
-                  ? "bg-logo-primary/80"
-                  : "hover:bg-mid-gray/20 hover:opacity-100 opacity-85"
-              }`}
-              onClick={() => onSectionChange(section.id)}
-            >
-              <Icon width={24} height={24} className="shrink-0" />
-              <p
-                className="text-sm font-medium truncate"
-                title={t(section.labelKey)}
+            <React.Fragment key={section.id}>
+              {startsSecondary ? (
+                <div className="sidebar-divider" aria-hidden="true" />
+              ) : null}
+              <button
+                type="button"
+                className={`sidebar-item ${isActive ? "is-active" : ""}`}
+                onClick={() => onSectionChange(section.id)}
+                aria-current={isActive ? "page" : undefined}
               >
-                {t(section.labelKey)}
-              </p>
-            </div>
+                <Icon width={18} height={18} className="shrink-0" />
+                <span
+                  className="truncate"
+                  title={t(section.labelKey, {
+                    defaultValue: section.labelDefault,
+                  })}
+                >
+                  {t(section.labelKey, {
+                    defaultValue: section.labelDefault,
+                  })}
+                </span>
+              </button>
+            </React.Fragment>
           );
         })}
-      </div>
-    </div>
+      </nav>
+    </aside>
   );
 };

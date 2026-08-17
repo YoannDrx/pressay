@@ -1,0 +1,17 @@
+Pressay
+Copyright (c) 2026 Yoann Andrieux
+
+Pressay is derived from Handy, originally created by CJ Pais and distributed
+under the MIT License:
+
+  https://github.com/cjpais/Handy
+
+The Handy copyright and MIT permission notice are preserved in LICENSE. The
+Handy name, logo, icon, and other upstream brand assets are not used as Pressay
+branding and no endorsement or affiliation is implied.
+
+Third-party model and dependency notices must be generated and reviewed before
+each production release. A model is not eligible for the default Pressay
+catalogue until its redistribution and commercial-use terms are documented.
+The launch catalogue and its attribution evidence are documented in
+docs/MODELS.md.

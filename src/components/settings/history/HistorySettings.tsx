@@ -1,7 +1,13 @@
 import React, { useCallback, useEffect, useRef, useState } from "react";
-import { convertFileSrc } from "@tauri-apps/api/core";
-import { readFile } from "@tauri-apps/plugin-fs";
-import { Check, Copy, FolderOpen, RotateCcw, Star, Trash2 } from "lucide-react";
+import {
+  Archive,
+  Check,
+  Copy,
+  FolderOpen,
+  RotateCcw,
+  Star,
+  Trash2,
+} from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
 import {
@@ -10,7 +16,6 @@ import {
   type HistoryEntry,
   type HistoryUpdatePayload,
 } from "@/bindings";
-import { useOsType } from "@/hooks/useOsType";
 import { formatDateTime } from "@/utils/dateFormat";
 import { AudioPlayer, AudioPlayerGroup } from "../../ui/AudioPlayer";
 import { Button } from "../../ui/Button";
@@ -61,7 +66,6 @@ const OpenRecordingsButton: React.FC<OpenRecordingsButtonProps> = ({
 
 export const HistorySettings: React.FC = () => {
   const { t } = useTranslation();
-  const osType = useOsType();
   const [entries, setEntries] = useState<HistoryEntry[]>([]);
   const [loading, setLoading] = useState(true);
   const [hasMore, setHasMore] = useState(true);
@@ -180,26 +184,30 @@ export const HistorySettings: React.FC = () => {
     }
   };
 
-  const getAudioUrl = useCallback(
-    async (fileName: string) => {
-      try {
-        const result = await commands.getAudioFilePath(fileName);
-        if (result.status === "ok") {
-          if (osType === "linux") {
-            const fileData = await readFile(result.data);
-            const blob = new Blob([fileData], { type: "audio/wav" });
-            return URL.createObjectURL(blob);
-          }
-          return convertFileSrc(result.data, "asset");
-        }
-        return null;
-      } catch (error) {
-        console.error("Failed to get audio file path:", error);
-        return null;
+  const toggleAudioSaved = async (id: number) => {
+    const result = await commands.toggleHistoryAudioSaved(id);
+    if (result.status === "ok") {
+      setEntries((current) =>
+        current.map((entry) => (entry.id === id ? result.data : entry)),
+      );
+    }
+  };
+
+  const getAudioUrl = useCallback(async (fileName: string) => {
+    try {
+      const result = await commands.getHistoryAudio(fileName);
+      if (result.status === "ok") {
+        const blob = new Blob([new Uint8Array(result.data)], {
+          type: "audio/wav",
+        });
+        return URL.createObjectURL(blob);
       }
-    },
-    [osType],
-  );
+      return null;
+    } catch (error) {
+      console.error("Failed to get audio file path:", error);
+      return null;
+    }
+  }, []);
 
   const deleteAudioEntry = async (id: number) => {
     // Optimistically remove
@@ -234,6 +242,28 @@ export const HistorySettings: React.FC = () => {
     }
   };
 
+  const deleteAllHistory = async () => {
+    const confirmed = window.confirm(
+      t("settings.history.deleteAllConfirmation", {
+        defaultValue:
+          "Delete all local history, encrypted recordings, and the history encryption key? This cannot be undone.",
+      }),
+    );
+    if (!confirmed) return;
+
+    const result = await commands.deleteAllHistory();
+    if (result.status === "error") {
+      toast.error(
+        t("settings.history.deleteAllError", {
+          defaultValue: "The local history could not be deleted.",
+        }),
+      );
+      return;
+    }
+    setEntries([]);
+    setHasMore(false);
+  };
+
   let content: React.ReactNode;
 
   if (loading) {
@@ -258,6 +288,7 @@ export const HistorySettings: React.FC = () => {
                 key={entry.id}
                 entry={entry}
                 onToggleSaved={() => toggleSaved(entry.id)}
+                onToggleAudioSaved={() => toggleAudioSaved(entry.id)}
                 onCopyText={() => copyToClipboard(entry.transcription_text)}
                 getAudioUrl={getAudioUrl}
                 deleteAudio={deleteAudioEntry}
@@ -281,10 +312,17 @@ export const HistorySettings: React.FC = () => {
               {t("settings.history.title")}
             </h2>
           </div>
-          <OpenRecordingsButton
-            onClick={openRecordingsFolder}
-            label={t("settings.history.openFolder")}
-          />
+          <div className="flex items-center gap-2">
+            <Button onClick={deleteAllHistory} variant="danger-ghost" size="sm">
+              {t("settings.history.deleteAll", {
+                defaultValue: "Delete now",
+              })}
+            </Button>
+            <OpenRecordingsButton
+              onClick={openRecordingsFolder}
+              label={t("settings.history.openFolder")}
+            />
+          </div>
         </div>
         <div className="bg-background border border-mid-gray/20 rounded-lg overflow-visible">
           {content}
@@ -297,6 +335,7 @@ export const HistorySettings: React.FC = () => {
 interface HistoryEntryProps {
   entry: HistoryEntry;
   onToggleSaved: () => void;
+  onToggleAudioSaved: () => void;
   onCopyText: () => void;
   getAudioUrl: (fileName: string) => Promise<string | null>;
   deleteAudio: (id: number) => Promise<void>;
@@ -306,6 +345,7 @@ interface HistoryEntryProps {
 const HistoryEntryComponent: React.FC<HistoryEntryProps> = ({
   entry,
   onToggleSaved,
+  onToggleAudioSaved,
   onCopyText,
   getAudioUrl,
   deleteAudio,
@@ -387,6 +427,20 @@ const HistoryEntryComponent: React.FC<HistoryEntryProps> = ({
               fill={entry.saved ? "currentColor" : "none"}
             />
           </IconButton>
+          {entry.audio_available && (
+            <IconButton
+              onClick={onToggleAudioSaved}
+              disabled={retrying}
+              active={entry.audio_saved}
+              title={t("settings.history.preserveAudio", {
+                defaultValue: entry.audio_saved
+                  ? "Use the normal audio retention"
+                  : "Preserve this recording",
+              })}
+            >
+              <Archive width={16} height={16} />
+            </IconButton>
+          )}
           <IconButton
             onClick={handleRetranscribe}
             disabled={retrying}
@@ -441,7 +495,9 @@ const HistoryEntryComponent: React.FC<HistoryEntryProps> = ({
             : t("settings.history.transcriptionFailed")}
       </p>
 
-      <AudioPlayer onLoadRequest={handleLoadAudio} className="w-full" />
+      {entry.audio_available && (
+        <AudioPlayer onLoadRequest={handleLoadAudio} className="w-full" />
+      )}
     </div>
   );
 };

@@ -1,8 +1,8 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
-  "productName": "Handy",
-  "version": "0.9.5",
-  "identifier": "com.pais.handy",
+  "productName": "Pressay",
+  "version": "2.0.0-beta.1",
+  "identifier": "app.pressay.desktop",
   "build": {
     "beforeDevCommand": "bun run dev",
     "devUrl": "http://localhost:1420",
@@ -10,23 +10,33 @@
     "frontendDist": "../dist"
   },
   "app": {
-    "macOSPrivateApi": true,
+    "macOSPrivateApi": false,
     "windows": [],
     "security": {
-      "csp": null,
+      "csp": {
+        "default-src": "'self' customprotocol: asset:",
+        "connect-src": "ipc: http://ipc.localhost",
+        "font-src": "'self' data:",
+        "img-src": "'self' asset: http://asset.localhost blob: data:",
+        "media-src": "'self' asset: http://asset.localhost blob:",
+        "object-src": "'none'",
+        "script-src": "'self'",
+        "style-src": "'self' 'unsafe-inline'"
+      },
       "assetProtocol": {
         "enable": true,
         "scope": {
-          "allow": ["**"],
-          "requireLiteralLeadingDot": false
+          "allow": ["$APPDATA/recordings/**/*"],
+          "deny": ["$APPDATA/*.json", "$APPDATA/*.db"],
+          "requireLiteralLeadingDot": true
         }
       }
     }
   },
   "bundle": {
     "active": true,
-    "createUpdaterArtifacts": true,
-    "targets": "all",
+    "createUpdaterArtifacts": false,
+    "targets": ["app", "dmg"],
     "resources": ["resources/**/*"],
     "license": "MIT",
     "icon": [
@@ -39,7 +49,7 @@
     "macOS": {
       "files": {},
       "hardenedRuntime": true,
-      "minimumSystemVersion": "10.15",
+      "minimumSystemVersion": "14.0",
       "signingIdentity": "-",
       "entitlements": "Entitlements.plist"
     },
@@ -47,7 +57,7 @@
       "deb": {
         "depends": ["libgtk-layer-shell0", "libopenblas0"],
         "files": {
-          "/usr/lib/Handy": "transcribe-libs"
+          "/usr/lib/Pressay": "transcribe-libs"
         }
       },
       "rpm": {
@@ -59,7 +69,7 @@
           "type": "none"
         },
         "files": {
-          "/usr/lib/Handy": "transcribe-libs"
+          "/usr/lib/Pressay": "transcribe-libs"
         }
       },
       "appimage": {
@@ -70,18 +80,20 @@
       }
     },
     "windows": {
-      "signCommand": "trusted-signing-cli -e https://eus.codesigning.azure.net/ -a CJ-Signing -c cjpais-dev -d Handy %1",
       "nsis": {
         "template": "nsis/installer.nsi"
       }
     }
   },
   "plugins": {
+    "deep-link": {
+      "desktop": {
+        "schemes": ["pressay"]
+      }
+    },
     "updater": {
-      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IEJBQjcyMDk1MjA2NjAxRjkKUldUNUFXWWdsU0MzdXRRZi8zYzhqV2FaNUVDbDd2Rk5VM1IvWWowVXdmRFNKQ1BrMXF5RFFsLy8K",
-      "endpoints": [
-        "https://github.com/cjpais/Handy/releases/latest/download/latest.json"
-      ]
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDhFRkJEMjdGMjJGMzI2QTIKUldTaUp2TWlmOUw3ams0WFYyNVowK0xSU0hEYndteU50SW10SEVyZnhnMk9YVTBaQ0FSRFhpQzEK",
+      "endpoints": ["https://updates.press-say.app/latest.json"]
     }
   }
 }

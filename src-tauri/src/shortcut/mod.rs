@@ -1066,7 +1066,10 @@ pub fn change_post_process_api_key_setting(
 ) -> Result<(), String> {
     let mut settings = settings::get_settings(&app);
     validate_provider_exists(&settings, &provider_id)?;
-    settings.post_process_api_keys.insert(provider_id, api_key);
+    crate::secrets::set_provider_api_key(&provider_id, &api_key)?;
+    settings
+        .post_process_api_keys_configured
+        .insert(provider_id, !api_key.is_empty());
     settings::write_settings(&app, settings);
     Ok(())
 }
@@ -1198,12 +1201,8 @@ pub async fn fetch_post_process_models(
         }
     }
 
-    // Get API key
-    let api_key = settings
-        .post_process_api_keys
-        .get(&provider_id)
-        .cloned()
-        .unwrap_or_default();
+    // Read the API key only in the native process and only for this request.
+    let api_key = crate::secrets::get_provider_api_key(&provider_id)?.unwrap_or_default();
 
     // Skip fetching if no API key for providers that typically need one
     if api_key.trim().is_empty() && provider.id != "custom" {

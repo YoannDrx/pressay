@@ -3,9 +3,12 @@ use serde::de::{self, Visitor};
 use serde::{Deserialize, Deserializer, Serialize};
 use specta::Type;
 use std::collections::HashMap;
-use std::fmt;
 use tauri::AppHandle;
 use tauri_plugin_store::StoreExt;
+
+use crate::productivity::{
+    builtin_modes, dictionary_entries_from_legacy_words, AppProfile, DictionaryEntry, PressayMode,
+};
 
 pub const APPLE_INTELLIGENCE_PROVIDER_ID: &str = "apple_intelligence";
 pub const APPLE_INTELLIGENCE_DEFAULT_MODEL_ID: &str = "Apple Intelligence";
@@ -184,6 +187,15 @@ pub enum RecordingRetentionPeriod {
 
 #[derive(Serialize, Deserialize, Debug, Clone, Copy, PartialEq, Eq, Type)]
 #[serde(rename_all = "snake_case")]
+pub enum HistoryRetentionPeriod {
+    Hours24,
+    Days7,
+    Days30,
+    Forever,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone, Copy, PartialEq, Eq, Type)]
+#[serde(rename_all = "snake_case")]
 pub enum KeyboardImplementation {
     Tauri,
     HandyKeys,
@@ -301,34 +313,6 @@ pub enum OrtAcceleratorSetting {
     Rocm,
 }
 
-#[derive(Clone, Serialize, Deserialize, Type)]
-#[serde(transparent)]
-pub(crate) struct SecretMap(HashMap<String, String>);
-
-impl fmt::Debug for SecretMap {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        let redacted: HashMap<&String, &str> = self
-            .0
-            .iter()
-            .map(|(k, v)| (k, if v.is_empty() { "" } else { "[REDACTED]" }))
-            .collect();
-        redacted.fmt(f)
-    }
-}
-
-impl std::ops::Deref for SecretMap {
-    type Target = HashMap<String, String>;
-    fn deref(&self) -> &Self::Target {
-        &self.0
-    }
-}
-
-impl std::ops::DerefMut for SecretMap {
-    fn deref_mut(&mut self) -> &mut Self::Target {
-        &mut self.0
-    }
-}
-
 /* still handy for composing the initial JSON in the store ------------- */
 /// The container-level `serde(default)` (backed by the `Default` impl below)
 /// guarantees every field — including ones added in the future — falls back to
@@ -397,6 +381,24 @@ pub struct AppSettings {
     pub log_level: LogLevel,
     #[serde(default)]
     pub custom_words: Vec<String>,
+    #[serde(default = "builtin_modes")]
+    pub pressay_modes: Vec<PressayMode>,
+    #[serde(default = "default_active_mode_id")]
+    pub active_mode_id: String,
+    #[serde(default)]
+    pub app_profiles: Vec<AppProfile>,
+    #[serde(default)]
+    pub dictionary_entries: Vec<DictionaryEntry>,
+    /// Non-secret Cloud routing and device metadata. Reusable session tokens,
+    /// E2EE keys and recovery material live only in macOS Keychain.
+    #[serde(default = "default_pressay_cloud_api_url")]
+    pub pressay_cloud_api_url: String,
+    #[serde(default)]
+    pub pressay_cloud_device_identifier: String,
+    #[serde(default)]
+    pub pressay_cloud_account_id: Option<String>,
+    #[serde(default)]
+    pub pressay_cloud_device_id: Option<String>,
     #[serde(default)]
     pub model_unload_timeout: ModelUnloadTimeout,
     #[serde(default = "default_word_correction_threshold")]
@@ -405,6 +407,12 @@ pub struct AppSettings {
     pub history_limit: usize,
     #[serde(default = "default_recording_retention_period")]
     pub recording_retention_period: RecordingRetentionPeriod,
+    #[serde(default = "default_history_enabled")]
+    pub history_enabled: bool,
+    #[serde(default = "default_history_text_retention")]
+    pub history_text_retention: HistoryRetentionPeriod,
+    #[serde(default = "default_history_audio_retention")]
+    pub history_audio_retention: HistoryRetentionPeriod,
     #[serde(default)]
     pub paste_method: PasteMethod,
     #[serde(default)]
@@ -419,8 +427,10 @@ pub struct AppSettings {
     pub post_process_provider_id: String,
     #[serde(default = "default_post_process_providers")]
     pub post_process_providers: Vec<PostProcessProvider>,
-    #[serde(default = "default_post_process_api_keys")]
-    pub post_process_api_keys: SecretMap,
+    /// Presence metadata only. API key values live exclusively in macOS
+    /// Keychain and are never serialized into settings or sent to the webview.
+    #[serde(default = "default_post_process_api_keys_configured")]
+    pub post_process_api_keys_configured: HashMap<String, bool>,
     #[serde(default = "default_post_process_models")]
     pub post_process_models: HashMap<String, String>,
     #[serde(default = "default_post_process_prompts")]
@@ -481,10 +491,25 @@ fn default_model() -> String {
     "".to_string()
 }
 
-const CURRENT_SETTINGS_SCHEMA_VERSION: u32 = 1;
+const CURRENT_SETTINGS_SCHEMA_VERSION: u32 = 6;
 
 fn default_settings_schema_version() -> u32 {
     CURRENT_SETTINGS_SCHEMA_VERSION
+}
+
+fn default_active_mode_id() -> String {
+    "faithful".to_string()
+}
+
+fn default_pressay_cloud_api_url() -> String {
+    if let Some(configured) = option_env!("PRESSAY_CLOUD_API_URL") {
+        return configured.trim_end_matches('/').to_string();
+    }
+    if env!("CARGO_PKG_VERSION").contains('-') {
+        "https://pressay-cloud-staging.vercel.app".to_string()
+    } else {
+        "https://api.press-say.app".to_string()
+    }
 }
 
 fn default_push_to_talk() -> bool {
@@ -543,7 +568,7 @@ fn default_vad_enabled() -> bool {
 }
 
 fn default_filler_word_removal_enabled() -> bool {
-    true
+    false
 }
 
 fn default_debug_mode() -> bool {
@@ -571,7 +596,19 @@ fn default_auto_submit() -> bool {
 }
 
 fn default_history_limit() -> usize {
-    5
+    0
+}
+
+fn default_history_enabled() -> bool {
+    false
+}
+
+fn default_history_text_retention() -> HistoryRetentionPeriod {
+    HistoryRetentionPeriod::Days30
+}
+
+fn default_history_audio_retention() -> HistoryRetentionPeriod {
+    HistoryRetentionPeriod::Hours24
 }
 
 fn default_recording_retention_period() -> RecordingRetentionPeriod {
@@ -699,12 +736,12 @@ fn default_post_process_providers() -> Vec<PostProcessProvider> {
     providers
 }
 
-fn default_post_process_api_keys() -> SecretMap {
+fn default_post_process_api_keys_configured() -> HashMap<String, bool> {
     let mut map = HashMap::new();
     for provider in default_post_process_providers() {
-        map.insert(provider.id, String::new());
+        map.insert(provider.id, false);
     }
-    SecretMap(map)
+    map
 }
 
 fn default_model_for_provider(provider_id: &str) -> String {
@@ -770,10 +807,13 @@ fn ensure_post_process_defaults(settings: &mut AppSettings) -> bool {
             }
         }
 
-        if !settings.post_process_api_keys.contains_key(&provider.id) {
+        if !settings
+            .post_process_api_keys_configured
+            .contains_key(&provider.id)
+        {
             settings
-                .post_process_api_keys
-                .insert(provider.id.clone(), String::new());
+                .post_process_api_keys_configured
+                .insert(provider.id.clone(), false);
             changed = true;
         }
 
@@ -876,10 +916,21 @@ pub fn get_default_settings() -> AppSettings {
         debug_mode: false,
         log_level: default_log_level(),
         custom_words: Vec::new(),
+        pressay_modes: builtin_modes(),
+        active_mode_id: default_active_mode_id(),
+        app_profiles: Vec::new(),
+        dictionary_entries: Vec::new(),
+        pressay_cloud_api_url: default_pressay_cloud_api_url(),
+        pressay_cloud_device_identifier: String::new(),
+        pressay_cloud_account_id: None,
+        pressay_cloud_device_id: None,
         model_unload_timeout: ModelUnloadTimeout::default(),
         word_correction_threshold: default_word_correction_threshold(),
         history_limit: default_history_limit(),
         recording_retention_period: default_recording_retention_period(),
+        history_enabled: default_history_enabled(),
+        history_text_retention: default_history_text_retention(),
+        history_audio_retention: default_history_audio_retention(),
         paste_method: PasteMethod::default(),
         clipboard_handling: ClipboardHandling::default(),
         auto_submit: default_auto_submit(),
@@ -887,7 +938,7 @@ pub fn get_default_settings() -> AppSettings {
         post_process_enabled: default_post_process_enabled(),
         post_process_provider_id: default_post_process_provider_id(),
         post_process_providers: default_post_process_providers(),
-        post_process_api_keys: default_post_process_api_keys(),
+        post_process_api_keys_configured: default_post_process_api_keys_configured(),
         post_process_models: default_post_process_models(),
         post_process_prompts: default_post_process_prompts(),
         post_process_selected_prompt_id: None,
@@ -960,7 +1011,9 @@ pub fn get_settings(app: &AppHandle) -> AppSettings {
 
     // Settings reads also persist one-time migrations. Migration helpers are
     // idempotent, so this converges after the first read of an older store.
-    let mut settings = if let Some(settings_value) = store.get("settings") {
+    let (mut settings, mut updated, legacy_source) = if let Some(settings_value) =
+        store.get("settings")
+    {
         let (mut settings, mut updated) =
             match serde_json::from_value::<AppSettings>(settings_value.clone()) {
                 Ok(settings) => (settings, false),
@@ -974,6 +1027,15 @@ pub fn get_settings(app: &AppHandle) -> AppSettings {
             updated = true;
         }
 
+        let preserve_legacy = match migrate_legacy_api_keys(&settings_value, &mut settings) {
+            LegacyApiKeyMigration::NotNeeded => false,
+            LegacyApiKeyMigration::Complete => {
+                updated = true;
+                false
+            }
+            LegacyApiKeyMigration::Deferred => true,
+        };
+
         // Merge in any bindings added since this store was written.
         for (key, value) in get_default_settings().bindings {
             if let std::collections::hash_map::Entry::Vacant(entry) = settings.bindings.entry(key) {
@@ -983,22 +1045,133 @@ pub fn get_settings(app: &AppHandle) -> AppSettings {
             }
         }
 
-        if updated {
-            store.set("settings", serde_json::to_value(&settings).unwrap());
-        }
-
-        settings
+        (
+            settings,
+            updated,
+            preserve_legacy.then_some(settings_value.clone()),
+        )
     } else {
         let default_settings = get_default_settings();
-        store.set("settings", serde_json::to_value(&default_settings).unwrap());
-        default_settings
+        (default_settings, true, None)
     };
 
     if ensure_post_process_defaults(&mut settings) {
-        store.set("settings", serde_json::to_value(&settings).unwrap());
+        updated = true;
+    }
+
+    if refresh_api_key_statuses(&mut settings) {
+        updated = true;
+    }
+
+    if updated {
+        store.set(
+            "settings",
+            settings_value_for_store(&settings, legacy_source.as_ref()),
+        );
     }
 
     settings
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum LegacyApiKeyMigration {
+    NotNeeded,
+    Complete,
+    Deferred,
+}
+
+fn legacy_api_keys(settings_value: &serde_json::Value) -> Option<Vec<(String, String)>> {
+    let value = settings_value.get("post_process_api_keys")?;
+    let Some(map) = value.as_object() else {
+        return Some(Vec::new());
+    };
+
+    Some(
+        map.iter()
+            .filter_map(|(provider_id, value)| {
+                value
+                    .as_str()
+                    .filter(|api_key| !api_key.is_empty())
+                    .map(|api_key| (provider_id.clone(), api_key.to_string()))
+            })
+            .collect(),
+    )
+}
+
+fn migrate_legacy_api_keys(
+    settings_value: &serde_json::Value,
+    settings: &mut AppSettings,
+) -> LegacyApiKeyMigration {
+    let Some(keys) = legacy_api_keys(settings_value) else {
+        return LegacyApiKeyMigration::NotNeeded;
+    };
+
+    let mut failed = false;
+    for (provider_id, api_key) in keys {
+        match crate::secrets::set_provider_api_key(&provider_id, &api_key) {
+            Ok(()) => {
+                settings
+                    .post_process_api_keys_configured
+                    .insert(provider_id, true);
+            }
+            Err(_) => {
+                // Never log the key or the platform error: both can contain
+                // environment details. The provider identifier is sufficient.
+                warn!(
+                    "Deferring plaintext API key migration for provider '{}'",
+                    provider_id
+                );
+                failed = true;
+            }
+        }
+    }
+
+    if failed {
+        LegacyApiKeyMigration::Deferred
+    } else {
+        LegacyApiKeyMigration::Complete
+    }
+}
+
+fn refresh_api_key_statuses(settings: &mut AppSettings) -> bool {
+    let mut updated = false;
+    for provider in &settings.post_process_providers {
+        if provider.id == APPLE_INTELLIGENCE_PROVIDER_ID
+            || settings
+                .post_process_api_keys_configured
+                .get(&provider.id)
+                .copied()
+                .unwrap_or(false)
+        {
+            continue;
+        }
+
+        if matches!(
+            crate::secrets::get_provider_api_key(&provider.id),
+            Ok(Some(_))
+        ) {
+            settings
+                .post_process_api_keys_configured
+                .insert(provider.id.clone(), true);
+            updated = true;
+        }
+    }
+
+    updated
+}
+
+fn settings_value_for_store(
+    settings: &AppSettings,
+    legacy_source: Option<&serde_json::Value>,
+) -> serde_json::Value {
+    let mut value = serde_json::to_value(settings).expect("settings must serialize");
+    if let Some(legacy) = legacy_source.and_then(|source| source.get("post_process_api_keys")) {
+        value
+            .as_object_mut()
+            .expect("settings serialize to an object")
+            .insert("post_process_api_keys".to_string(), legacy.clone());
+    }
+    value
 }
 
 /// Rebuilds settings from a store value that failed to deserialize as a whole.
@@ -1076,6 +1249,55 @@ fn apply_settings_migrations(
             settings.transcribe_accelerator = TranscribeAcceleratorSetting::Auto;
             settings.transcribe_gpu_device = default_transcribe_gpu_device();
         }
+        updated = true;
+    }
+
+    if stored_schema_version < 3 && settings_value.get("history_enabled").is_none() {
+        // Preserve the old opt-in semantics once: a positive legacy limit meant
+        // that the user had explicitly enabled history.
+        settings.history_enabled = settings.history_limit > 0;
+        updated = true;
+    }
+
+    if stored_schema_version < 4
+        && settings_value.get("dictionary_entries").is_none()
+        && !settings.custom_words.is_empty()
+    {
+        settings.dictionary_entries = dictionary_entries_from_legacy_words(&settings.custom_words);
+        updated = true;
+    }
+
+    if stored_schema_version < 5 {
+        // Pressay modes now own filler removal. "Fidèle" must never delete
+        // spoken words, while the built-in "Propre" mode carries an explicit
+        // remove_fillers step. Retire the inherited global default once.
+        settings.filler_word_removal_enabled = false;
+        updated = true;
+    }
+
+    // Built-ins are immutable product definitions. Re-add any missing entry
+    // while preserving every custom mode from the store.
+    let mut known_mode_ids = settings
+        .pressay_modes
+        .iter()
+        .map(|mode| mode.id.clone())
+        .collect::<std::collections::HashSet<_>>();
+    for builtin in builtin_modes() {
+        if known_mode_ids.insert(builtin.id.clone()) {
+            settings.pressay_modes.push(builtin);
+            updated = true;
+        }
+    }
+    if !settings
+        .pressay_modes
+        .iter()
+        .any(|mode| mode.id == settings.active_mode_id)
+    {
+        settings.active_mode_id = default_active_mode_id();
+        updated = true;
+    }
+
+    if stored_schema_version < u64::from(CURRENT_SETTINGS_SCHEMA_VERSION) {
         settings.settings_schema_version = CURRENT_SETTINGS_SCHEMA_VERSION;
         updated = true;
     }
@@ -1106,7 +1328,14 @@ pub fn write_settings(app: &AppHandle, settings: AppSettings) {
         .store(crate::portable::store_path(SETTINGS_STORE_PATH))
         .expect("Failed to initialize store");
 
-    store.set("settings", serde_json::to_value(&settings).unwrap());
+    let existing = store.get("settings");
+    let legacy_source = existing
+        .as_ref()
+        .filter(|value| legacy_api_keys(value).is_some());
+    store.set(
+        "settings",
+        settings_value_for_store(&settings, legacy_source),
+    );
 }
 
 pub fn get_bindings(app: &AppHandle) -> HashMap<String, ShortcutBinding> {
@@ -1123,14 +1352,16 @@ pub fn get_stored_binding(app: &AppHandle, id: &str) -> ShortcutBinding {
     binding
 }
 
-pub fn get_history_limit(app: &AppHandle) -> usize {
-    let settings = get_settings(app);
-    settings.history_limit
+pub fn get_history_enabled(app: &AppHandle) -> bool {
+    get_settings(app).history_enabled
 }
 
-pub fn get_recording_retention_period(app: &AppHandle) -> RecordingRetentionPeriod {
-    let settings = get_settings(app);
-    settings.recording_retention_period
+pub fn get_history_text_retention(app: &AppHandle) -> HistoryRetentionPeriod {
+    get_settings(app).history_text_retention
+}
+
+pub fn get_history_audio_retention(app: &AppHandle) -> HistoryRetentionPeriod {
+    get_settings(app).history_audio_retention
 }
 
 #[cfg(test)]
@@ -1149,14 +1380,14 @@ mod tests {
             .expect("all AppSettings fields need serde defaults");
         assert!(settings.push_to_talk);
         assert!(!settings.audio_feedback);
-        assert!(settings.filler_word_removal_enabled);
+        assert!(!settings.filler_word_removal_enabled);
         // Bindings default to empty; the load path merges the real defaults in.
         assert!(settings.bindings.is_empty());
     }
 
     /// Frozen snapshot of a real v0.9.0-era settings store, as written to
     /// disk. This pins backwards compatibility: it must always parse strictly
-    /// (no salvage) and require no migration rewrite.
+    /// (no salvage) and migrate forward without losing user-visible settings.
     ///
     /// If a schema change breaks this test, do NOT just update the fixture —
     /// it stands in for the stores on users' machines. Add a
@@ -1164,7 +1395,7 @@ mod tests {
     /// `apply_settings_migrations` so old values keep loading, and only extend
     /// the fixture alongside that.
     #[test]
-    fn frozen_v0_9_store_parses_strictly_without_migration() {
+    fn frozen_v0_9_store_parses_strictly_and_migrates_to_v2() {
         // Note "log_level": 2 — the legacy numeric format, kept deliberately.
         let stored: serde_json::Value = serde_json::from_str(
             r##"{
@@ -1215,7 +1446,7 @@ mod tests {
             "custom_words": ["Handy", "cjpais"],
             "model_unload_timeout": "min5",
             "word_correction_threshold": 0.18,
-            "history_limit": 5,
+            "history_limit": 0,
             "recording_retention_period": "preserve_limit",
             "paste_method": "ctrl_v",
             "clipboard_handling": "dont_modify",
@@ -1267,10 +1498,13 @@ mod tests {
         assert_eq!(settings.bindings["transcribe"].current_binding, "f13");
         assert_eq!(settings.log_level, LogLevel::Debug);
         assert_eq!(settings.sound_theme, SoundTheme::Pop);
-        assert!(settings.filler_word_removal_enabled);
+        assert!(!settings.filler_word_removal_enabled);
 
-        // A current-format store must not be rewritten on every read.
-        assert!(!apply_settings_migrations(&mut settings, &stored));
+        assert!(apply_settings_migrations(&mut settings, &stored));
+        assert_eq!(
+            settings.settings_schema_version,
+            CURRENT_SETTINGS_SCHEMA_VERSION
+        );
     }
 
     #[test]
@@ -1477,31 +1711,120 @@ mod tests {
     }
 
     #[test]
-    fn debug_output_redacts_api_keys() {
+    fn serialized_settings_never_contain_api_key_values() {
         let mut settings = get_default_settings();
         settings
-            .post_process_api_keys
-            .insert("openai".to_string(), "sk-proj-secret-key-12345".to_string());
-        settings.post_process_api_keys.insert(
-            "anthropic".to_string(),
-            "sk-ant-secret-key-67890".to_string(),
-        );
-        settings
-            .post_process_api_keys
-            .insert("empty_provider".to_string(), "".to_string());
+            .post_process_api_keys_configured
+            .insert("openai".to_string(), true);
 
-        let debug_output = format!("{:?}", settings);
-
-        assert!(!debug_output.contains("sk-proj-secret-key-12345"));
-        assert!(!debug_output.contains("sk-ant-secret-key-67890"));
-        assert!(debug_output.contains("[REDACTED]"));
+        let serialized = settings_value_for_store(&settings, None);
+        let output = serde_json::to_string(&serialized).unwrap();
+        assert!(!output.contains("post_process_api_keys\""));
+        assert!(output.contains("post_process_api_keys_configured"));
     }
 
     #[test]
-    fn secret_map_debug_redacts_values() {
-        let map = SecretMap(HashMap::from([("key".into(), "secret".into())]));
-        let out = format!("{:?}", map);
-        assert!(!out.contains("secret"));
-        assert!(out.contains("[REDACTED]"));
+    fn legacy_api_keys_are_extracted_without_exposing_empty_values() {
+        let raw = serde_json::json!({
+            "post_process_api_keys": {
+                "openai": "test-secret-value",
+                "custom": ""
+            }
+        });
+
+        assert_eq!(
+            legacy_api_keys(&raw),
+            Some(vec![(
+                "openai".to_string(),
+                "test-secret-value".to_string()
+            )])
+        );
+    }
+
+    #[test]
+    fn deferred_migration_preserves_the_original_legacy_map_exactly() {
+        let settings = get_default_settings();
+        let raw = serde_json::json!({
+            "post_process_api_keys": {
+                "openai": "test-secret-value"
+            }
+        });
+
+        let stored = settings_value_for_store(&settings, Some(&raw));
+        assert_eq!(
+            stored.get("post_process_api_keys"),
+            raw.get("post_process_api_keys")
+        );
+    }
+
+    #[test]
+    fn history_is_opt_in_with_separate_private_defaults() {
+        let settings = get_default_settings();
+        assert!(!settings.history_enabled);
+        assert_eq!(
+            settings.history_text_retention,
+            HistoryRetentionPeriod::Days30
+        );
+        assert_eq!(
+            settings.history_audio_retention,
+            HistoryRetentionPeriod::Hours24
+        );
+    }
+
+    #[test]
+    fn productivity_defaults_start_in_faithful_local_mode() {
+        let settings = get_default_settings();
+        assert_eq!(settings.active_mode_id, "faithful");
+        assert_eq!(settings.pressay_modes.len(), 5);
+        assert!(settings
+            .pressay_modes
+            .iter()
+            .find(|mode| mode.id == "faithful")
+            .is_some_and(|mode| mode.route == crate::productivity::ProcessingRoute::Local));
+        assert!(settings.app_profiles.is_empty());
+        assert!(settings.dictionary_entries.is_empty());
+    }
+
+    #[test]
+    fn legacy_positive_history_limit_migrates_to_enabled() {
+        let mut settings = get_default_settings();
+        settings.history_limit = 25;
+        let raw = serde_json::json!({
+            "settings_schema_version": 2,
+            "history_limit": 25,
+            "onboarding_completed": false,
+            "whats_new_last_seen_version": default_whats_new_last_seen_version(),
+            "overlay_style": "live"
+        });
+
+        assert!(apply_settings_migrations(&mut settings, &raw));
+        assert!(settings.history_enabled);
+        assert_eq!(settings.settings_schema_version, 6);
+    }
+
+    #[test]
+    fn legacy_custom_words_migrate_to_the_pressay_dictionary_once() {
+        let mut settings = AppSettings {
+            custom_words: vec!["Pressay".into(), "Mac Book Pro".into()],
+            ..get_default_settings()
+        };
+        let raw = serde_json::json!({
+            "settings_schema_version": 3,
+            "custom_words": ["Pressay", "Mac Book Pro"],
+            "onboarding_completed": false,
+            "whats_new_last_seen_version": default_whats_new_last_seen_version(),
+            "overlay_style": "live"
+        });
+
+        assert!(apply_settings_migrations(&mut settings, &raw));
+        assert_eq!(settings.dictionary_entries.len(), 2);
+        assert_eq!(settings.dictionary_entries[0].id, "legacy_0");
+        assert_eq!(settings.dictionary_entries[1].term, "Mac Book Pro");
+        assert_eq!(settings.settings_schema_version, 6);
+
+        let serialized = serde_json::to_value(&settings).unwrap();
+        let before = settings.dictionary_entries.clone();
+        assert!(!apply_settings_migrations(&mut settings, &serialized));
+        assert_eq!(settings.dictionary_entries, before);
     }
 }

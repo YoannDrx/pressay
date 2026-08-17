@@ -5,7 +5,7 @@ import { ChevronDown } from "lucide-react";
 import type { ModelInfo } from "@/bindings";
 import type { ModelCardStatus } from "./ModelCard";
 import ModelCard, { isLegacySource } from "./ModelCard";
-import HandyTextLogo from "../icons/HandyTextLogo";
+import PressayWordmark from "../icons/PressayWordmark";
 import { useModelStore } from "../../stores/modelStore";
 
 interface OnboardingProps {
@@ -33,9 +33,9 @@ const Onboarding: React.FC<OnboardingProps> = ({ onModelSelected }) => {
 
   // Curate the download list: legacy (.bin/ONNX) downloads are deprecated and
   // never shown here (they still appear in the compatible section if already on
-  // disk). The catalog arrives rank-sorted, so the first two recommended models
-  // are the featured picks — currently Parakeet Unified (English) and Nemotron
-  // Streaming (multilingual). Everything else hides behind "Show all".
+  // disk). The catalog arrives rank-sorted, so all three launch presets are
+  // featured: Fast, Polyglot, then Precise. Audited advanced models can later
+  // remain behind "Show all" without changing this onboarding contract.
   const { downloadable, topPicks, otherRecommended, rest } = useMemo(() => {
     const downloadable = models.filter(
       (m: ModelInfo) => !m.is_downloaded && !isLegacySource(m),
@@ -47,8 +47,8 @@ const Onboarding: React.FC<OnboardingProps> = ({ onModelSelected }) => {
     const rest = downloadable.filter((m: ModelInfo) => !m.is_recommended);
     return {
       downloadable,
-      topPicks: recommended.slice(0, 2),
-      otherRecommended: recommended.slice(2),
+      topPicks: recommended.slice(0, 3),
+      otherRecommended: recommended.slice(3),
       rest,
     };
   }, [models]);
@@ -146,7 +146,7 @@ const Onboarding: React.FC<OnboardingProps> = ({ onModelSelected }) => {
   return (
     <div className="h-screen w-screen flex flex-col p-6 gap-4 inset-0">
       <div className="flex flex-col items-center gap-2 shrink-0">
-        <HandyTextLogo width={200} />
+        <PressayWordmark width={200} />
         <p className="text-text/70 max-w-md font-medium mx-auto">
           {t("onboarding.subtitle")}
         </p>

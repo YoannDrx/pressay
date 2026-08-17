@@ -1,9 +1,10 @@
 use crate::audio_toolkit::{
-    apply_custom_words, detect_output_language, normalize_transcription_output,
-    remove_filler_words, OutputLanguageEvidence,
+    apply_custom_words, apply_dictionary_entries, detect_output_language,
+    normalize_transcription_output, remove_filler_words, OutputLanguageEvidence,
 };
 use crate::managers::audio::AudioRecordingManager;
 use crate::managers::model::{EngineType, ModelManager};
+use crate::productivity::dictionary_prompt_terms;
 use crate::settings::{
     get_settings, AppSettings, ModelUnloadTimeout, OrtAcceleratorSetting,
     TranscribeAcceleratorSetting,
@@ -20,8 +21,8 @@ use std::time::{Duration, Instant, SystemTime};
 use tauri::{AppHandle, Emitter, Manager};
 use tauri_specta::Event;
 use transcribe_cpp::{
-    Backend, Feature, Model, ModelOptions, RunExtension, RunOptions, Session, StreamOptions, Task,
-    WhisperRunOptions,
+    Backend, CancelToken, Feature, Model, ModelOptions, RunExtension, RunOptions, Session,
+    StreamOptions, Task, WhisperRunOptions,
 };
 use transcribe_rs::{
     onnx::{
@@ -224,6 +225,23 @@ struct StreamWorkerGuard {
     stream_active: Arc<AtomicBool>,
 }
 
+/// One cancellable native inference scope. The monotonically increasing ID
+/// prevents an older guard from clearing a newer operation's token.
+struct ActiveCancelGuard {
+    id: u64,
+    active: Arc<Mutex<Option<(u64, CancelToken)>>>,
+}
+
+impl Drop for ActiveCancelGuard {
+    fn drop(&mut self) {
+        if let Ok(mut active) = self.active.lock() {
+            if active.as_ref().is_some_and(|(id, _)| *id == self.id) {
+                *active = None;
+            }
+        }
+    }
+}
+
 impl Drop for StreamWorkerGuard {
     fn drop(&mut self) {
         if self.active_stream_worker.load(Ordering::Acquire) == self.worker_id {
@@ -255,6 +273,7 @@ pub struct TranscriptionManager {
     watcher_handle: Arc<Mutex<Option<thread::JoinHandle<()>>>>,
     is_loading: Arc<Mutex<bool>>,
     loading_condvar: Arc<Condvar>,
+    requested_model_id: Arc<Mutex<Option<String>>>,
     reload_model_on_next_use: Arc<AtomicBool>,
     /// Routes real-time audio frames to the active streaming worker; see
     /// [`StreamRouter`]. Shared with the audio recorder so per-frame feeds skip
@@ -277,6 +296,20 @@ pub struct TranscriptionManager {
     /// `is_model_loaded()` consults this so the model still reports "loaded"
     /// while the worker holds it.
     active_engine_lease: Arc<AtomicU64>,
+    /// Cooperative cancellation for the transcribe-cpp run/stream currently
+    /// holding the native session. ONNX engines are still discarded at the
+    /// action layer when cancellation is requested.
+    active_cancel: Arc<Mutex<Option<(u64, CancelToken)>>>,
+    next_cancel_id: Arc<AtomicU64>,
+}
+
+fn requested_model_requires_load(
+    current_model: Option<&str>,
+    requested_model: &str,
+    model_is_loaded: bool,
+    force_reload: bool,
+) -> bool {
+    force_reload || !model_is_loaded || current_model != Some(requested_model)
 }
 
 impl TranscriptionManager {
@@ -291,12 +324,15 @@ impl TranscriptionManager {
             watcher_handle: Arc::new(Mutex::new(None)),
             is_loading: Arc::new(Mutex::new(false)),
             loading_condvar: Arc::new(Condvar::new()),
+            requested_model_id: Arc::new(Mutex::new(None)),
             reload_model_on_next_use: Arc::new(AtomicBool::new(false)),
             router: Arc::new(StreamRouter::new()),
             stream_active: Arc::new(AtomicBool::new(false)),
             next_stream_worker_id: Arc::new(AtomicU64::new(1)),
             active_stream_worker: Arc::new(AtomicU64::new(0)),
             active_engine_lease: Arc::new(AtomicU64::new(0)),
+            active_cancel: Arc::new(Mutex::new(None)),
+            next_cancel_id: Arc::new(AtomicU64::new(1)),
         };
 
         // Start the idle watcher
@@ -381,10 +417,41 @@ impl TranscriptionManager {
         })
     }
 
+    fn begin_cancel_scope(&self) -> (ActiveCancelGuard, CancelToken) {
+        let id = self.next_cancel_id.fetch_add(1, Ordering::Relaxed);
+        let token = CancelToken::new();
+        *self.active_cancel.lock().unwrap() = Some((id, token.clone()));
+        (
+            ActiveCancelGuard {
+                id,
+                active: Arc::clone(&self.active_cancel),
+            },
+            token,
+        )
+    }
+
+    /// Cooperatively abort the active transcribe-cpp inference. This is safe
+    /// from the shortcut/main thread; the native runtime polls the shared flag
+    /// between decode steps.
+    pub fn cancel_active_transcription(&self) {
+        if let Ok(active) = self.active_cancel.lock() {
+            if let Some((_, token)) = active.as_ref() {
+                token.cancel();
+            }
+        }
+    }
+
     pub fn is_model_loaded(&self) -> bool {
-        // The engine may be leased out to the streaming worker (taken out of
-        // the mutex). It's still loaded, just in use, so report true.
-        self.lock_engine().is_some() || self.active_engine_lease.load(Ordering::Acquire) != 0
+        // The engine may be leased out to the streaming worker or a batch run
+        // (taken out of the mutex). It is still loaded, just in use, so report
+        // true and prevent a second model from being loaded over it.
+        self.lock_engine().is_some()
+            || self.active_engine_lease.load(Ordering::Acquire) != 0
+            || self
+                .active_cancel
+                .lock()
+                .map(|active| active.is_some())
+                .unwrap_or(true)
     }
 
     /// Accelerator changes should not disturb the current transcription. Mark
@@ -716,31 +783,71 @@ impl TranscriptionManager {
 
     /// Kicks off the model loading in a background thread if it's not already loaded
     pub fn initiate_model_load(&self) {
+        let settings = get_settings(&self.app_handle);
+        self.initiate_model_load_for(&settings.selected_model);
+    }
+
+    /// Loads a model for the next invocation without changing the persisted
+    /// selection. A newer request received while a load is running wins; the
+    /// worker completes the in-flight load, then switches again before waking
+    /// transcription waiters.
+    pub fn initiate_model_load_for(&self, model_id: &str) {
         let mut is_loading = self.is_loading.lock().unwrap();
+        *self.requested_model_id.lock().unwrap() = Some(model_id.to_string());
         if *is_loading {
             return;
         }
 
         let reload_pending = self.reload_model_on_next_use.load(Ordering::Acquire);
-        if !reload_pending && self.is_model_loaded() {
+        if !reload_pending
+            && self.is_model_loaded()
+            && self.get_current_model().as_deref() == Some(model_id)
+        {
+            *self.requested_model_id.lock().unwrap() = None;
             return;
         }
 
         *is_loading = true;
         let self_clone = self.clone();
         thread::spawn(move || {
-            if reload_pending {
+            let mut requested_model = self_clone.requested_model_id.lock().unwrap().take();
+            if requested_model.is_none() {
+                let mut loading = self_clone.is_loading.lock().unwrap();
+                *loading = false;
+                self_clone.loading_condvar.notify_all();
+                return;
+            }
+            let mut force_reload = reload_pending;
+            while let Some(model_id) = requested_model.take() {
                 self_clone
                     .reload_model_on_next_use
                     .store(false, Ordering::Release);
+                let current_model = self_clone.get_current_model();
+                if requested_model_requires_load(
+                    current_model.as_deref(),
+                    &model_id,
+                    self_clone.is_model_loaded(),
+                    force_reload,
+                ) {
+                    if let Err(error) = self_clone.load_model(&model_id) {
+                        error!("Failed to load requested model: {}", error);
+                    }
+                }
+                force_reload = false;
+
+                let mut loading = self_clone.is_loading.lock().unwrap();
+                let next = self_clone.requested_model_id.lock().unwrap().take();
+                if next.as_deref().is_some_and(|next_model| {
+                    self_clone.get_current_model().as_deref() != Some(next_model)
+                }) {
+                    requested_model = next;
+                    drop(loading);
+                    continue;
+                }
+                *loading = false;
+                self_clone.loading_condvar.notify_all();
+                break;
             }
-            let settings = get_settings(&self_clone.app_handle);
-            if let Err(e) = self_clone.load_model(&settings.selected_model) {
-                error!("Failed to load model: {}", e);
-            }
-            let mut is_loading = self_clone.is_loading.lock().unwrap();
-            *is_loading = false;
-            self_clone.loading_condvar.notify_all();
         });
     }
 
@@ -785,7 +892,7 @@ impl TranscriptionManager {
     /// model can't stream, the worker idles until finalize/cancel and reports
     /// `None` so the caller falls back to batch transcription. Frames sent
     /// before the stream begins queue on the channel and are not lost.
-    pub fn start_stream(&self) {
+    pub fn start_stream_with_language(&self, language_override: Option<String>) {
         if self.router.is_open() || self.active_stream_worker.load(Ordering::Acquire) != 0 {
             warn!("start_stream called while a stream worker is already active");
             return;
@@ -803,10 +910,15 @@ impl TranscriptionManager {
         self.stream_active.store(false, Ordering::Release);
 
         let manager = self.clone();
-        thread::spawn(move || manager.run_stream_worker(rx, worker_id));
+        thread::spawn(move || manager.run_stream_worker(rx, worker_id, language_override));
     }
 
-    fn run_stream_worker(&self, rx: mpsc::Receiver<StreamCmd>, worker_id: u64) {
+    fn run_stream_worker(
+        &self,
+        rx: mpsc::Receiver<StreamCmd>,
+        worker_id: u64,
+        language_override: Option<String>,
+    ) {
         let _worker = StreamWorkerGuard {
             worker_id,
             active_stream_worker: Arc::clone(&self.active_stream_worker),
@@ -858,6 +970,10 @@ impl TranscriptionManager {
                 return;
             }
         };
+        let (_cancel_guard, cancel_token) = self.begin_cancel_scope();
+        if let LoadedEngine::TranscribeCpp(session) = &mut engine {
+            session.set_cancel_token(&cancel_token);
+        }
 
         // Only transcribe-cpp models expose streaming; ONNX engines fall back to
         // batch. The loaded session (not the ModelManager copy) is the source of
@@ -893,6 +1009,9 @@ impl TranscriptionManager {
         };
 
         if !supports_streaming {
+            if let LoadedEngine::TranscribeCpp(session) = &mut engine {
+                session.clear_cancel_token();
+            }
             self.return_engine(engine, &model_id);
             self.router.clear();
             drain_until_finalize(rx);
@@ -901,7 +1020,8 @@ impl TranscriptionManager {
 
         // Build run options mirroring the offline transcribe-cpp path: task +
         // language gated against what the model actually advertises.
-        let settings = get_settings(&self.app_handle);
+        let mut settings = get_settings(&self.app_handle);
+        apply_language_override(&mut settings, language_override.as_deref());
         let effective_language =
             effective_language_for_model(&settings, self.model_manager.as_ref(), &model_id);
         let run_plan = transcribe_cpp_run_plan(
@@ -1051,11 +1171,17 @@ impl TranscriptionManager {
             // failed); drain so the finalize handshake still completes and the
             // caller falls back to batch transcription. Return the engine first
             // so the fallback can immediately use it.
+            if let LoadedEngine::TranscribeCpp(session) = &mut engine {
+                session.clear_cancel_token();
+            }
             self.return_engine(engine, &model_id);
             drain_until_finalize(rx);
             return;
         }
 
+        if let LoadedEngine::TranscribeCpp(session) = &mut engine {
+            session.clear_cancel_token();
+        }
         self.return_engine(engine, &model_id);
         if let (Some(reply), Some(result)) = (finalize_reply, finalize_result) {
             let _ = reply.send(result);
@@ -1124,6 +1250,7 @@ impl TranscriptionManager {
 
     /// Abandon any active stream without producing text (e.g. on cancel).
     pub fn cancel_stream(&self) {
+        self.cancel_active_transcription();
         if let Some(tx) = self.router.take() {
             let _ = tx.send(StreamCmd::Cancel);
         }
@@ -1148,6 +1275,14 @@ impl TranscriptionManager {
     }
 
     pub fn transcribe(&self, audio: Vec<f32>) -> Result<String> {
+        self.transcribe_with_language(audio, None)
+    }
+
+    pub fn transcribe_with_language(
+        &self,
+        audio: Vec<f32>,
+        language_override: Option<&str>,
+    ) -> Result<String> {
         #[cfg(debug_assertions)]
         if std::env::var("HANDY_FORCE_TRANSCRIPTION_FAILURE").is_ok() {
             return Err(anyhow::anyhow!(
@@ -1184,7 +1319,8 @@ impl TranscriptionManager {
         }
 
         // Get current settings for configuration
-        let settings = get_settings(&self.app_handle);
+        let mut settings = get_settings(&self.app_handle);
+        apply_language_override(&mut settings, language_override);
 
         // Validate selected language against the model's supported languages.
         // If the language isn't supported, fall back to "auto" to prevent errors.
@@ -1213,7 +1349,6 @@ impl TranscriptionManager {
         // run extension and the fuzzy-correction skip are gated on
         // `model_is_whisper` instead, since non-whisper archs can advertise
         // the feature while rejecting the whisper-kind extension.
-        let mut model_takes_initial_prompt = false;
         // Whether the loaded model is actually whisper-family (arch string).
         // Non-whisper archs (e.g. Voxtral Small) can advertise
         // Feature::InitialPrompt yet reject the whisper-kind run extension
@@ -1242,6 +1377,11 @@ impl TranscriptionManager {
             // Release the lock before transcribing — no mutex held during the engine call
             drop(engine_guard);
 
+            let (_cancel_guard, cancel_token) = self.begin_cancel_scope();
+            if let LoadedEngine::TranscribeCpp(session) = &mut engine {
+                session.set_cancel_token(&cancel_token);
+            }
+
             // Probe live transcribe-cpp capabilities once (cheap GGUF-metadata
             // reads); the loaded session is the source of truth, not the
             // ModelManager copy. The whisper run extension is kind-tagged, so
@@ -1259,7 +1399,7 @@ impl TranscriptionManager {
             if let LoadedEngine::TranscribeCpp(session) = &engine {
                 let model = session.model();
                 let caps = model.capabilities();
-                model_takes_initial_prompt = model.supports(Feature::InitialPrompt);
+                let model_takes_initial_prompt = model.supports(Feature::InitialPrompt);
                 model_is_whisper = model.arch() == "whisper";
                 model_supports_translate = caps.supports_translate;
                 model_languages = caps.languages;
@@ -1281,11 +1421,16 @@ impl TranscriptionManager {
                         // whisper run extension to a non-whisper arch is rejected
                         // with INVALID_ARG, so skip it there and let the fuzzy
                         // post-correction handle custom words instead.
-                        let family = if settings.custom_words.is_empty() || !model_is_whisper {
+                        let prompt_terms = if settings.dictionary_entries.is_empty() {
+                            settings.custom_words.clone()
+                        } else {
+                            dictionary_prompt_terms(&settings.dictionary_entries)
+                        };
+                        let family = if prompt_terms.is_empty() || !model_is_whisper {
                             None
                         } else {
                             Some(RunExtension::Whisper(WhisperRunOptions {
-                                initial_prompt: Some(settings.custom_words.join(", ")),
+                                initial_prompt: Some(prompt_terms.join(", ")),
                                 ..Default::default()
                             }))
                         };
@@ -1406,6 +1551,10 @@ impl TranscriptionManager {
                 }
             }));
 
+            if let LoadedEngine::TranscribeCpp(session) = &mut engine {
+                session.clear_cancel_token();
+            }
+
             let text = match transcribe_result {
                 Ok(inner_result) => {
                     // Success or normal error: return the engine unless a model
@@ -1462,11 +1611,10 @@ impl TranscriptionManager {
             (text, output_language, model_languages)
         };
 
-        // Apply fuzzy word correction if custom words are configured — UNLESS the
-        // words were already handed to the model as an initial prompt (whisper
-        // family). We don't pass a prompt to non-whisper models (it requires the
-        // whisper-kind run extension), so they still get fuzzy correction here,
-        // same as the ONNX engines.
+        // Apply the Pressay dictionary after every engine. A decode prompt only
+        // biases Whisper; it cannot guarantee canonical replacements. The
+        // legacy custom-word list retains its historical skip-after-prompt
+        // behavior until all existing stores have migrated to the dictionary.
         let filtered_result = post_process_transcription_text(
             result,
             &settings,
@@ -1494,11 +1642,10 @@ impl TranscriptionManager {
 
         let final_result = filtered_result;
 
-        if final_result.is_empty() {
-            info!("Transcription result is empty");
-        } else {
-            info!("Transcription result: {}", final_result);
-        }
+        info!(
+            "Transcription output ready ({} characters)",
+            final_result.chars().count()
+        );
 
         self.maybe_unload_immediately("transcription");
 
@@ -1631,6 +1778,12 @@ fn base_language_code(language: &str) -> &str {
     language.split(&['-', '_'][..]).next().unwrap_or(language)
 }
 
+fn apply_language_override(settings: &mut AppSettings, language_override: Option<&str>) {
+    if let Some(language) = language_override.filter(|language| !language.trim().is_empty()) {
+        settings.selected_language = language.to_string();
+    }
+}
+
 /// Resolve the persisted language intent into the language a specific model can
 /// use without writing the coerced value back to settings.
 fn effective_language_for_model(
@@ -1748,7 +1901,13 @@ fn post_process_transcription_text(
     supported_languages: &[String],
 ) -> String {
     fail_open_text_transform(raw, |raw| {
-        let corrected = if !settings.custom_words.is_empty() && !custom_words_already_prompted {
+        let corrected = if !settings.dictionary_entries.is_empty() {
+            apply_dictionary_entries(
+                &raw,
+                &settings.dictionary_entries,
+                settings.word_correction_threshold,
+            )
+        } else if !settings.custom_words.is_empty() && !custom_words_already_prompted {
             apply_custom_words(
                 &raw,
                 &settings.custom_words,
@@ -2147,6 +2306,25 @@ mod tests {
     }
 
     #[test]
+    fn stale_cancel_guard_cannot_clear_a_newer_scope() {
+        let first = CancelToken::new();
+        let second = CancelToken::new();
+        let active = Arc::new(Mutex::new(Some((1, first))));
+        let stale = ActiveCancelGuard {
+            id: 1,
+            active: Arc::clone(&active),
+        };
+        *active.lock().unwrap() = Some((2, second.clone()));
+
+        drop(stale);
+
+        let guard = active.lock().unwrap();
+        assert_eq!(guard.as_ref().map(|(id, _)| *id), Some(2));
+        guard.as_ref().unwrap().1.cancel();
+        assert!(second.is_cancelled());
+    }
+
+    #[test]
     fn normal_hosts_preserve_every_transcribe_accelerator_setting() {
         for setting in [
             TranscribeAcceleratorSetting::Auto,
@@ -2220,9 +2398,36 @@ mod tests {
     }
 
     #[test]
+    fn pressay_dictionary_applies_even_when_terms_were_decoder_prompted() {
+        let settings = AppSettings {
+            dictionary_entries: vec![crate::productivity::DictionaryEntry {
+                id: "pressay".into(),
+                term: "press say".into(),
+                variants: vec!["presser".into()],
+                replacement: Some("Pressay".into()),
+                match_kind: crate::productivity::DictionaryMatchKind::Exact,
+                language: Some("fr".into()),
+                enabled: true,
+            }],
+            ..Default::default()
+        };
+
+        let result = post_process_transcription_text(
+            "J'utilise presser.".to_string(),
+            &settings,
+            true,
+            &OutputLanguageEvidence::UserSelected("fr".into()),
+            &languages(&["fr"]),
+        );
+
+        assert_eq!(result, "J'utilise Pressay.");
+    }
+
+    #[test]
     fn auto_language_without_detection_skips_gated_filler_removal() {
         let settings = AppSettings {
             selected_language: "auto".to_string(),
+            filler_word_removal_enabled: true,
             ..Default::default()
         };
         let evidence =
@@ -2246,6 +2451,7 @@ mod tests {
     fn unknown_evidence_with_confident_text_detection_removes_gated_fillers() {
         let settings = AppSettings {
             selected_language: "auto".to_string(),
+            filler_word_removal_enabled: true,
             ..Default::default()
         };
 
@@ -2439,6 +2645,50 @@ mod tests {
         assert!(matches!(plan.task, Task::Transcribe));
         assert_eq!(plan.language.as_deref(), Some("es"));
         assert_eq!(plan.target_language, None);
+    }
+
+    #[test]
+    fn invocation_language_override_is_ephemeral_and_ignores_blank_values() {
+        let original = AppSettings {
+            selected_language: "en".to_string(),
+            ..Default::default()
+        };
+        let mut invocation = original.clone();
+
+        apply_language_override(&mut invocation, Some("fr"));
+        assert_eq!(invocation.selected_language, "fr");
+        assert_eq!(original.selected_language, "en");
+
+        apply_language_override(&mut invocation, Some("  "));
+        assert_eq!(invocation.selected_language, "fr");
+    }
+
+    #[test]
+    fn invocation_model_request_switches_only_when_required() {
+        assert!(!requested_model_requires_load(
+            Some("parakeet"),
+            "parakeet",
+            true,
+            false,
+        ));
+        assert!(requested_model_requires_load(
+            Some("parakeet"),
+            "whisper-small",
+            true,
+            false,
+        ));
+        assert!(requested_model_requires_load(
+            Some("parakeet"),
+            "parakeet",
+            false,
+            false,
+        ));
+        assert!(requested_model_requires_load(
+            Some("parakeet"),
+            "parakeet",
+            true,
+            true,
+        ));
     }
 }
 

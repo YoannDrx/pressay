@@ -10,7 +10,7 @@ import {
 import { toast } from "sonner";
 import { commands } from "@/bindings";
 import { useSettingsStore } from "@/stores/settingsStore";
-import HandyTextLogo from "../icons/HandyTextLogo";
+import PressayWordmark from "../icons/PressayWordmark";
 import { Keyboard, Mic, Check, Loader2 } from "lucide-react";
 
 interface AccessibilityOnboardingProps {
@@ -45,6 +45,7 @@ const AccessibilityOnboarding: React.FC<AccessibilityOnboardingProps> = ({
   const timeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const errorCountRef = useRef<number>(0);
   const MAX_POLLING_ERRORS = 3;
+  const MAX_PERMISSION_WAIT_MS = 60_000;
 
   const isMacOS = permissionPlatform === "macos";
   const isWindows = permissionPlatform === "windows";
@@ -162,6 +163,25 @@ const AccessibilityOnboarding: React.FC<AccessibilityOnboardingProps> = ({
   const startPolling = useCallback(() => {
     if (pollingRef.current || permissionPlatform === null) return;
 
+    if (timeoutRef.current) {
+      clearTimeout(timeoutRef.current);
+    }
+    timeoutRef.current = setTimeout(() => {
+      if (pollingRef.current) {
+        clearInterval(pollingRef.current);
+        pollingRef.current = null;
+      }
+      setPermissions((current) => ({
+        accessibility:
+          current.accessibility === "waiting"
+            ? "needed"
+            : current.accessibility,
+        microphone:
+          current.microphone === "waiting" ? "needed" : current.microphone,
+      }));
+      toast.error(t("onboarding.permissions.errors.checkFailed"));
+    }, MAX_PERMISSION_WAIT_MS);
+
     pollingRef.current = setInterval(async () => {
       try {
         if (permissionPlatform === "windows") {
@@ -173,6 +193,10 @@ const AccessibilityOnboarding: React.FC<AccessibilityOnboardingProps> = ({
             if (pollingRef.current) {
               clearInterval(pollingRef.current);
               pollingRef.current = null;
+            }
+            if (timeoutRef.current) {
+              clearTimeout(timeoutRef.current);
+              timeoutRef.current = null;
             }
 
             await completeOnboarding();
@@ -214,6 +238,10 @@ const AccessibilityOnboarding: React.FC<AccessibilityOnboardingProps> = ({
             clearInterval(pollingRef.current);
             pollingRef.current = null;
           }
+          if (timeoutRef.current) {
+            clearTimeout(timeoutRef.current);
+            timeoutRef.current = null;
+          }
           await completeOnboarding();
         }
 
@@ -228,6 +256,10 @@ const AccessibilityOnboarding: React.FC<AccessibilityOnboardingProps> = ({
           if (pollingRef.current) {
             clearInterval(pollingRef.current);
             pollingRef.current = null;
+          }
+          if (timeoutRef.current) {
+            clearTimeout(timeoutRef.current);
+            timeoutRef.current = null;
           }
           toast.error(t("onboarding.permissions.errors.checkFailed"));
         }
@@ -294,8 +326,8 @@ const AccessibilityOnboarding: React.FC<AccessibilityOnboardingProps> = ({
   if (allGranted) {
     return (
       <div className="h-screen w-screen flex flex-col items-center justify-center gap-4">
-        <div className="p-4 rounded-full bg-emerald-500/20">
-          <Check className="w-12 h-12 text-emerald-400" />
+        <div className="p-4 rounded-full bg-success/15">
+          <Check className="w-12 h-12 text-success" />
         </div>
         <p className="text-lg font-medium text-text">
           {t("onboarding.permissions.allGranted")}
@@ -308,7 +340,7 @@ const AccessibilityOnboarding: React.FC<AccessibilityOnboardingProps> = ({
   return (
     <div className="h-screen w-screen flex flex-col p-6 gap-6 items-center justify-center">
       <div className="flex flex-col items-center gap-2">
-        <HandyTextLogo width={200} />
+        <PressayWordmark width={200} />
       </div>
 
       <div className="max-w-md w-full flex flex-col items-center gap-4">
@@ -336,7 +368,7 @@ const AccessibilityOnboarding: React.FC<AccessibilityOnboardingProps> = ({
                   {t("onboarding.permissions.microphone.description")}
                 </p>
                 {permissions.microphone === "granted" ? (
-                  <div className="flex items-center gap-2 text-emerald-400 text-sm">
+                  <div className="flex items-center gap-2 text-success text-sm">
                     <Check className="w-4 h-4" />
                     {t("onboarding.permissions.granted")}
                   </div>
@@ -375,7 +407,7 @@ const AccessibilityOnboarding: React.FC<AccessibilityOnboardingProps> = ({
                   {t("onboarding.permissions.accessibility.description")}
                 </p>
                 {permissions.accessibility === "granted" ? (
-                  <div className="flex items-center gap-2 text-emerald-400 text-sm">
+                  <div className="flex items-center gap-2 text-success text-sm">
                     <Check className="w-4 h-4" />
                     {t("onboarding.permissions.granted")}
                   </div>

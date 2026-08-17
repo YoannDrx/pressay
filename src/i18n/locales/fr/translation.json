@@ -1,4 +1,91 @@
 {
+  "cloud": {
+    "title": "Pressay Cloud",
+    "description": "Connectez-vous uniquement pour les transformations Cloud, la synchronisation et l’accès Pro.",
+    "privacy": "La dictée locale reste disponible sans compte. Pressay Cloud envoie du contenu uniquement lorsque vous choisissez explicitement un mode Cloud.",
+    "status": {
+      "connected": "Connecté",
+      "disconnected": "Connecter votre compte",
+      "offline": "Hors ligne — droits locaux vérifiés"
+    },
+    "tier": {
+      "free": "Offre Free",
+      "pro": "Offre Pro"
+    },
+    "email": {
+      "label": "Email",
+      "placeholder": "vous@exemple.com",
+      "send": "Envoyer le lien",
+      "sent": "Consultez votre boîte mail pour continuer."
+    },
+    "providers": {
+      "or": "ou",
+      "google": "Continuer avec Google",
+      "apple": "Continuer avec Apple",
+      "unavailable": "La connexion Cloud n’est pas encore activée dans cet environnement."
+    },
+    "actions": {
+      "loading": "Vérification de la disponibilité du Cloud…",
+      "refresh": "Actualiser",
+      "disconnect": "Déconnecter",
+      "delete": "Supprimer le compte",
+      "confirmDelete": "Supprimer votre compte Pressay Cloud et les réglages synchronisés ? Cette action est irréversible."
+    },
+    "sync": {
+      "title": "Synchronisation chiffrée",
+      "ready": "Les clés de synchronisation sont prêtes",
+      "pending": "En attente de validation depuis un autre Mac",
+      "notConfigured": "La synchronisation chiffrée n’est pas configurée",
+      "privacy": "Seuls les modes, profils, dictionnaire et préférences autorisées sont chiffrés de bout en bout. Les dictées, audios, historiques et clés API ne sont jamais synchronisés.",
+      "enable": "Configurer",
+      "syncNow": "Synchroniser",
+      "approve": "Autoriser",
+      "current": "ce Mac",
+      "approvedStatus": "Autorisé",
+      "updated": "La synchronisation chiffrée a été mise à jour.",
+      "approved": "Le Mac a été autorisé.",
+      "error": "Impossible de mettre à jour la synchronisation chiffrée.",
+      "recovery": {
+        "title": "Code de récupération",
+        "description": "Créez un code de secours à usage unique pour ajouter un Mac lorsqu’aucun appareil autorisé n’est disponible. Un nouveau code invalide le précédent.",
+        "create": "Créer un code",
+        "confirmRotate": "Créer un nouveau code de récupération ? L’ancien code cessera de fonctionner.",
+        "created": "Un nouveau code de récupération a été créé.",
+        "useDescription": "Si vous ne pouvez pas autoriser ce Mac depuis un autre appareil, saisissez le code de récupération enregistré auparavant.",
+        "placeholder": "PRS1. ...",
+        "use": "Récupérer la synchronisation",
+        "saveNow": "Enregistrez ce code maintenant. Pressay ne pourra pas l’afficher à nouveau.",
+        "copy": "Copier le code",
+        "copied": "Code copié. Supprimez-le du presse-papiers après l’avoir enregistré.",
+        "copyError": "Impossible de copier le code de récupération.",
+        "done": "Terminé",
+        "recovered": "La synchronisation chiffrée a été récupérée sur ce Mac.",
+        "invalid": "Le code est invalide, expiré ou déjà utilisé.",
+        "error": "Impossible de créer un code de récupération."
+      }
+    },
+    "usage": {
+      "title": "Utilisation mensuelle",
+      "transformations": "Transformations",
+      "transcription": "Transcription Cloud",
+      "minutes": "{{used}} / {{limit}} min"
+    },
+    "transcription": {
+      "availableTitle": "La transcription locale a échoué",
+      "availableDescription": "Envoyer cet enregistrement de {{seconds}} secondes à Pressay Cloud ? L’audio reste en mémoire pendant deux minutes et n’est envoyé que si vous choisissez cette action.",
+      "send": "Utiliser le Cloud",
+      "ready": "La transcription Cloud est prête",
+      "readyDescription": "Vérifiez le résultat avant de le copier.",
+      "error": "Impossible de terminer la transcription Cloud. Aucun texte n’a été inséré."
+    },
+    "errors": {
+      "load": "Impossible de charger l’état du compte Cloud.",
+      "auth": "Impossible de terminer la connexion Cloud.",
+      "start": "Impossible de démarrer la connexion Cloud.",
+      "disconnect": "Impossible de déconnecter le compte.",
+      "delete": "Impossible de supprimer le compte."
+    }
+  },
   "tray": {
     "settings": "Paramètres...",
     "checkUpdates": "Rechercher des mises à jour...",
@@ -10,6 +97,8 @@
     "secureInputWarning": "⚠ Raccourcis bloqués par Secure Input"
   },
   "sidebar": {
+    "account": "Compte",
+    "home": "Accueil",
     "general": "Général",
     "models": "Modèles",
     "advanced": "Avancé",
@@ -94,6 +183,18 @@
       "cohere-int8": {
         "name": "Cohere",
         "description": "Un modèle volumineux, plus lent, mais très précis et multilingue."
+      },
+      "pressay/parakeet-v3": {
+        "name": "Parakeet V3",
+        "description": "Transcription locale rapide en français et dans 24 autres langues européennes."
+      },
+      "pressay/whisper-small": {
+        "name": "Whisper Small",
+        "description": "Transcription locale polyglotte dans 99 langues, avec traduction vers l’anglais."
+      },
+      "pressay/whisper-large": {
+        "name": "Whisper Large v3",
+        "description": "Le preset Pressay le plus précis pour les Mac Apple Silicon suffisamment puissants."
       }
     },
     "errors": {
@@ -101,7 +202,7 @@
     },
     "permissions": {
       "title": "Autorisations requises",
-      "description": "Handy a besoin de quelques autorisations pour fonctionner correctement.",
+      "description": "Pressay a besoin de quelques autorisations pour fonctionner correctement.",
       "microphone": {
         "title": "Accès au microphone",
         "description": "Nécessaire pour entendre votre voix pour la transcription."
@@ -152,7 +253,12 @@
     },
     "cancel": "Annuler",
     "cancelDownload": "Annuler le téléchargement",
-    "legacy": "Hérité"
+    "legacy": "Hérité",
+    "presets": {
+      "fast": "Rapide",
+      "polyglot": "Polyglotte",
+      "precise": "Précis"
+    }
   },
   "settings": {
     "modelSettings": {
@@ -175,13 +281,13 @@
       "searchPlaceholder": "Rechercher des modèles par nom…",
       "rescan": {
         "label": "Réanalyser",
-        "tooltip": "Réanalyser pour détecter les modèles ajoutés au dossier des modèles ou au cache Hugging Face en dehors de Handy"
+        "tooltip": "Réanalyser les modèles ajoutés au dossier des modèles Pressay"
       }
     },
     "general": {
       "title": "Général",
       "shortcut": {
-        "title": "Raccourcis Handy",
+        "title": "Raccourcis Pressay",
         "description": "Configurer les raccourcis clavier pour déclencher l'enregistrement de la reconnaissance vocale",
         "loading": "Chargement des raccourcis...",
         "none": "Aucun raccourci configuré",
@@ -283,11 +389,11 @@
       },
       "autostart": {
         "label": "Lancer au démarrage",
-        "description": "Démarrer automatiquement Handy lorsque vous vous connectez à votre ordinateur."
+        "description": "Démarrer automatiquement Pressay lorsque vous vous connectez à votre ordinateur."
       },
       "showTrayIcon": {
         "label": "Afficher l'icône de la barre",
-        "description": "Afficher l'icône de Handy dans la barre système."
+        "description": "Afficher l'icône de Pressay dans la barre système."
       },
       "overlay": {
         "style": {
@@ -474,7 +580,7 @@
       },
       "updateChecks": {
         "label": "Vérifier les mises à jour",
-        "description": "Vérifier automatiquement les nouvelles versions de Handy"
+        "description": "Vérifier automatiquement les nouvelles versions de Pressay"
       },
       "soundTheme": {
         "label": "Thème sonore",
@@ -486,7 +592,7 @@
       },
       "historyLimit": {
         "title": "Limite d'historique",
-        "description": "Nombre maximum d'entrées d'historique à conserver",
+        "description": "Désactivé par défaut. Saisissez 0 pour ne conserver aucun texte ni audio.",
         "entries": "entrées"
       },
       "recordingRetention": {
@@ -547,7 +653,7 @@
       },
       "keyboardDiagnostic": {
         "title": "Diagnostic du clavier",
-        "description": "Vérifie si les événements clavier atteignent Handy. Seul le nombre d'événements est enregistré, jamais les touches sur lesquelles vous appuyez.",
+        "description": "Vérifie si les événements clavier atteignent Pressay. Seul le nombre d'événements est enregistré, jamais les touches sur lesquelles vous appuyez.",
         "run": "Lancer un diagnostic de 10 s",
         "running": "Écoute en cours… appuyez plusieurs fois sur votre raccourci (par ex. Option+Space)",
         "secureInputLabel": "Secure Input",
@@ -561,7 +667,7 @@
         "mouse": "Souris",
         "verdictBlocked": "Secure Input bloque les événements clavier : les raccourcis contenant une touche normale ne peuvent pas fonctionner tant que ce n'est pas résolu.",
         "verdictSuspicious": "Des événements de modificateurs sont arrivés, mais aucun événement de touche : quelque chose supprime les touches alors que Secure Input est signalé comme désactivé. Merci de le signaler sur GitHub.",
-        "verdictOk": "Les événements clavier atteignent Handy normalement.",
+        "verdictOk": "Les événements clavier atteignent Pressay normalement.",
         "verdictNoEvents": "Aucun événement capturé : avez-vous appuyé sur des touches pendant le test ?",
         "failed": "Échec du diagnostic : {{error}}"
       },
@@ -577,33 +683,38 @@
       "title": "À propos",
       "version": {
         "title": "Version",
-        "description": "Version actuelle de Handy"
+        "description": "Version actuelle de Pressay"
       },
       "appDataDirectory": {
         "title": "Emplacement des données de l'application",
-        "description": "Emplacement où Handy stocke ses données"
+        "description": "Emplacement où Pressay stocke ses données"
       },
       "sourceCode": {
-        "title": "Code source",
-        "description": "Voir le code source et contribuer",
-        "button": "Voir sur GitHub"
+        "title": "Fondation open source",
+        "description": "Pressay est dérivé du projet Handy distribué sous licence MIT",
+        "license": "MIT"
       },
       "supportDevelopment": {
-        "title": "Soutenir le développement",
-        "description": "Aidez-nous à continuer à construire Handy",
-        "button": "Faire un don"
+        "title": "Site Pressay",
+        "description": "Informations produit, assistance et téléchargements",
+        "button": "Ouvrir le site"
       },
       "acknowledgments": {
         "title": "Remerciements",
         "ggml": {
           "title": "ggml",
           "description": "Inférence haute performance du modèle de reconnaissance vocale automatique Whisper d'OpenAI",
-          "details": "Handy utilise ggml pour un traitement rapide et local de la parole en texte. Merci au travail incroyable de Georgi Gerganov et des contributeurs."
+          "details": "Pressay utilise ggml pour un traitement rapide et local de la parole en texte. Merci au travail incroyable de Georgi Gerganov et des contributeurs."
+        },
+        "models": {
+          "title": "Modèles locaux",
+          "description": "Attribution et licences des presets Pressay",
+          "details": "Parakeet TDT 0.6B v3 © NVIDIA, sous licence CC BY 4.0. Whisper Small et Whisper Large v3 © OpenAI, poids et code sous licence MIT."
         }
       },
       "whatsNewUpdates": {
         "label": "Afficher les nouveautés",
-        "description": "Afficher les notes de version après les mises à jour de Handy"
+        "description": "Afficher les notes de version après les mises à jour de Pressay"
       }
     }
   },
@@ -632,7 +743,7 @@
     "noOptionsFound": "Aucune option trouvée"
   },
   "accessibility": {
-    "permissionsDescription": "Handy a besoin des autorisations d'accessibilité pour taper le texte transcrit.",
+    "permissionsDescription": "Pressay a besoin des autorisations d'accessibilité pour taper le texte transcrit.",
     "openSettings": "Ouvrir les Préférences Système"
   },
   "errors": {
@@ -646,6 +757,8 @@
     },
     "noInputDeviceTitle": "Aucun microphone trouvé",
     "noInputDevice": "Aucun périphérique d'entrée audio n'a été détecté. Veuillez connecter un microphone ou un casque et réessayer.",
+    "silentInputTitle": "Aucun signal audio détecté",
+    "silentInput": "Vérifiez le microphone ou le périphérique d’entrée sélectionné, puis réessayez.",
     "recordingFailed": "Échec du démarrage de l'enregistrement : {{error}}",
     "modelLoadFailed": "Échec du chargement du modèle : {{model}}",
     "modelLoadFailedUnknown": "modèle inconnu",
@@ -655,11 +768,11 @@
   },
   "appLanguage": {
     "title": "Langue de l'application",
-    "description": "Changer la langue de l'interface de Handy"
+    "description": "Changer la langue de l'interface de Pressay"
   },
   "theme": {
     "title": "Thème de l'application",
-    "description": "Choisissez si Handy suit le thème du système ou reste clair ou sombre",
+    "description": "Choisissez si Pressay suit le thème du système ou reste clair ou sombre",
     "options": {
       "system": "Système",
       "light": "Clair",
@@ -671,7 +784,7 @@
     "processing": "Traitement..."
   },
   "whatsNew": {
-    "title": "Nouveautés de Handy v{{version}}"
+    "title": "Nouveautés de Pressay v{{version}}"
   },
   "secureInput": {
     "blockedWithCulprit_one": "{{name}} bloque peut-être 1 raccourci",
