@@ -498,6 +498,30 @@ pub(crate) struct TransformFailure {
     pub code: &'static str,
 }
 
+fn cloud_transform_failure_code(code: &str) -> &'static str {
+    match code {
+        "cloud_not_connected" | "cloud_keychain_unavailable" => "pressay_cloud_not_connected",
+        "cloud_unauthorized" | "cloud_forbidden" | "device_not_found" => {
+            "pressay_cloud_session_expired"
+        }
+        "quota_exceeded" | "usage_limit_exceeded" => "pressay_cloud_quota_exceeded",
+        "cloud_processing_disabled" | "cloud_unavailable" | "cloud_provider_unavailable" => {
+            "pressay_cloud_unavailable"
+        }
+        "cloud_rate_limited" => "pressay_cloud_rate_limited",
+        "cloud_network_unavailable" => "pressay_cloud_offline",
+        _ => "pressay_cloud_transform_failed",
+    }
+}
+
+fn cloud_language(effective_language: &str) -> Option<String> {
+    let base = effective_language.split('-').next()?;
+    (base.len() >= 2
+        && base.len() <= 3
+        && base.chars().all(|character| character.is_ascii_lowercase()))
+    .then(|| base.to_string())
+}
+
 fn verified_selection<'a>(
     resolved: &ResolvedMode,
     selection: Option<&'a SelectionContext>,
@@ -583,9 +607,47 @@ async fn process_pressay_mode(
                         applied_prompt = Some(instruction.to_string());
                     }
                     ProcessingRoute::PressayCloud => {
-                        return Err(TransformFailure {
-                            code: "pressay_cloud_unavailable",
-                        });
+                        let device_id = settings.pressay_cloud_device_id.as_deref().ok_or(
+                            TransformFailure {
+                                code: "pressay_cloud_not_connected",
+                            },
+                        )?;
+                        // Cloud receives source fields separately. Keep source placeholders
+                        // out of the trusted instruction field to prevent dictated or
+                        // selected text from becoming an instruction through interpolation.
+                        let cloud_instruction =
+                            instruction.replace("${custom_words}", &dictionary_terms.join(", "));
+                        let selected_text = verified_selection(resolved, selection);
+                        let application_name = resolved
+                            .target
+                            .as_ref()
+                            .map(|target| target.app_name.as_str());
+                        let language = cloud_language(effective_language);
+                        let response = crate::cloud::transform(
+                            settings,
+                            crate::cloud::CloudTransformationRequest {
+                                device_id,
+                                transcript: &text,
+                                instruction: &cloud_instruction,
+                                selected_text,
+                                application_name,
+                                language: language.as_deref(),
+                                content_transfer_acknowledged: true,
+                            },
+                            &uuid::Uuid::new_v4().to_string(),
+                        )
+                        .await
+                        .map_err(|failure| {
+                            warn!(
+                                "Pressay Cloud transformation failed with code {}",
+                                failure.code
+                            );
+                            TransformFailure {
+                                code: cloud_transform_failure_code(&failure.code),
+                            }
+                        })?;
+                        text = response.text;
+                        applied_prompt = Some(instruction.to_string());
                     }
                 }
             }
@@ -1627,7 +1689,7 @@ pub static ACTION_MAP: Lazy<HashMap<String, Arc<dyn ShortcutAction>>> = Lazy::ne
 #[cfg(test)]
 mod tests {
     use super::{
-        complete_before_deadline, is_blank_transcription, process_pressay_mode,
+        cloud_language, complete_before_deadline, is_blank_transcription, process_pressay_mode,
         should_use_streaming_overlay, strip_think_block, transcription_timeout, verified_selection,
         OperationOutcome, MAX_TRANSCRIPTION_TIMEOUT, MIN_TRANSCRIPTION_TIMEOUT,
     };
@@ -1769,7 +1831,7 @@ mod tests {
     }
 
     #[test]
-    fn cloud_mode_fails_explicitly_without_sending_or_pasting() {
+    fn cloud_mode_fails_explicitly_when_no_account_is_connected() {
         let settings = AppSettings::default();
         let mut modes = builtin_modes();
         let mode = modes.iter_mut().find(|mode| mode.id == "message").unwrap();
@@ -1785,7 +1847,14 @@ mod tests {
         ))
         .unwrap_err();
 
-        assert_eq!(error.code, "pressay_cloud_unavailable");
+        assert_eq!(error.code, "pressay_cloud_not_connected");
+    }
+
+    #[test]
+    fn cloud_language_uses_a_backend_safe_base_language() {
+        assert_eq!(cloud_language("fr-FR"), Some("fr".to_string()));
+        assert_eq!(cloud_language("zh-Hans"), Some("zh".to_string()));
+        assert_eq!(cloud_language("auto"), None);
     }
 
     #[test]

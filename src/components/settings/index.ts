@@ -6,6 +6,7 @@ export { HistorySettings } from "./history/HistorySettings";
 export { AboutSettings } from "./about/AboutSettings";
 export { PostProcessingSettings } from "./post-processing/PostProcessingSettings";
 export { ModelsSettings } from "./models/ModelsSettings";
+export { AccountSettings } from "./account/AccountSettings";
 export { DictionarySettings, ModesSettings } from "./productivity";
 
 // Individual setting components

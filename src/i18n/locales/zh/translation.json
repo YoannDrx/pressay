@@ -1,4 +1,50 @@
 {
+  "cloud": {
+    "title": "Pressay Cloud",
+    "description": "Connect only for optional Cloud transformations, sync and Pro access.",
+    "privacy": "Local dictation stays available without an account. Pressay Cloud sends content only when you explicitly choose a Cloud mode.",
+    "status": {
+      "connected": "Connected",
+      "disconnected": "Connect your account",
+      "offline": "Offline — verified local entitlement"
+    },
+    "tier": {
+      "free": "Free plan",
+      "pro": "Pro plan"
+    },
+    "email": {
+      "label": "Email",
+      "placeholder": "you@example.com",
+      "send": "Send link",
+      "sent": "Check your inbox to continue."
+    },
+    "providers": {
+      "or": "or",
+      "google": "Continue with Google",
+      "apple": "Continue with Apple",
+      "unavailable": "Cloud sign-in is not enabled on this environment yet."
+    },
+    "actions": {
+      "loading": "Checking Cloud availability…",
+      "refresh": "Refresh",
+      "disconnect": "Disconnect",
+      "delete": "Delete account",
+      "confirmDelete": "Delete your Pressay Cloud account and synced settings? This cannot be undone."
+    },
+    "usage": {
+      "title": "Monthly usage",
+      "transformations": "Transformations",
+      "transcription": "Cloud transcription",
+      "minutes": "{{used}} / {{limit}} min"
+    },
+    "errors": {
+      "load": "Cloud account status could not be loaded.",
+      "auth": "Cloud sign-in could not be completed.",
+      "start": "Cloud sign-in could not be started.",
+      "disconnect": "The account could not be disconnected.",
+      "delete": "The account could not be deleted."
+    }
+  },
   "tray": {
     "settings": "设置...",
     "checkUpdates": "检查更新...",
@@ -10,6 +56,7 @@
     "secureInputWarning": "⚠ 快捷键被 Secure Input 阻止"
   },
   "sidebar": {
+    "account": "Account",
     "home": "Home",
     "general": "通用",
     "models": "模型",

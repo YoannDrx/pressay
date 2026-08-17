@@ -10,6 +10,7 @@ default-run = "pressay"
 [features]
 default = []
 updater = ["dep:tauri-plugin-updater"]
+mas = []
 
 [profile.dev]
 incremental = true # Compile your binary in smaller steps.
@@ -62,6 +63,9 @@ vad-rs = { git = "https://github.com/cjpais/vad-rs", rev = "2a412ed858695b9251f3
 enigo = "0.6.1"
 rodio = "=0.22.2"
 reqwest = { version = "0.12", features = ["json", "stream", "gzip", "brotli", "deflate"] }
+base64 = "0.22"
+url = "2"
+uuid = { version = "1", features = ["v4", "serde"] }
 futures-util = "0.3"
 rustfft = "6.4.0"
 strsim = "0.11.0"
@@ -100,7 +104,8 @@ signal-hook = "0.3"
 [target.'cfg(not(any(target_os = "android", target_os = "ios")))'.dependencies]
 tauri-plugin-autostart = "2.5.1"
 tauri-plugin-global-shortcut = "2.3.1"
-tauri-plugin-single-instance = "2.3.2"
+tauri-plugin-single-instance = { version = "2.3.2", features = ["deep-link"] }
+tauri-plugin-deep-link = "2.4.9"
 tauri-plugin-updater = { version = "2.10.0", optional = true }
 
 [target.'cfg(windows)'.dependencies]

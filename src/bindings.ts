@@ -514,6 +514,54 @@ async showMainWindowCommand() : Promise<Result<null, string>> {
 async cancelOperation() : Promise<void> {
     await TAURI_INVOKE("cancel_operation");
 },
+async getCloudAuthConfig() : Promise<Result<CloudAuthConfig, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("get_cloud_auth_config") };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+async requestCloudMagicLink(email: string) : Promise<Result<null, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("request_cloud_magic_link", { email }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+async beginCloudSocialLogin(provider: CloudAuthProvider) : Promise<Result<null, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("begin_cloud_social_login", { provider }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+async getCloudAccountSnapshot() : Promise<Result<CloudAccountSnapshot, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("get_cloud_account_snapshot") };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+async disconnectCloudAccount() : Promise<Result<null, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("disconnect_cloud_account") };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+async deleteCloudAccount() : Promise<Result<null, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("delete_cloud_account") };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
 async isPortable() : Promise<boolean> {
     return await TAURI_INVOKE("is_portable");
 },
@@ -1088,7 +1136,12 @@ whats_new_last_seen_version?: string; selected_model?: string; onboarding_comple
  * Which input channel to use on the selected microphone device.
  * None means "average all channels" (original behavior).
  */
-selected_channel?: number | null; clamshell_microphone?: string | null; selected_output_device?: string | null; translate_to_english?: boolean; selected_language?: string; overlay_position?: OverlayPosition; debug_mode?: boolean; log_level?: LogLevel; custom_words?: string[]; pressay_modes?: PressayMode[]; active_mode_id?: string; app_profiles?: AppProfile[]; dictionary_entries?: DictionaryEntry[]; model_unload_timeout?: ModelUnloadTimeout; word_correction_threshold?: number; history_limit?: number; recording_retention_period?: RecordingRetentionPeriod; history_enabled?: boolean; history_text_retention?: HistoryRetentionPeriod; history_audio_retention?: HistoryRetentionPeriod; paste_method?: PasteMethod; clipboard_handling?: ClipboardHandling; auto_submit?: boolean; auto_submit_key?: AutoSubmitKey; post_process_enabled?: boolean; post_process_provider_id?: string; post_process_providers?: PostProcessProvider[];
+selected_channel?: number | null; clamshell_microphone?: string | null; selected_output_device?: string | null; translate_to_english?: boolean; selected_language?: string; overlay_position?: OverlayPosition; debug_mode?: boolean; log_level?: LogLevel; custom_words?: string[]; pressay_modes?: PressayMode[]; active_mode_id?: string; app_profiles?: AppProfile[]; dictionary_entries?: DictionaryEntry[];
+/**
+ * Non-secret Cloud routing and device metadata. Reusable session tokens,
+ * E2EE keys and recovery material live only in macOS Keychain.
+ */
+pressay_cloud_api_url?: string; pressay_cloud_device_identifier?: string; pressay_cloud_account_id?: string | null; pressay_cloud_device_id?: string | null; model_unload_timeout?: ModelUnloadTimeout; word_correction_threshold?: number; history_limit?: number; recording_retention_period?: RecordingRetentionPeriod; history_enabled?: boolean; history_text_retention?: HistoryRetentionPeriod; history_audio_retention?: HistoryRetentionPeriod; paste_method?: PasteMethod; clipboard_handling?: ClipboardHandling; auto_submit?: boolean; auto_submit_key?: AutoSubmitKey; post_process_enabled?: boolean; post_process_provider_id?: string; post_process_providers?: PostProcessProvider[];
 /**
  * Presence metadata only. API key values live exclusively in macOS
  * Keychain and are never serialized into settings or sent to the webview.
@@ -1111,6 +1164,9 @@ export type AutoSubmitKey = "enter" | "ctrl_enter" | "cmd_enter"
 export type AvailableAccelerators = { transcribe: string[]; ort: string[]; gpu_devices: GpuDeviceOption[] }
 export type BindingResponse = { success: boolean; binding: ShortcutBinding | null; error: string | null }
 export type ClipboardHandling = "dont_modify" | "copy_to_clipboard"
+export type CloudAccountSnapshot = { connected: boolean; accountId: string | null; email: string | null; deviceId: string | null; entitlement: EntitlementSnapshot | null; usage: UsageSnapshot | null }
+export type CloudAuthConfig = { magicLink: boolean; providers: CloudAuthProvider[]; callbackUrl: string }
+export type CloudAuthProvider = "google" | "apple"
 export type CorrectionStatus = { available: boolean; armed: boolean; target_app_name: string | null; expires_in_seconds: number }
 export type CustomSounds = { start: boolean; stop: boolean }
 export type DictionaryEntry = { id: string; term: string; variants?: string[]; replacement?: string | null; match_kind?: DictionaryMatchKind; language?: string | null; enabled?: boolean }
@@ -1122,6 +1178,9 @@ export type EngineType =
  * the file, so this one variant covers the whole transcribe-cpp family.
  */
 "TranscribeCpp" | "Parakeet" | "Moonshine" | "MoonshineStreaming" | "SenseVoice" | "GigaAM" | "Canary" | "Cohere"
+export type EntitlementSnapshot = { tier: EntitlementTier; source: EntitlementSource; validFrom: string; validUntil: string | null; offlineGraceUntil: string | null; revision: number }
+export type EntitlementSource = "none" | "trial" | "stripe" | "app_store" | "support"
+export type EntitlementTier = "free" | "pro"
 export type GpuDeviceOption = { id: number; name: string; total_vram_mb: number }
 export type HistoryEntry = { id: number; file_name: string; timestamp: number; saved: boolean; title: string; transcription_text: string; post_processed_text: string | null; post_process_prompt: string | null; post_process_requested: boolean; audio_available: boolean; audio_saved: boolean }
 export type HistoryRetentionPeriod = "hours_24" | "days_7" | "days_30" | "forever"
@@ -1265,7 +1324,10 @@ export type StreamWorkKind = "transcribing" | "polishing"
  */
 export type Theme = "system" | "light" | "dark"
 export type TranscribeAcceleratorSetting = "auto" | "cpu" | "gpu"
+export type TranscriptionUsage = { usedSeconds: number; reservedSeconds: number; limitSeconds: number }
+export type TransformationUsage = { used: number; reserved: number; limit: number }
 export type TypingTool = "auto" | "wtype" | "kwtype" | "dotool" | "ydotool" | "xdotool"
+export type UsageSnapshot = { periodStart: string; transcription: TranscriptionUsage; transformations: TransformationUsage }
 export type WindowsMicrophonePermissionStatus = { supported: boolean; overall_access: PermissionAccess; device_access: PermissionAccess; app_access: PermissionAccess; desktop_app_access: PermissionAccess }
 
 /** tauri-specta globals **/

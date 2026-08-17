@@ -1,4 +1,50 @@
 {
+  "cloud": {
+    "title": "Pressay Cloud",
+    "description": "Connectez-vous uniquement pour les transformations Cloud, la synchronisation et l’accès Pro.",
+    "privacy": "La dictée locale reste disponible sans compte. Pressay Cloud envoie du contenu uniquement lorsque vous choisissez explicitement un mode Cloud.",
+    "status": {
+      "connected": "Connecté",
+      "disconnected": "Connecter votre compte",
+      "offline": "Hors ligne — droits locaux vérifiés"
+    },
+    "tier": {
+      "free": "Offre Free",
+      "pro": "Offre Pro"
+    },
+    "email": {
+      "label": "Email",
+      "placeholder": "vous@exemple.com",
+      "send": "Envoyer le lien",
+      "sent": "Consultez votre boîte mail pour continuer."
+    },
+    "providers": {
+      "or": "ou",
+      "google": "Continuer avec Google",
+      "apple": "Continuer avec Apple",
+      "unavailable": "La connexion Cloud n’est pas encore activée dans cet environnement."
+    },
+    "actions": {
+      "loading": "Vérification de la disponibilité du Cloud…",
+      "refresh": "Actualiser",
+      "disconnect": "Déconnecter",
+      "delete": "Supprimer le compte",
+      "confirmDelete": "Supprimer votre compte Pressay Cloud et les réglages synchronisés ? Cette action est irréversible."
+    },
+    "usage": {
+      "title": "Utilisation mensuelle",
+      "transformations": "Transformations",
+      "transcription": "Transcription Cloud",
+      "minutes": "{{used}} / {{limit}} min"
+    },
+    "errors": {
+      "load": "Impossible de charger l’état du compte Cloud.",
+      "auth": "Impossible de terminer la connexion Cloud.",
+      "start": "Impossible de démarrer la connexion Cloud.",
+      "disconnect": "Impossible de déconnecter le compte.",
+      "delete": "Impossible de supprimer le compte."
+    }
+  },
   "tray": {
     "settings": "Paramètres...",
     "checkUpdates": "Rechercher des mises à jour...",
@@ -10,6 +56,7 @@
     "secureInputWarning": "⚠ Raccourcis bloqués par Secure Input"
   },
   "sidebar": {
+    "account": "Compte",
     "home": "Accueil",
     "general": "Général",
     "models": "Modèles",

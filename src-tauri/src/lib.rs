@@ -7,6 +7,7 @@ mod autostart;
 mod catalog;
 pub mod cli;
 mod clipboard;
+mod cloud;
 mod commands;
 mod helpers;
 mod history_crypto;
@@ -47,6 +48,7 @@ pub use transcription_coordinator::TranscriptionCoordinator;
 use tauri::tray::TrayIconBuilder;
 use tauri::{AppHandle, Emitter, Listener, Manager};
 use tauri_plugin_autostart::MacosLauncher;
+use tauri_plugin_deep_link::DeepLinkExt;
 use tauri_plugin_log::{Builder as LogBuilder, RotationStrategy, Target, TargetKind};
 
 use crate::settings::get_settings;
@@ -682,6 +684,12 @@ pub fn run(cli_args: CliArgs) {
             trigger_update_check,
             show_main_window_command,
             commands::cancel_operation,
+            commands::cloud::get_cloud_auth_config,
+            commands::cloud::request_cloud_magic_link,
+            commands::cloud::begin_cloud_social_login,
+            commands::cloud::get_cloud_account_snapshot,
+            commands::cloud::disconnect_cloud_account,
+            commands::cloud::delete_cloud_account,
             commands::is_portable,
             commands::get_app_dir_path,
             commands::get_app_settings,
@@ -775,8 +783,27 @@ pub fn run(cli_args: CliArgs) {
         cli_args.transcribe_file.is_some() || cli_args.list_devices || cli_args.list_models;
 
     #[allow(unused_mut)]
-    let mut builder = tauri::Builder::default()
-        .device_event_filter(tauri::DeviceEventFilter::Always)
+    let mut builder =
+        tauri::Builder::default().device_event_filter(tauri::DeviceEventFilter::Always);
+
+    // Register single-instance before every other plugin so deep-link launches
+    // are forwarded to the existing process before another plugin consumes them.
+    if !headless_mode {
+        builder = builder.plugin(tauri_plugin_single_instance::init(|app, args, _cwd| {
+            if args.iter().any(|a| a == "--toggle-transcription") {
+                signal_handle::send_transcription_input(app, "transcribe", "CLI");
+            } else if args.iter().any(|a| a == "--toggle-post-process") {
+                signal_handle::send_transcription_input(app, "transcribe_with_post_process", "CLI");
+            } else if args.iter().any(|a| a == "--cancel") {
+                crate::utils::cancel_current_operation(app);
+            } else {
+                show_main_window(app);
+            }
+        }));
+    }
+
+    builder = builder
+        .plugin(tauri_plugin_deep_link::init())
         .plugin(tauri_plugin_dialog::init())
         .plugin(
             LogBuilder::new()
@@ -829,25 +856,6 @@ pub fn run(cli_args: CliArgs) {
     #[cfg(target_os = "macos")]
     {
         builder = builder.plugin(tauri_nspanel::init());
-    }
-
-    // Single-instance forwards CLI args to an already-running Pressay and exits.
-    // That would make the headless path
-    // (--transcribe-file/--list-devices/--list-models) a silent no-op whenever the
-    // app is already open, so skip it in headless mode and run a standalone
-    // instance instead.
-    if !headless_mode {
-        builder = builder.plugin(tauri_plugin_single_instance::init(|app, args, _cwd| {
-            if args.iter().any(|a| a == "--toggle-transcription") {
-                signal_handle::send_transcription_input(app, "transcribe", "CLI");
-            } else if args.iter().any(|a| a == "--toggle-post-process") {
-                signal_handle::send_transcription_input(app, "transcribe_with_post_process", "CLI");
-            } else if args.iter().any(|a| a == "--cancel") {
-                crate::utils::cancel_current_operation(app);
-            } else {
-                show_main_window(app);
-            }
-        }));
     }
 
     builder = builder
@@ -959,6 +967,21 @@ pub fn run(cli_args: CliArgs) {
             let app_handle = app.handle().clone();
             app.manage(TranscriptionCoordinator::new(app_handle.clone()));
             app.manage(productivity::ProductivityRuntime::default());
+            app.manage(cloud::CloudAuthRuntime::default());
+
+            // Deep-link payloads can contain one-time credentials. They are
+            // parsed in Rust, never forwarded to the webview and never logged.
+            let deep_link_handle = app_handle.clone();
+            app.deep_link().on_open_url(move |event| {
+                for url in event.urls() {
+                    cloud::handle_deep_link(deep_link_handle.clone(), url);
+                }
+            });
+            if let Ok(Some(urls)) = app.deep_link().get_current() {
+                for url in urls {
+                    cloud::handle_deep_link(app_handle.clone(), url);
+                }
+            }
 
             initialize_core_logic(&app_handle);
 

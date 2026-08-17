@@ -389,6 +389,16 @@ pub struct AppSettings {
     pub app_profiles: Vec<AppProfile>,
     #[serde(default)]
     pub dictionary_entries: Vec<DictionaryEntry>,
+    /// Non-secret Cloud routing and device metadata. Reusable session tokens,
+    /// E2EE keys and recovery material live only in macOS Keychain.
+    #[serde(default = "default_pressay_cloud_api_url")]
+    pub pressay_cloud_api_url: String,
+    #[serde(default)]
+    pub pressay_cloud_device_identifier: String,
+    #[serde(default)]
+    pub pressay_cloud_account_id: Option<String>,
+    #[serde(default)]
+    pub pressay_cloud_device_id: Option<String>,
     #[serde(default)]
     pub model_unload_timeout: ModelUnloadTimeout,
     #[serde(default = "default_word_correction_threshold")]
@@ -481,7 +491,7 @@ fn default_model() -> String {
     "".to_string()
 }
 
-const CURRENT_SETTINGS_SCHEMA_VERSION: u32 = 5;
+const CURRENT_SETTINGS_SCHEMA_VERSION: u32 = 6;
 
 fn default_settings_schema_version() -> u32 {
     CURRENT_SETTINGS_SCHEMA_VERSION
@@ -489,6 +499,17 @@ fn default_settings_schema_version() -> u32 {
 
 fn default_active_mode_id() -> String {
     "faithful".to_string()
+}
+
+fn default_pressay_cloud_api_url() -> String {
+    if let Some(configured) = option_env!("PRESSAY_CLOUD_API_URL") {
+        return configured.trim_end_matches('/').to_string();
+    }
+    if env!("CARGO_PKG_VERSION").contains('-') {
+        "https://pressay-cloud-staging.vercel.app".to_string()
+    } else {
+        "https://api.press-say.app".to_string()
+    }
 }
 
 fn default_push_to_talk() -> bool {
@@ -899,6 +920,10 @@ pub fn get_default_settings() -> AppSettings {
         active_mode_id: default_active_mode_id(),
         app_profiles: Vec::new(),
         dictionary_entries: Vec::new(),
+        pressay_cloud_api_url: default_pressay_cloud_api_url(),
+        pressay_cloud_device_identifier: String::new(),
+        pressay_cloud_account_id: None,
+        pressay_cloud_device_id: None,
         model_unload_timeout: ModelUnloadTimeout::default(),
         word_correction_threshold: default_word_correction_threshold(),
         history_limit: default_history_limit(),
@@ -1774,7 +1799,7 @@ mod tests {
 
         assert!(apply_settings_migrations(&mut settings, &raw));
         assert!(settings.history_enabled);
-        assert_eq!(settings.settings_schema_version, 5);
+        assert_eq!(settings.settings_schema_version, 6);
     }
 
     #[test]
@@ -1795,7 +1820,7 @@ mod tests {
         assert_eq!(settings.dictionary_entries.len(), 2);
         assert_eq!(settings.dictionary_entries[0].id, "legacy_0");
         assert_eq!(settings.dictionary_entries[1].term, "Mac Book Pro");
-        assert_eq!(settings.settings_schema_version, 5);
+        assert_eq!(settings.settings_schema_version, 6);
 
         let serialized = serde_json::to_value(&settings).unwrap();
         let before = settings.dictionary_entries.clone();

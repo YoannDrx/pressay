@@ -10,6 +10,7 @@ import {
   Sparkles,
   Cpu,
   Layers3,
+  UserRound,
 } from "lucide-react";
 import PressayWordmark from "./icons/PressayWordmark";
 import PressayMark from "./icons/PressayMark";
@@ -24,6 +25,7 @@ import {
   ModelsSettings,
   DictionarySettings,
   ModesSettings,
+  AccountSettings,
 } from "./settings";
 import { HomeDashboard } from "./dashboard/HomeDashboard";
 
@@ -85,6 +87,14 @@ export const SECTIONS_CONFIG = {
     icon: History,
     component: HistorySettings,
     enabled: (settings) => settings?.history_enabled ?? false,
+    group: "primary",
+  },
+  account: {
+    labelKey: "sidebar.account",
+    labelDefault: "Account",
+    icon: UserRound,
+    component: AccountSettings,
+    enabled: () => true,
     group: "primary",
   },
   models: {
