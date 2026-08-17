@@ -158,6 +158,23 @@ pub struct MirrorFile {
     pub size_bytes: u64,
 }
 
+/// Public, immutable copies of the three launch artifacts. These are an
+/// availability fallback for fresh installs while Pressay's own CDN remains
+/// the preferred source. The URL is not trusted: callers still verify the
+/// downloaded bytes against the size and SHA-256 from the signed catalogue.
+fn audited_public_fallback(model_id: &str, filename: &str) -> Option<String> {
+    let repository = match model_id {
+        "pressay/parakeet-v3" => "memoravox/parakeet-tdt-0.6b-v3-gguf",
+        "pressay/whisper-small" => "memoravox/whisper-small-gguf",
+        "pressay/whisper-large" => "memoravox/whisper-large-v3-gguf",
+        _ => return None,
+    };
+
+    Some(format!(
+        "https://huggingface.co/{repository}/resolve/main/{filename}?download=true"
+    ))
+}
+
 /// Ordered CDN URLs for a catalog model's file, or empty when the model is not
 /// in the signed catalog.
 pub fn mirror_fallbacks(model_id: &str) -> Vec<MirrorFile> {
@@ -177,7 +194,8 @@ pub fn mirror_fallbacks(model_id: &str) -> Vec<MirrorFile> {
     let Some(sha256) = file.sha256.as_deref() else {
         return Vec::new();
     };
-    ROOT.mirrors
+    let mut mirrors: Vec<MirrorFile> = ROOT
+        .mirrors
         .iter()
         .map(|base| MirrorFile {
             url: format!(
@@ -190,7 +208,17 @@ pub fn mirror_fallbacks(model_id: &str) -> Vec<MirrorFile> {
             sha256: sha256.to_string(),
             size_bytes: file.size_bytes,
         })
-        .collect()
+        .collect();
+
+    if let Some(url) = audited_public_fallback(&m.id, &file.filename) {
+        mirrors.push(MirrorFile {
+            url,
+            sha256: sha256.to_string(),
+            size_bytes: file.size_bytes,
+        });
+    }
+
+    mirrors
 }
 
 /// The catalog descriptor + specific `files[]` entry owning `filename`,
@@ -306,6 +334,27 @@ mod tests {
                 assert!(m.size_bytes > 0, "{}: mirror entry lacks a size", d.id);
                 assert!(m.url.starts_with("https://"), "{}: bad url {}", d.id, m.url);
             }
+        }
+    }
+
+    #[test]
+    fn launch_models_have_a_hash_verified_public_fallback() {
+        for descriptor in CATALOG.iter() {
+            let mirrors = mirror_fallbacks(&descriptor.id);
+            let fallback = mirrors
+                .last()
+                .expect("launch model must have a public fallback");
+
+            assert!(
+                fallback
+                    .url
+                    .starts_with("https://huggingface.co/memoravox/"),
+                "{}: unexpected public fallback {}",
+                descriptor.id,
+                fallback.url
+            );
+            assert_eq!(fallback.sha256.len(), 64);
+            assert!(fallback.size_bytes > 0);
         }
     }
 

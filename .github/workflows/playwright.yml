@@ -1,13 +1,9 @@
 name: "Playwright"
 on:
   workflow_dispatch:
+  # This job is required by the main branch protection rule, so it must report
+  # a conclusion for every pull request (including Rust-only changes).
   pull_request:
-    paths:
-      - "src/**"
-      - "package.json"
-      - "bun.lock"
-      - "playwright.config.*"
-      - "tests/**"
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}

@@ -1619,26 +1619,76 @@ impl ModelManager {
             disarmed: false,
         };
 
-        // URL sources carry no authoritative size, so the helper falls back to
-        // the server's content-length for progress and completeness checks.
-        match self
-            .download_http_resumable(
-                model_id,
-                &url,
-                &partial_path,
-                None,
-                expected_sha256.as_deref(),
-                &cancel_token,
-            )
-            .await?
+        // Catalogue URLs are tried in declared order: Pressay's CDN first,
+        // followed by its audited public availability fallback. Every mirror
+        // is checked against the same size and SHA-256 from the signed
+        // catalogue, so changing transport never weakens artifact integrity.
+        // Non-catalogue URL models keep their original single-source behavior.
+        let catalog_mirrors = crate::catalog::mirror_fallbacks(model_id);
+        let download_sources: Vec<(String, Option<u64>, Option<String>)> =
+            if catalog_mirrors.is_empty() {
+                vec![(url, None, expected_sha256)]
+            } else {
+                catalog_mirrors
+                    .into_iter()
+                    .map(|mirror| (mirror.url, Some(mirror.size_bytes), Some(mirror.sha256)))
+                    .collect()
+            };
+
+        let source_count = download_sources.len();
+        let mut completed = false;
+        let mut last_error = None;
+        for (index, (source_url, expected_size, expected_hash)) in
+            download_sources.into_iter().enumerate()
         {
-            HttpDownloadOutcome::Cancelled => {
-                info!("Download cancelled for: {}", model_id);
-                // Keep partial file for resume functionality.
-                // Guard handles is_downloading + cancel_flags cleanup on drop.
-                return Ok(());
+            info!(
+                "Downloading {} from source {}/{}",
+                model_id,
+                index + 1,
+                source_count
+            );
+            match self
+                .download_http_resumable(
+                    model_id,
+                    &source_url,
+                    &partial_path,
+                    expected_size,
+                    expected_hash.as_deref(),
+                    &cancel_token,
+                )
+                .await
+            {
+                Ok(HttpDownloadOutcome::Cancelled) => {
+                    info!("Download cancelled for: {}", model_id);
+                    // Keep partial file for resume functionality.
+                    // Guard handles is_downloading + cancel_flags cleanup on drop.
+                    return Ok(());
+                }
+                Ok(HttpDownloadOutcome::Completed) => {
+                    completed = true;
+                    break;
+                }
+                Err(error) => {
+                    warn!(
+                        "Download source {}/{} failed for {}: {:?}",
+                        index + 1,
+                        source_count,
+                        model_id,
+                        error
+                    );
+                    last_error = Some(error);
+                }
             }
-            HttpDownloadOutcome::Completed => {}
+        }
+
+        if !completed {
+            return Err(anyhow::anyhow!(
+                "Download failed from all {} source(s): {}",
+                source_count,
+                last_error
+                    .map(|error| error.to_string())
+                    .unwrap_or_else(|| "no download source completed".to_string())
+            ));
         }
 
         // Handle directory-based models (extract tar.gz) vs file-based models
