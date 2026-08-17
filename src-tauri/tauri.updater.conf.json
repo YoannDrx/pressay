@@ -4,6 +4,7 @@
     "createUpdaterArtifacts": true
   },
   "app": {
+    "macOSPrivateApi": true,
     "security": {
       "capabilities": [
         "default",

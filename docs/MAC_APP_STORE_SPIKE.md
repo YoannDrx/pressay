@@ -2,10 +2,16 @@
 
 ## Current result
 
-The sandboxed `app.pressay.desktop.mas` bundle builds and carries the expected
-App Sandbox entitlements. Submission remains blocked because the inherited
-recording overlay still links `tauri-nspanel` / `macos-private-api`. The Store
-workflow fails deliberately until that overlay is replaced with public APIs.
+The sandboxed `app.pressay.desktop.mas` variant now compiles with a dedicated
+`mas` feature and a public Tauri window for the recording overlay. Its Cargo
+dependency graph excludes both `tauri-nspanel` and `macos-private-api`; CI
+enforces that boundary. Direct releases retain the native NSPanel overlay behind
+the separate `direct` feature, which is enabled by the `updater` release feature.
+
+This clears the private-API build blocker, but it does not make the Store build
+submission-ready. The remaining sandbox capabilities still require hands-on
+validation with an Apple development profile, StoreKit sandbox products, and a
+TestFlight upload.
 
 The spike is complete only when a sandboxed Apple Silicon build demonstrates:
 
@@ -14,7 +20,7 @@ The spike is complete only when a sandboxed Apple Silicon build demonstrates:
 - Accessibility permission detection;
 - reliable paste into a different process;
 - selected-text access without clipboard leakage;
-- a public-API recording overlay;
+- a public-API recording overlay (compile gate complete; runtime test pending);
 - menu-bar operation and login item behavior;
 - model download inside the app container;
 - macOS Keychain access;

@@ -861,7 +861,7 @@ pub fn run(cli_args: CliArgs) {
                 .build(),
         );
 
-    #[cfg(target_os = "macos")]
+    #[cfg(all(target_os = "macos", feature = "direct"))]
     {
         builder = builder.plugin(tauri_nspanel::init());
     }

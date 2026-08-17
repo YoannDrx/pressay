@@ -24,7 +24,9 @@ building if Apple signing or notarization secrets are absent.
 - Dedicated entitlements and provisioning profile
 
 The Store build uses `src-tauri/tauri.appstore.conf.json` as an override. A
-successful DMG release does not imply that the Store build is ready.
+successful DMG release does not imply that the Store build is ready. It must be
+built with `--features mas`; CI rejects any Store dependency graph containing
+`tauri-nspanel` or Tauri's `macos-private-api` feature.
 
 ## Release gates
 

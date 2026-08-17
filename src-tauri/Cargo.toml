@@ -9,7 +9,8 @@ default-run = "pressay"
 
 [features]
 default = []
-updater = ["dep:tauri-plugin-updater"]
+direct = ["tauri/macos-private-api", "dep:tauri-nspanel"]
+updater = ["direct", "dep:tauri-plugin-updater"]
 mas = []
 
 [profile.dev]
@@ -35,8 +36,7 @@ serde = { version = "1", features = ["derive"] }
 
 [dependencies]
 once_cell = "1"
-tauri = { version = "2.11.5", features = ["macos-private-api",
-  "protocol-asset",
+tauri = { version = "2.11.5", features = ["protocol-asset",
   "tray-icon",
   'image-png',
 ] }
@@ -158,7 +158,7 @@ transcribe-cpp = { version = "0.1.3", default-features = false, features = [
 transcribe-cpp = { version = "0.1.3", default-features = false }
 
 [target.'cfg(target_os = "macos")'.dependencies]
-tauri-nspanel = { git = "https://github.com/ahkohd/tauri-nspanel", rev = "da9c9a8d4eb7f0524a2508988df1a7d9585b4904" }
+tauri-nspanel = { git = "https://github.com/ahkohd/tauri-nspanel", rev = "da9c9a8d4eb7f0524a2508988df1a7d9585b4904", optional = true }
 transcribe-cpp = { version = "0.1.3", default-features = false, features = ["metal"] }
 keyring-core = "=1.0.0"
 apple-native-keyring-store = { version = "=1.0.2", features = ["keychain", "protected"] }
