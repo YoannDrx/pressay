@@ -94,7 +94,8 @@ pub fn get_local_readiness(app: AppHandle) -> LocalReadiness {
         command_output("/usr/bin/sw_vers", &["-productVersion"]),
     );
     #[cfg(not(target_os = "macos"))]
-    let (chip, memory_bytes, macos_version) = (None, None, None);
+    let (chip, memory_bytes, macos_version): (Option<String>, Option<u64>, Option<String>) =
+        (None, None, None);
 
     let supported = cfg!(all(target_os = "macos", target_arch = "aarch64"))
         && macos_version
