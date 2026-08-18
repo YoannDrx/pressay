@@ -55,7 +55,7 @@ Le dépôt frère accepte maintenant les JWT OAuth/JWKS du site et les jetons co
 | `Pressay`       | `bun run test:playwright`      | 7 réussis, dont FR lazy-load et RTL/reduced motion |
 | `pressay-web`   | lint, typecheck, build Next 16 | réussis                                            |
 | `pressay-web`   | Playwright desktop + mobile    | 26 locaux ; 18 distants réussis                    |
-| `pressay-cloud` | `bun run verify`               | 21 fichiers / 74 tests réussis                     |
+| `pressay-cloud` | `bun run verify`               | 22 fichiers / 75 tests réussis                     |
 
 ## Release gates encore ouverts
 

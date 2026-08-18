@@ -15,7 +15,7 @@ Toujours externes : VO-002, tests novices de VO-103, matrices natives DMG/MAS, M
 - La recherche Historique occupe toute la largeur disponible.
 - Les chemins de données et journaux ont quitté « À propos » et restent accessibles uniquement dans Avancé > Expérimental pour le support.
 - « À propos » expose la Signal Orb et la signature YoDev.
-- Les anciennes installations bêta qui pointaient vers l'API commerciale historique migrent vers le control plane staging compatible ; la suite desktop compte 305 tests passants et le backend Cloud 74. Six probes publics valident aussi la santé, la base, la configuration auth, la clé publique d'entitlements et les frontières d'authentification.
+- Les anciennes installations bêta qui pointaient vers l'API commerciale historique migrent vers le control plane staging compatible ; la suite desktop compte 308 tests passants et le backend Cloud 75. Six probes publics valident aussi la santé, la base, la configuration auth, la clé publique d'entitlements et les frontières d'authentification.
 
 Gate encore ouverte : rejouer Google dans le binaire installé, puis valider la migration de données et le rollback avant tout cutover de `api.press-say.app`. Tant que cette gate n'est pas fermée, le produit ne doit pas être annoncé comme « 100 % commercialisable », même si la dictée locale reste pleinement indépendante du compte.
 
