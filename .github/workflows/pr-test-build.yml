@@ -25,6 +25,7 @@ jobs:
           bun tauri build
           --target aarch64-apple-darwin
           --bundles app
+          --no-sign
       - uses: actions/upload-artifact@v7
         with:
           name: pressay-pr-${{ github.event.pull_request.number }}-arm64
