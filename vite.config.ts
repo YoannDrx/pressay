@@ -24,6 +24,21 @@ export default defineConfig(async () => ({
         main: resolve(__dirname, "index.html"),
         overlay: resolve(__dirname, "src/overlay/index.html"),
       },
+      output: {
+        manualChunks(id) {
+          if (!id.includes("node_modules")) return undefined;
+          if (id.includes("@tauri-apps")) return "vendor-tauri";
+          if (id.includes("lucide-react")) return "vendor-icons";
+          if (id.includes("react-markdown") || id.includes("remark")) {
+            return "vendor-markdown";
+          }
+          if (id.includes("react") || id.includes("scheduler")) {
+            return "vendor-react";
+          }
+          if (id.includes("i18next")) return "vendor-i18n";
+          return undefined;
+        },
+      },
     },
   },
 

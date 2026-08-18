@@ -30,13 +30,14 @@ use crate::tray;
 // Note: Commands are accessed via shortcut::handy_keys:: in lib.rs
 
 /// Initialize shortcuts using the configured implementation
-pub fn init_shortcuts(app: &AppHandle) {
+pub fn init_shortcuts(app: &AppHandle) -> Result<(), String> {
     let user_settings = settings::load_or_create_app_settings(app);
 
     // Check which implementation to use
     match user_settings.keyboard_implementation {
         KeyboardImplementation::Tauri => {
             tauri_impl::init_shortcuts(app);
+            Ok(())
         }
         KeyboardImplementation::HandyKeys => {
             if let Err(e) = handy_keys::init_shortcuts(app) {
@@ -50,6 +51,9 @@ pub fn init_shortcuts(app: &AppHandle) {
                 settings::write_settings(app, settings);
 
                 tauri_impl::init_shortcuts(app);
+                Ok(())
+            } else {
+                Ok(())
             }
         }
     }
@@ -115,6 +119,8 @@ pub fn change_binding(
     id: String,
     binding: String,
 ) -> Result<BindingResponse, String> {
+    crate::commands::initialize_shortcuts(app.clone())?;
+
     // Reject empty bindings — every shortcut should have a value
     if binding.trim().is_empty() {
         return Err("Binding cannot be empty".to_string());
@@ -269,6 +275,7 @@ pub fn resume_all_shortcuts(app: &AppHandle) {
 #[tauri::command]
 #[specta::specta]
 pub fn suspend_all_bindings(app: AppHandle) -> Result<(), String> {
+    crate::commands::initialize_shortcuts(app.clone())?;
     suspend_all_shortcuts(&app);
     Ok(())
 }
@@ -277,6 +284,7 @@ pub fn suspend_all_bindings(app: AppHandle) -> Result<(), String> {
 #[tauri::command]
 #[specta::specta]
 pub fn resume_all_bindings(app: AppHandle) -> Result<(), String> {
+    crate::commands::initialize_shortcuts(app.clone())?;
     resume_all_shortcuts(&app);
     Ok(())
 }
@@ -1064,6 +1072,7 @@ pub fn change_post_process_api_key_setting(
     provider_id: String,
     api_key: String,
 ) -> Result<(), String> {
+    crate::capabilities::require_capability(&app, crate::capabilities::ProductCapability::Byok)?;
     let mut settings = settings::get_settings(&app);
     validate_provider_exists(&settings, &provider_id)?;
     crate::secrets::set_provider_api_key(&provider_id, &api_key)?;
@@ -1071,6 +1080,7 @@ pub fn change_post_process_api_key_setting(
         .post_process_api_keys_configured
         .insert(provider_id, !api_key.is_empty());
     settings::write_settings(&app, settings);
+    crate::tray::update_tray_menu(&app, None);
     Ok(())
 }
 
@@ -1085,16 +1095,24 @@ pub fn change_post_process_model_setting(
     validate_provider_exists(&settings, &provider_id)?;
     settings.post_process_models.insert(provider_id, model);
     settings::write_settings(&app, settings);
+    crate::tray::update_tray_menu(&app, None);
     Ok(())
 }
 
 #[tauri::command]
 #[specta::specta]
 pub fn set_post_process_provider(app: AppHandle, provider_id: String) -> Result<(), String> {
+    let capability = if provider_id == APPLE_INTELLIGENCE_PROVIDER_ID {
+        crate::capabilities::ProductCapability::AppleIntelligence
+    } else {
+        crate::capabilities::ProductCapability::Byok
+    };
+    crate::capabilities::require_capability(&app, capability)?;
     let mut settings = settings::get_settings(&app);
     validate_provider_exists(&settings, &provider_id)?;
     settings.post_process_provider_id = provider_id;
     settings::write_settings(&app, settings);
+    crate::tray::update_tray_menu(&app, None);
     Ok(())
 }
 

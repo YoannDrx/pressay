@@ -4,6 +4,7 @@ mod apple_intelligence;
 mod audio_feedback;
 pub mod audio_toolkit;
 mod autostart;
+mod capabilities;
 mod catalog;
 pub mod cli;
 mod clipboard;
@@ -32,6 +33,7 @@ mod transcription_coordinator;
 mod tray;
 mod tray_i18n;
 mod utils;
+mod voice_commands;
 
 pub use cli::CliArgs;
 #[cfg(debug_assertions)]
@@ -316,6 +318,17 @@ fn initialize_core_logic(app_handle: &AppHandle) {
                     }
                     tray::update_tray_menu(&app_clone, None);
                 });
+            }
+            id if id.starts_with("mode_select:") => {
+                let mode_id = id.strip_prefix("mode_select:").unwrap().to_string();
+                let mut settings = settings::get_settings(app);
+                if settings.pressay_modes.iter().any(|mode| mode.id == mode_id) {
+                    settings.active_mode_id = mode_id.clone();
+                    settings::write_settings(app, settings);
+                    log::info!("Mode switched to {} via tray.", mode_id);
+                    tray::update_tray_menu(app, None);
+                    let _ = app.emit("productivity-config-changed", ());
+                }
             }
             _ => {}
         })
@@ -687,6 +700,9 @@ pub fn run(cli_args: CliArgs) {
             trigger_update_check,
             show_main_window_command,
             commands::cancel_operation,
+            commands::complete_onboarding,
+            commands::get_local_readiness,
+            capabilities::get_capabilities,
             commands::cloud::get_cloud_auth_config,
             commands::cloud::request_cloud_magic_link,
             commands::cloud::begin_cloud_social_login,
@@ -744,6 +760,8 @@ pub fn run(cli_args: CliArgs) {
             commands::transcription::unload_model_manually,
             commands::history::get_history_entries,
             commands::history::toggle_history_entry_saved,
+            commands::history::update_history_entry_tags,
+            commands::history::reprocess_history_entry,
             commands::history::toggle_history_audio_saved,
             commands::history::get_history_audio,
             commands::history::delete_history_entry,
@@ -768,6 +786,9 @@ pub fn run(cli_args: CliArgs) {
             commands::productivity::export_productivity_config,
             commands::productivity::import_productivity_config,
             transcription_coordinator::get_pipeline_state,
+            transcription_coordinator::get_voice_surface_state,
+            transcription_coordinator::dismiss_voice_surface,
+            voice_commands::preview_voice_command,
             helpers::clamshell::is_laptop,
         ])
         .events(collect_events![
@@ -775,6 +796,7 @@ pub fn run(cli_args: CliArgs) {
             managers::transcription::StreamTextEvent,
             managers::transcription::StreamPhaseEvent,
             transcription_coordinator::PipelineState,
+            transcription_coordinator::VoiceSurfaceState,
         ]);
 
     #[cfg(debug_assertions)] // <- Only export on non-release builds
@@ -800,7 +822,18 @@ pub fn run(cli_args: CliArgs) {
     // are forwarded to the existing process before another plugin consumes them.
     if !headless_mode {
         builder = builder.plugin(tauri_plugin_single_instance::init(|app, args, _cwd| {
-            if args.iter().any(|a| a == "--toggle-transcription") {
+            let deep_links = args
+                .iter()
+                .filter_map(|argument| url::Url::parse(argument).ok())
+                .filter(|url| url.scheme() == "pressay")
+                .collect::<Vec<_>>();
+
+            if !deep_links.is_empty() {
+                for url in deep_links {
+                    cloud::handle_deep_link(app.clone(), url);
+                }
+                show_main_window(app);
+            } else if args.iter().any(|a| a == "--toggle-transcription") {
                 signal_handle::send_transcription_input(app, "transcribe", "CLI");
             } else if args.iter().any(|a| a == "--toggle-post-process") {
                 signal_handle::send_transcription_input(app, "transcribe_with_post_process", "CLI");
@@ -939,8 +972,8 @@ pub fn run(cli_args: CliArgs) {
             let mut win_builder =
                 tauri::WebviewWindowBuilder::new(app, "main", tauri::WebviewUrl::App("/".into()))
                     .title("Pressay")
-                    .inner_size(680.0, 570.0)
-                    .min_inner_size(680.0, 570.0)
+                    .inner_size(1100.0, 760.0)
+                    .min_inner_size(760.0, 600.0)
                     .resizable(true)
                     .maximizable(true)
                     .visible(false);

@@ -1,7 +1,15 @@
 import React, { useEffect, useState } from "react";
 import { Trans, useTranslation } from "react-i18next";
-import { RefreshCcw } from "lucide-react";
+import {
+  CheckCircle2,
+  CircleAlert,
+  KeyRound,
+  LoaderCircle,
+  RefreshCcw,
+  ShieldCheck,
+} from "lucide-react";
 import { commands } from "@/bindings";
+import { AppPageHeader } from "@/components/layout";
 
 import { Alert } from "../../ui/Alert";
 import {
@@ -21,6 +29,7 @@ import { ModelSelect } from "../PostProcessingSettingsApi/ModelSelect";
 import { usePostProcessProviderState } from "../PostProcessingSettingsApi/usePostProcessProviderState";
 import { ShortcutInput } from "../ShortcutInput";
 import { useSettings } from "../../../hooks/useSettings";
+import { PostProcessingToggle } from "../PostProcessingToggle";
 
 const PostProcessingSettingsApiComponent: React.FC = () => {
   const { t } = useTranslation();
@@ -68,7 +77,7 @@ const PostProcessingSettingsApiComponent: React.FC = () => {
                     "settings.postProcessing.api.baseUrl.placeholder",
                   )}
                   disabled={state.isBaseUrlUpdating}
-                  className="min-w-[380px]"
+                  className="w-full"
                 />
               </div>
             </SettingContainer>
@@ -91,20 +100,62 @@ const PostProcessingSettingsApiComponent: React.FC = () => {
                     : t("settings.postProcessing.api.apiKey.placeholder")
                 }
                 disabled={state.isApiKeyUpdating}
-                className="min-w-[320px]"
+                className="w-full"
               />
               {state.apiKeyConfigured && (
-                <Button
-                  variant="danger-ghost"
-                  size="sm"
-                  onClick={state.handleApiKeyRemove}
-                  disabled={state.isApiKeyUpdating}
-                >
-                  {t("common.delete")}
-                </Button>
+                <>
+                  <Button
+                    variant="secondary"
+                    size="sm"
+                    onClick={state.handleRefreshModels}
+                    disabled={state.isApiKeyUpdating || state.isFetchingModels}
+                  >
+                    {t("settings.postProcessing.api.connection.verify")}
+                  </Button>
+                  <Button
+                    variant="danger-ghost"
+                    size="sm"
+                    onClick={state.handleApiKeyRemove}
+                    disabled={state.isApiKeyUpdating}
+                  >
+                    {t("common.delete")}
+                  </Button>
+                </>
               )}
             </div>
           </SettingContainer>
+
+          {state.providerConnectionStatus !== "not_configured" && (
+            <div
+              className={`provider-connection-status is-${state.providerConnectionStatus}`}
+              role="status"
+              aria-live="polite"
+            >
+              {state.providerConnectionStatus === "valid" ? (
+                <CheckCircle2 aria-hidden="true" />
+              ) : state.providerConnectionStatus === "error" ? (
+                <CircleAlert aria-hidden="true" />
+              ) : state.providerConnectionStatus === "checking" ? (
+                <LoaderCircle className="animate-spin" aria-hidden="true" />
+              ) : (
+                <KeyRound aria-hidden="true" />
+              )}
+              <div>
+                <strong>
+                  {state.providerConnectionStatus === "checking"
+                    ? t("common.loading")
+                    : t(
+                        `settings.postProcessing.api.connection.${state.providerConnectionStatus}`,
+                      )}
+                </strong>
+                {state.providerConnectionStatus === "valid" ? (
+                  <span>{state.model}</span>
+                ) : state.providerConnectionStatus === "error" ? (
+                  <span>{state.providerConnectionError}</span>
+                ) : null}
+              </div>
+            </div>
+          )}
         </>
       )}
 
@@ -124,7 +175,10 @@ const PostProcessingSettingsApiComponent: React.FC = () => {
             <ModelSelect
               value={state.model}
               options={state.modelOptions}
-              disabled={state.isModelUpdating}
+              disabled={
+                state.isModelUpdating ||
+                state.providerConnectionStatus === "checking"
+              }
               isLoading={state.isFetchingModels}
               placeholder={
                 state.modelOptions.length > 0
@@ -136,7 +190,7 @@ const PostProcessingSettingsApiComponent: React.FC = () => {
               onSelect={state.handleModelSelect}
               onCreate={state.handleModelCreate}
               onBlur={() => {}}
-              className="flex-1 min-w-[380px]"
+              className="flex-1 min-w-0"
             />
             <ResetButton
               onClick={state.handleRefreshModels}
@@ -150,6 +204,15 @@ const PostProcessingSettingsApiComponent: React.FC = () => {
             </ResetButton>
           </div>
         </SettingContainer>
+      )}
+
+      {state.isProviderReady && !state.isAppleProvider && (
+        <div className="provider-ready-note">
+          <CheckCircle2 size={16} aria-hidden="true" />
+          <span>
+            {t("settings.postProcessing.api.connection.translationReady")}
+          </span>
+        </div>
       )}
     </>
   );
@@ -357,8 +420,8 @@ const PostProcessingSettingsPromptsComponent: React.FC = () => {
         )}
 
         {!isCreating && !selectedPrompt && (
-          <div className="p-3 bg-mid-gray/5 rounded-md border border-mid-gray/20">
-            <p className="text-sm text-mid-gray">
+          <div className="settings-empty-note">
+            <p>
               {hasPrompts
                 ? t("settings.postProcessing.prompts.selectToEdit")
                 : t("settings.postProcessing.prompts.createFirst")}
@@ -440,7 +503,22 @@ export const PostProcessingSettings: React.FC = () => {
   const { t } = useTranslation();
 
   return (
-    <div className="max-w-3xl w-full mx-auto space-y-6">
+    <div className="settings-page signal-settings-page space-y-6">
+      <AppPageHeader
+        eyebrow={t("settings.postProcessing.eyebrow")}
+        title={t("settings.postProcessing.title")}
+        description={t("settings.postProcessing.description")}
+        aside={
+          <div className="provider-privacy-note">
+            <ShieldCheck size={15} aria-hidden="true" />
+            <span>{t("settings.postProcessing.privacy")}</span>
+          </div>
+        }
+      />
+
+      <SettingsGroup title={t("settings.postProcessing.activation")}>
+        <PostProcessingToggle descriptionMode="tooltip" grouped={true} />
+      </SettingsGroup>
       <SettingsGroup title={t("settings.postProcessing.hotkey.title")}>
         <ShortcutInput
           shortcutId="transcribe_with_post_process"

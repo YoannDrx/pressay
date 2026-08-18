@@ -1,8 +1,13 @@
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { useSettings } from "../../../hooks/useSettings";
 import { commands, type PostProcessProvider } from "@/bindings";
 import type { ModelOption } from "./types";
 import type { DropdownOption } from "../../ui/Dropdown";
+import { useTranslation } from "react-i18next";
+import {
+  isRecommendedProviderModel,
+  providerModelLabel,
+} from "@/lib/providerModels";
 
 type PostProcessProviderState = {
   providerOptions: DropdownOption[];
@@ -16,6 +21,10 @@ type PostProcessProviderState = {
   isBaseUrlUpdating: boolean;
   apiKey: string;
   apiKeyConfigured: boolean;
+  providerConnectionStatus:
+    "not_configured" | "stored" | "checking" | "valid" | "error";
+  providerConnectionError?: string;
+  isProviderReady: boolean;
   handleApiKeyChange: (value: string) => void;
   handleApiKeyRemove: () => void;
   isApiKeyUpdating: boolean;
@@ -33,6 +42,7 @@ type PostProcessProviderState = {
 const APPLE_PROVIDER_ID = "apple_intelligence";
 
 export const usePostProcessProviderState = (): PostProcessProviderState => {
+  const { t } = useTranslation();
   const {
     settings,
     isUpdating,
@@ -42,6 +52,7 @@ export const usePostProcessProviderState = (): PostProcessProviderState => {
     updatePostProcessModel,
     fetchPostProcessModels,
     postProcessModelOptions,
+    postProcessProviderConnections,
   } = useSettings();
 
   // Settings are guaranteed to have providers after migration
@@ -59,6 +70,7 @@ export const usePostProcessProviderState = (): PostProcessProviderState => {
   }, [providers, selectedProviderId]);
 
   const isAppleProvider = selectedProvider?.id === APPLE_PROVIDER_ID;
+  const isCustomProvider = selectedProvider?.id === "custom";
   const [appleIntelligenceUnavailable, setAppleIntelligenceUnavailable] =
     useState(false);
 
@@ -70,6 +82,17 @@ export const usePostProcessProviderState = (): PostProcessProviderState => {
   const apiKeyConfigured =
     settings?.post_process_api_keys_configured?.[selectedProviderId] ?? false;
   const model = settings?.post_process_models?.[selectedProviderId] ?? "";
+  const providerConnection = postProcessProviderConnections[selectedProviderId];
+  const hasConnectionConfiguration = isCustomProvider
+    ? Boolean(baseUrl.trim())
+    : apiKeyConfigured;
+  const providerConnectionStatus = isAppleProvider
+    ? "valid"
+    : (providerConnection?.status ??
+      (hasConnectionConfiguration ? "stored" : "not_configured"));
+  const providerConnectionError = providerConnection?.error;
+  const isProviderReady =
+    providerConnectionStatus === "valid" && Boolean(model.trim());
 
   const providerOptions = useMemo<DropdownOption[]>(() => {
     return providers.map((provider) => ({
@@ -123,23 +146,29 @@ export const usePostProcessProviderState = (): PostProcessProviderState => {
   );
 
   const handleBaseUrlChange = useCallback(
-    (value: string) => {
+    async (value: string) => {
       if (!selectedProvider || selectedProvider.id !== "custom") {
         return;
       }
       const trimmed = value.trim();
       if (trimmed && trimmed !== baseUrl) {
-        void updatePostProcessBaseUrl(selectedProvider.id, trimmed);
+        await updatePostProcessBaseUrl(selectedProvider.id, trimmed);
+        await fetchPostProcessModels(selectedProvider.id);
       }
     },
-    [selectedProvider, baseUrl, updatePostProcessBaseUrl],
+    [
+      selectedProvider,
+      baseUrl,
+      updatePostProcessBaseUrl,
+      fetchPostProcessModels,
+    ],
   );
 
   const handleApiKeyChange = useCallback(
-    (value: string) => {
+    async (value: string) => {
       const trimmed = value.trim();
       if (trimmed) {
-        void updatePostProcessApiKey(selectedProviderId, trimmed);
+        await updatePostProcessApiKey(selectedProviderId, trimmed);
       }
     },
     [selectedProviderId, updatePostProcessApiKey],
@@ -190,7 +219,13 @@ export const usePostProcessProviderState = (): PostProcessProviderState => {
       const trimmed = value?.trim();
       if (!trimmed || seen.has(trimmed)) return;
       seen.add(trimmed);
-      options.push({ value: trimmed, label: trimmed });
+      const label = providerModelLabel(selectedProviderId, trimmed);
+      options.push({
+        value: trimmed,
+        label: isRecommendedProviderModel(selectedProviderId, trimmed)
+          ? `${label} · ${t("onboarding.recommended")}`
+          : label,
+      });
     };
 
     // Add available models from API
@@ -202,7 +237,7 @@ export const usePostProcessProviderState = (): PostProcessProviderState => {
     upsert(model);
 
     return options;
-  }, [availableModelsRaw, model]);
+  }, [availableModelsRaw, model, selectedProviderId, t]);
 
   const isBaseUrlUpdating = isUpdating(
     `post_process_base_url:${selectedProviderId}`,
@@ -217,9 +252,24 @@ export const usePostProcessProviderState = (): PostProcessProviderState => {
     `post_process_models_fetch:${selectedProviderId}`,
   );
 
-  const isCustomProvider = selectedProvider?.id === "custom";
-
-  // No automatic fetching - user must click refresh button
+  useEffect(() => {
+    if (
+      isAppleProvider ||
+      !hasConnectionConfiguration ||
+      providerConnection ||
+      isFetchingModels
+    ) {
+      return;
+    }
+    void fetchPostProcessModels(selectedProviderId);
+  }, [
+    fetchPostProcessModels,
+    hasConnectionConfiguration,
+    isAppleProvider,
+    isFetchingModels,
+    providerConnection,
+    selectedProviderId,
+  ]);
 
   return {
     providerOptions,
@@ -233,6 +283,9 @@ export const usePostProcessProviderState = (): PostProcessProviderState => {
     isBaseUrlUpdating,
     apiKey,
     apiKeyConfigured,
+    providerConnectionStatus,
+    providerConnectionError,
+    isProviderReady,
     handleApiKeyChange,
     handleApiKeyRemove,
     isApiKeyUpdating,

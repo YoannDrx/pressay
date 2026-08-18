@@ -1,6 +1,7 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { type } from "@tauri-apps/plugin-os";
+import { openUrl } from "@tauri-apps/plugin-opener";
 import {
   checkAccessibilityPermission,
   requestAccessibilityPermission,
@@ -15,22 +16,55 @@ interface ButtonConfig {
   className: string;
 }
 
-const AccessibilityPermissions: React.FC = () => {
+interface AccessibilityPermissionsProps {
+  onPermissionGranted?: () => Promise<boolean>;
+}
+
+const MACOS_ACCESSIBILITY_SETTINGS_URL =
+  "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility";
+
+const AccessibilityPermissions: React.FC<AccessibilityPermissionsProps> = ({
+  onPermissionGranted,
+}) => {
   const { t } = useTranslation();
   const [hasAccessibility, setHasAccessibility] = useState<boolean>(false);
   const [permissionState, setPermissionState] =
     useState<PermissionState>("request");
+  const checkInFlightRef = useRef(false);
 
   // Accessibility permissions are only required on macOS
   const isMacOS = type() === "macos";
 
   // Check permissions without requesting
-  const checkPermissions = async (): Promise<boolean> => {
-    const hasPermissions: boolean = await checkAccessibilityPermission();
-    setHasAccessibility(hasPermissions);
-    setPermissionState(hasPermissions ? "granted" : "verify");
-    return hasPermissions;
-  };
+  const checkPermissions = useCallback(async (): Promise<boolean> => {
+    if (checkInFlightRef.current) return false;
+    checkInFlightRef.current = true;
+
+    try {
+      const hasPermissions = await checkAccessibilityPermission();
+      if (!hasPermissions) {
+        setHasAccessibility(false);
+        setPermissionState((current) =>
+          current === "request" ? "request" : "verify",
+        );
+        return false;
+      }
+
+      const nativeInputReady = onPermissionGranted
+        ? await onPermissionGranted()
+        : true;
+      setHasAccessibility(nativeInputReady);
+      setPermissionState(nativeInputReady ? "granted" : "verify");
+      return nativeInputReady;
+    } catch (error) {
+      console.warn("Failed to verify accessibility permission:", error);
+      setHasAccessibility(false);
+      setPermissionState("verify");
+      return false;
+    } finally {
+      checkInFlightRef.current = false;
+    }
+  }, [onPermissionGranted]);
 
   // Handle the unified button action based on current state
   const handleButtonClick = async (): Promise<void> => {
@@ -43,24 +77,36 @@ const AccessibilityPermissions: React.FC = () => {
         console.error("Error requesting permissions:", error);
         setPermissionState("verify");
       }
-    } else if (permissionState === "verify") {
-      // State is "verify" - check if permission was granted
-      await checkPermissions();
     }
+
+    await openUrl(MACOS_ACCESSIBILITY_SETTINGS_URL);
+    await checkPermissions();
   };
 
   // On app boot - check permissions (only on macOS)
   useEffect(() => {
     if (!isMacOS) return;
 
-    const initialSetup = async (): Promise<void> => {
-      const hasPermissions: boolean = await checkAccessibilityPermission();
-      setHasAccessibility(hasPermissions);
-      setPermissionState(hasPermissions ? "granted" : "request");
+    void checkPermissions();
+
+    // macOS does not push TCC changes into the webview. Keep the banner and
+    // shortcut runtime in sync while the user grants (or revokes) access.
+    const interval = window.setInterval(() => {
+      void checkPermissions();
+    }, 1500);
+    const handleFocus = () => void checkPermissions();
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === "visible") void checkPermissions();
     };
 
-    initialSetup();
-  }, [isMacOS]);
+    window.addEventListener("focus", handleFocus);
+    document.addEventListener("visibilitychange", handleVisibilityChange);
+    return () => {
+      window.clearInterval(interval);
+      window.removeEventListener("focus", handleFocus);
+      document.removeEventListener("visibilitychange", handleVisibilityChange);
+    };
+  }, [checkPermissions, isMacOS]);
 
   // Skip rendering on non-macOS platforms or if permission is already granted
   if (!isMacOS || hasAccessibility) {

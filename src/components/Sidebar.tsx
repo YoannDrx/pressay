@@ -1,4 +1,4 @@
-import React from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import {
   Cog,
@@ -11,9 +11,10 @@ import {
   Cpu,
   Layers3,
   UserRound,
+  Search,
+  AudioWaveform,
 } from "lucide-react";
 import PressayWordmark from "./icons/PressayWordmark";
-import PressayMark from "./icons/PressayMark";
 import { useSettings } from "../hooks/useSettings";
 import {
   GeneralSettings,
@@ -45,7 +46,7 @@ interface SectionConfig {
   icon: React.ComponentType<IconProps>;
   component: React.ComponentType;
   enabled: (settings: any) => boolean;
-  group: "primary" | "secondary";
+  group: "primary" | "system" | "secondary";
 }
 
 export const SECTIONS_CONFIG = {
@@ -76,17 +77,17 @@ export const SECTIONS_CONFIG = {
   general: {
     labelKey: "pressay.sidebar.settings",
     labelDefault: "Settings",
-    icon: PressayMark,
+    icon: AudioWaveform,
     component: GeneralSettings,
     enabled: () => true,
-    group: "primary",
+    group: "system",
   },
   history: {
     labelKey: "sidebar.history",
     labelDefault: "History",
     icon: History,
     component: HistorySettings,
-    enabled: (settings) => settings?.history_enabled ?? false,
+    enabled: () => true,
     group: "primary",
   },
   account: {
@@ -95,7 +96,7 @@ export const SECTIONS_CONFIG = {
     icon: UserRound,
     component: AccountSettings,
     enabled: () => true,
-    group: "primary",
+    group: "system",
   },
   models: {
     labelKey: "sidebar.models",
@@ -103,7 +104,7 @@ export const SECTIONS_CONFIG = {
     icon: Cpu,
     component: ModelsSettings,
     enabled: () => true,
-    group: "secondary",
+    group: "system",
   },
   advanced: {
     labelKey: "sidebar.advanced",
@@ -118,8 +119,8 @@ export const SECTIONS_CONFIG = {
     labelDefault: "Providers",
     icon: Sparkles,
     component: PostProcessingSettings,
-    enabled: (settings) => settings?.post_process_enabled ?? false,
-    group: "secondary",
+    enabled: () => true,
+    group: "system",
   },
   debug: {
     labelKey: "sidebar.debug",
@@ -140,6 +141,20 @@ export const SECTIONS_CONFIG = {
   },
 } as const satisfies Record<string, SectionConfig>;
 
+const SECTION_ORDER: SidebarSection[] = [
+  "home",
+  "modes",
+  "dictionary",
+  "history",
+  "general",
+  "models",
+  "postprocessing",
+  "account",
+  "advanced",
+  "about",
+  "debug",
+];
+
 interface SidebarProps {
   activeSection: SidebarSection;
   onSectionChange: (section: SidebarSection) => void;
@@ -151,10 +166,63 @@ export const Sidebar: React.FC<SidebarProps> = ({
 }) => {
   const { t } = useTranslation();
   const { settings } = useSettings();
+  const [query, setQuery] = useState("");
+  const searchRef = useRef<HTMLInputElement>(null);
 
-  const availableSections = Object.entries(SECTIONS_CONFIG)
-    .filter(([_, config]) => config.enabled(settings))
-    .map(([id, config]) => ({ id: id as SidebarSection, ...config }));
+  useEffect(() => {
+    const focusSearch = (event: KeyboardEvent) => {
+      if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "k") {
+        event.preventDefault();
+        searchRef.current?.focus();
+      }
+    };
+    window.addEventListener("keydown", focusSearch);
+    return () => window.removeEventListener("keydown", focusSearch);
+  }, []);
+
+  const availableSections = useMemo(() => {
+    const normalizedQuery = query.trim().toLocaleLowerCase();
+    return Object.entries(SECTIONS_CONFIG)
+      .filter(([_, config]) => config.enabled(settings))
+      .map(([id, config]) => ({ id: id as SidebarSection, ...config }))
+      .filter((section) => {
+        if (!normalizedQuery) return true;
+        return t(section.labelKey, { defaultValue: section.labelDefault })
+          .toLocaleLowerCase()
+          .includes(normalizedQuery);
+      })
+      .sort(
+        (left, right) =>
+          SECTION_ORDER.indexOf(left.id) - SECTION_ORDER.indexOf(right.id),
+      );
+  }, [query, settings, t]);
+
+  const sectionStatus = (section: SidebarSection) => {
+    if (section === "history" && !settings?.history_enabled) {
+      return { label: t("pressay.sidebar.status.off"), tone: "muted" };
+    }
+    if (section === "postprocessing") {
+      const providerId = settings?.post_process_provider_id;
+      const configured = providerId
+        ? providerId === "apple_intelligence" ||
+          Boolean(
+            settings?.post_process_models?.[providerId] &&
+            (providerId === "custom" ||
+              settings?.post_process_api_keys_configured?.[providerId]),
+          )
+        : false;
+      if (!configured) {
+        return { label: t("pressay.sidebar.status.setup"), tone: "warning" };
+      }
+    }
+    if (section === "account" && !settings?.pressay_cloud_account_id) {
+      return {
+        label: t("pressay.sidebar.status.offline"),
+        tone: "muted",
+      };
+    }
+    return null;
+  };
 
   return (
     <aside className="product-sidebar">
@@ -162,17 +230,31 @@ export const Sidebar: React.FC<SidebarProps> = ({
         <PressayWordmark width={118} />
         <span className="beta-label">BETA</span>
       </div>
-      <nav className="sidebar-navigation" aria-label="Primary">
+      <label className="sidebar-search">
+        <Search width={14} height={14} aria-hidden="true" />
+        <input
+          ref={searchRef}
+          value={query}
+          onChange={(event) => setQuery(event.target.value)}
+          placeholder={t("pressay.sidebar.search")}
+          aria-label={t("pressay.sidebar.search")}
+        />
+        <kbd>{t("pressay.sidebar.searchShortcut")}</kbd>
+      </label>
+      <nav
+        className="sidebar-navigation"
+        aria-label={t("pressay.sidebar.navigation")}
+      >
         {availableSections.map((section, index) => {
           const Icon = section.icon;
           const isActive = activeSection === section.id;
-          const startsSecondary =
-            section.group === "secondary" &&
-            availableSections[index - 1]?.group !== "secondary";
+          const status = sectionStatus(section.id);
+          const startsGroup =
+            index > 0 && availableSections[index - 1]?.group !== section.group;
 
           return (
             <React.Fragment key={section.id}>
-              {startsSecondary ? (
+              {startsGroup ? (
                 <div className="sidebar-divider" aria-hidden="true" />
               ) : null}
               <button
@@ -192,10 +274,20 @@ export const Sidebar: React.FC<SidebarProps> = ({
                     defaultValue: section.labelDefault,
                   })}
                 </span>
+                {status ? (
+                  <small
+                    className={`sidebar-status-dot is-${status.tone}`}
+                    aria-label={status.label}
+                    title={status.label}
+                  />
+                ) : null}
               </button>
             </React.Fragment>
           );
         })}
+        {availableSections.length === 0 ? (
+          <p className="sidebar-empty">{t("pressay.sidebar.noResults")}</p>
+        ) : null}
       </nav>
     </aside>
   );

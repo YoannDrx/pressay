@@ -4,6 +4,7 @@ use ed25519_dalek::{Signature, Verifier, VerifyingKey};
 use reqwest::{Client, Response, StatusCode, Url};
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
+use sha2::{Digest, Sha256};
 use specta::Type;
 use std::sync::{Mutex, OnceLock};
 use std::time::{Duration, Instant};
@@ -11,10 +12,15 @@ use tauri::{AppHandle, Emitter, Manager};
 use url::form_urlencoded;
 
 use crate::secrets::{
-    delete_cloud_bearer_token, delete_cloud_entitlement_snapshot, delete_cloud_sync_keys,
-    get_cloud_bearer_token, get_cloud_entitlement_snapshot, get_cloud_sync_account_key,
-    get_cloud_sync_device_key, set_cloud_bearer_token, set_cloud_entitlement_snapshot,
-    set_cloud_sync_account_key, set_cloud_sync_device_key,
+    delete_cloud_bearer_token, delete_cloud_entitlement_snapshot, delete_cloud_oauth_token_set,
+    delete_cloud_sync_keys, get_cloud_bearer_token, get_cloud_entitlement_snapshot,
+    get_cloud_oauth_token_set, get_cloud_sync_account_key, get_cloud_sync_device_key,
+    migrate_legacy_cloud_oauth_token_set, set_cloud_bearer_token, set_cloud_entitlement_snapshot,
+    set_cloud_oauth_token_set, set_cloud_sync_account_key, set_cloud_sync_device_key,
+};
+#[cfg(not(test))]
+use crate::secrets::{
+    delete_pending_cloud_oauth, get_pending_cloud_oauth, set_pending_cloud_oauth,
 };
 use crate::settings::{get_settings, write_settings, AppSettings};
 
@@ -24,6 +30,11 @@ const MAX_ERROR_CODE_LEN: usize = 80;
 const ENTITLEMENT_KEY_ID: &str = "pressay-entitlement-2026-01";
 const ENTITLEMENT_PUBLIC_KEY: &str = "gj3woVSEMEiNemiZKdA28oEvMrLL9iQPbiMPr_B-plQ";
 const ENTITLEMENT_ISSUER: &str = "https://api.press-say.app";
+const OAUTH_ISSUER: &str = "https://press-say.app";
+const OAUTH_CLIENT_ID: &str = "w9ckUgrcFp7H7wNV";
+const OAUTH_RESOURCE: &str = "https://api.press-say.app";
+const OAUTH_REDIRECT_URI: &str = "pressay://oauth/callback";
+const OAUTH_SCOPE: &str = "openid profile email offline_access";
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct CloudFailure {
@@ -236,6 +247,7 @@ pub struct CloudAuthEvent {
 #[derive(Serialize, Deserialize, Debug, Clone, Copy, PartialEq, Eq, Type)]
 #[serde(rename_all = "snake_case")]
 pub enum CloudAuthEventStatus {
+    Exchanging,
     Connected,
     Failed,
 }
@@ -243,7 +255,46 @@ pub enum CloudAuthEventStatus {
 #[derive(Debug)]
 struct PendingAuth {
     state: String,
+    verifier: Option<String>,
     created_at: Instant,
+}
+
+#[derive(Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct PendingOAuthRecord {
+    state: String,
+    verifier: String,
+    created_at: i64,
+}
+
+#[cfg(not(test))]
+fn save_pending_oauth(encoded: &str) -> Result<(), String> {
+    set_pending_cloud_oauth(encoded)
+}
+
+#[cfg(test)]
+fn save_pending_oauth(_encoded: &str) -> Result<(), String> {
+    Ok(())
+}
+
+#[cfg(not(test))]
+fn load_pending_oauth() -> Result<Option<String>, String> {
+    get_pending_cloud_oauth()
+}
+
+#[cfg(test)]
+fn load_pending_oauth() -> Result<Option<String>, String> {
+    Ok(None)
+}
+
+#[cfg(not(test))]
+fn clear_pending_oauth() -> Result<(), String> {
+    delete_pending_cloud_oauth()
+}
+
+#[cfg(test)]
+fn clear_pending_oauth() -> Result<(), String> {
+    Ok(())
 }
 
 #[derive(Default)]
@@ -253,6 +304,27 @@ pub struct CloudAuthRuntime {
 
 impl CloudAuthRuntime {
     pub fn begin(&self) -> Result<String, CloudFailure> {
+        self.begin_pending(None)
+    }
+
+    pub fn begin_oauth(&self) -> Result<(String, String), CloudFailure> {
+        let verifier = URL_SAFE_NO_PAD.encode(crate::history_crypto::generate_master_key());
+        let state = self.begin_pending(Some(verifier.clone()))?;
+        let record = PendingOAuthRecord {
+            state: state.clone(),
+            verifier: verifier.clone(),
+            created_at: chrono::Utc::now().timestamp(),
+        };
+        let encoded = serde_json::to_string(&record)
+            .map_err(|_| CloudFailure::new("cloud_auth_state_unavailable"))?;
+        if save_pending_oauth(&encoded).is_err() {
+            self.clear();
+            return Err(CloudFailure::new("cloud_keychain_unavailable"));
+        }
+        Ok((state, verifier))
+    }
+
+    fn begin_pending(&self, verifier: Option<String>) -> Result<String, CloudFailure> {
         let state = URL_SAFE_NO_PAD.encode(crate::history_crypto::generate_master_key());
         let mut pending = self
             .pending
@@ -260,32 +332,88 @@ impl CloudAuthRuntime {
             .map_err(|_| CloudFailure::new("cloud_auth_state_unavailable"))?;
         *pending = Some(PendingAuth {
             state: state.clone(),
+            verifier,
             created_at: Instant::now(),
         });
         Ok(state)
     }
 
-    fn consume(&self, state: &str) -> Result<(), CloudFailure> {
+    fn consume(&self, state: &str) -> Result<Option<String>, CloudFailure> {
         let mut pending = self
             .pending
             .lock()
             .map_err(|_| CloudFailure::new("cloud_auth_state_unavailable"))?;
-        let valid = pending.as_ref().is_some_and(|candidate| {
-            candidate.created_at.elapsed() <= AUTH_STATE_TTL && candidate.state == state
-        });
-        pending.take();
-        if valid {
-            Ok(())
-        } else {
-            Err(CloudFailure::new("cloud_auth_state_mismatch"))
+        if let Some(candidate) = pending.take() {
+            let valid =
+                candidate.created_at.elapsed() <= AUTH_STATE_TTL && candidate.state == state;
+            if candidate.verifier.is_some() {
+                let _ = clear_pending_oauth();
+            }
+            return if valid {
+                Ok(candidate.verifier)
+            } else {
+                Err(CloudFailure::new("cloud_auth_state_mismatch"))
+            };
         }
+
+        let encoded = load_pending_oauth()
+            .map_err(|_| CloudFailure::new("cloud_keychain_unavailable"))?
+            .ok_or_else(|| CloudFailure::new("cloud_auth_state_mismatch"))?;
+        let _ = clear_pending_oauth();
+        let persisted: PendingOAuthRecord = serde_json::from_str(&encoded)
+            .map_err(|_| CloudFailure::new("cloud_auth_state_mismatch"))?;
+        let age = chrono::Utc::now().timestamp() - persisted.created_at;
+        if persisted.state != state
+            || !(0..=AUTH_STATE_TTL.as_secs() as i64).contains(&age)
+            || !(43..=128).contains(&persisted.verifier.len())
+        {
+            return Err(CloudFailure::new("cloud_auth_state_mismatch"));
+        }
+        Ok(Some(persisted.verifier))
     }
 
     pub fn clear(&self) {
         if let Ok(mut pending) = self.pending.lock() {
             pending.take();
         }
+        let _ = clear_pending_oauth();
     }
+}
+
+#[derive(Deserialize)]
+struct OAuthMetadata {
+    #[serde(rename = "authorization_endpoint")]
+    authorization_endpoint: Url,
+    #[serde(rename = "token_endpoint")]
+    token_endpoint: Url,
+}
+
+#[derive(Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct OAuthTokenSet {
+    access_token: String,
+    refresh_token: Option<String>,
+    expires_at: i64,
+}
+
+#[derive(Deserialize)]
+struct OAuthTokenResponse {
+    access_token: String,
+    refresh_token: Option<String>,
+    expires_in: i64,
+}
+
+#[derive(Deserialize)]
+struct LegacyOAuthTokenSet {
+    access_token: String,
+    refresh_token: Option<String>,
+    expires_at: String,
+}
+
+#[derive(Debug, PartialEq, Eq)]
+enum AuthCallback {
+    OAuth { code: String, state: String },
+    Legacy { token: String, state: String },
 }
 
 #[derive(Deserialize)]
@@ -294,8 +422,18 @@ struct ApiErrorBody {
 }
 
 #[derive(Deserialize)]
-struct ApiErrorValue {
-    code: String,
+#[serde(untagged)]
+enum ApiErrorValue {
+    Structured { code: String },
+    Code(String),
+}
+
+impl ApiErrorValue {
+    fn code(&self) -> &str {
+        match self {
+            Self::Structured { code } | Self::Code(code) => code,
+        }
+    }
 }
 
 #[derive(Serialize)]
@@ -304,20 +442,6 @@ struct MagicLinkRequest<'a> {
     email: &'a str,
     callback_url: &'a str,
     error_callback_url: &'a str,
-}
-
-#[derive(Serialize)]
-#[serde(rename_all = "camelCase")]
-struct SocialLoginRequest<'a> {
-    provider: CloudAuthProvider,
-    callback_url: &'a str,
-    error_callback_url: &'a str,
-    disable_redirect: bool,
-}
-
-#[derive(Deserialize)]
-struct SocialLoginResponse {
-    url: String,
 }
 
 #[derive(Serialize)]
@@ -565,7 +689,7 @@ async fn finish(response: Response) -> Result<Response, CloudFailure> {
         .json::<ApiErrorBody>()
         .await
         .ok()
-        .map(|body| safe_error_code(&body.error.code))
+        .map(|body| safe_error_code(body.error.code()))
         .unwrap_or_else(|| status_error_code(status).to_string());
     Err(CloudFailure::new(&code))
 }
@@ -591,10 +715,139 @@ async fn json<T: DeserializeOwned>(response: Response) -> Result<T, CloudFailure
         .map_err(|_| CloudFailure::new("cloud_response_invalid"))
 }
 
-fn bearer() -> Result<String, CloudFailure> {
+fn legacy_bearer() -> Result<String, CloudFailure> {
     get_cloud_bearer_token()
         .map_err(|_| CloudFailure::new("cloud_keychain_unavailable"))?
         .ok_or_else(|| CloudFailure::new("cloud_not_connected"))
+}
+
+fn validate_oauth_endpoint(url: &Url) -> Result<(), CloudFailure> {
+    if url.scheme() == "https" && url.host_str() == Some("press-say.app") {
+        Ok(())
+    } else {
+        Err(CloudFailure::new("cloud_oauth_endpoint_invalid"))
+    }
+}
+
+async fn oauth_metadata() -> Result<OAuthMetadata, CloudFailure> {
+    let metadata_url = Url::parse(&format!(
+        "{OAUTH_ISSUER}/.well-known/oauth-authorization-server"
+    ))
+    .map_err(|_| CloudFailure::new("cloud_oauth_configuration_invalid"))?;
+    let response = client()
+        .get(metadata_url)
+        .send()
+        .await
+        .map_err(|_| CloudFailure::new("cloud_network_unavailable"))?;
+    let metadata: OAuthMetadata = json(response).await?;
+    validate_oauth_endpoint(&metadata.authorization_endpoint)?;
+    validate_oauth_endpoint(&metadata.token_endpoint)?;
+    Ok(metadata)
+}
+
+fn persist_oauth_token_set(token_set: &OAuthTokenSet) -> Result<(), CloudFailure> {
+    let encoded = serde_json::to_string(token_set)
+        .map_err(|_| CloudFailure::new("cloud_auth_token_invalid"))?;
+    set_cloud_oauth_token_set(&encoded)
+        .map_err(|_| CloudFailure::new("cloud_keychain_unavailable"))?;
+    set_cloud_bearer_token(&token_set.access_token)
+        .map_err(|_| CloudFailure::new("cloud_keychain_unavailable"))
+}
+
+fn stored_oauth_token_set() -> Result<Option<OAuthTokenSet>, CloudFailure> {
+    migrate_legacy_cloud_oauth_token_set()
+        .map_err(|_| CloudFailure::new("cloud_keychain_unavailable"))?;
+    let Some(encoded) =
+        get_cloud_oauth_token_set().map_err(|_| CloudFailure::new("cloud_keychain_unavailable"))?
+    else {
+        return Ok(None);
+    };
+    if let Ok(token_set) = serde_json::from_str(&encoded) {
+        return Ok(Some(token_set));
+    }
+    let legacy: LegacyOAuthTokenSet = serde_json::from_str(&encoded)
+        .map_err(|_| CloudFailure::new("cloud_auth_token_invalid"))?;
+    let expires_at = chrono::DateTime::parse_from_rfc3339(&legacy.expires_at)
+        .map_err(|_| CloudFailure::new("cloud_auth_token_invalid"))?
+        .timestamp();
+    let migrated = OAuthTokenSet {
+        access_token: legacy.access_token,
+        refresh_token: legacy.refresh_token,
+        expires_at,
+    };
+    persist_oauth_token_set(&migrated)?;
+    Ok(Some(migrated))
+}
+
+async fn request_oauth_tokens(
+    parameters: &[(&str, &str)],
+) -> Result<OAuthTokenResponse, CloudFailure> {
+    let metadata = oauth_metadata().await?;
+    let response = client()
+        .post(metadata.token_endpoint)
+        .form(parameters)
+        .send()
+        .await
+        .map_err(|_| CloudFailure::new("cloud_network_unavailable"))?;
+    let tokens: OAuthTokenResponse = json(response).await?;
+    if tokens.access_token.len() < 32
+        || tokens.expires_in <= 0
+        || tokens
+            .refresh_token
+            .as_ref()
+            .is_some_and(|token| token.len() < 32)
+    {
+        return Err(CloudFailure::new("cloud_auth_token_invalid"));
+    }
+    Ok(tokens)
+}
+
+async fn exchange_oauth_code(code: &str, verifier: &str) -> Result<(), CloudFailure> {
+    if code.is_empty() || code.len() > 4096 || verifier.len() < 43 || verifier.len() > 128 {
+        return Err(CloudFailure::new("cloud_auth_token_invalid"));
+    }
+    let response = request_oauth_tokens(&[
+        ("grant_type", "authorization_code"),
+        ("client_id", OAUTH_CLIENT_ID),
+        ("code", code),
+        ("code_verifier", verifier),
+        ("redirect_uri", OAUTH_REDIRECT_URI),
+        ("resource", OAUTH_RESOURCE),
+    ])
+    .await?;
+    persist_oauth_token_set(&OAuthTokenSet {
+        access_token: response.access_token,
+        refresh_token: response.refresh_token,
+        expires_at: chrono::Utc::now().timestamp() + response.expires_in,
+    })
+}
+
+async fn access_token() -> Result<String, CloudFailure> {
+    let Some(current) = stored_oauth_token_set()? else {
+        return legacy_bearer();
+    };
+    if current.expires_at > chrono::Utc::now().timestamp() + 60 {
+        return Ok(current.access_token);
+    }
+    let refresh_token = current
+        .refresh_token
+        .as_deref()
+        .ok_or_else(|| CloudFailure::new("cloud_session_expired"))?;
+    let response = request_oauth_tokens(&[
+        ("grant_type", "refresh_token"),
+        ("client_id", OAUTH_CLIENT_ID),
+        ("refresh_token", refresh_token),
+        ("resource", OAUTH_RESOURCE),
+    ])
+    .await?;
+    let refreshed = OAuthTokenSet {
+        access_token: response.access_token,
+        refresh_token: response.refresh_token.or(current.refresh_token),
+        expires_at: chrono::Utc::now().timestamp() + response.expires_in,
+    };
+    let access_token = refreshed.access_token.clone();
+    persist_oauth_token_set(&refreshed)?;
+    Ok(access_token)
 }
 
 fn iso_timestamp(seconds: i64) -> Result<String, CloudFailure> {
@@ -710,7 +963,9 @@ fn verify_entitlement_token_with_key(
     ))
 }
 
-fn cached_account_snapshot(settings: &AppSettings) -> Result<CloudAccountSnapshot, CloudFailure> {
+pub(crate) fn cached_account_snapshot(
+    settings: &AppSettings,
+) -> Result<CloudAccountSnapshot, CloudFailure> {
     let token = get_cloud_entitlement_snapshot()
         .map_err(|_| CloudFailure::new("cloud_keychain_unavailable"))?
         .ok_or_else(|| CloudFailure::new("cloud_network_unavailable"))?;
@@ -737,12 +992,27 @@ fn callback_urls(config: &CloudAuthConfig, state: &str) -> Result<(String, Strin
 }
 
 pub async fn get_auth_config(settings: &AppSettings) -> Result<CloudAuthConfig, CloudFailure> {
-    let response = client()
+    let remote = client()
         .get(endpoint(settings, "/v1/desktop-auth/config")?)
         .send()
-        .await
-        .map_err(|_| CloudFailure::new("cloud_network_unavailable"))?;
-    json(response).await
+        .await;
+    let mut config = match remote {
+        Ok(response) => json(response).await.unwrap_or(CloudAuthConfig {
+            magic_link: false,
+            providers: Vec::new(),
+            callback_url: OAUTH_REDIRECT_URI.to_string(),
+        }),
+        Err(_) => CloudAuthConfig {
+            magic_link: false,
+            providers: Vec::new(),
+            callback_url: OAUTH_REDIRECT_URI.to_string(),
+        },
+    };
+    if !config.providers.contains(&CloudAuthProvider::Google) {
+        config.providers.push(CloudAuthProvider::Google);
+    }
+    config.callback_url = OAUTH_REDIRECT_URI.to_string();
+    Ok(config)
 }
 
 pub async fn request_magic_link(
@@ -773,35 +1043,30 @@ pub async fn request_magic_link(
 }
 
 pub async fn social_login_url(
-    settings: &AppSettings,
+    _settings: &AppSettings,
     provider: CloudAuthProvider,
     state: &str,
+    verifier: &str,
 ) -> Result<String, CloudFailure> {
-    let config = get_auth_config(settings).await?;
-    if !config.providers.contains(&provider) {
+    if provider != CloudAuthProvider::Google {
         return Err(CloudFailure::new("cloud_social_login_unavailable"));
     }
-    let (callback_url, error_callback_url) = callback_urls(&config, state)?;
-    let response = client()
-        .post(endpoint(settings, "/v1/auth/sign-in/social")?)
-        .json(&SocialLoginRequest {
-            provider,
-            callback_url: &callback_url,
-            error_callback_url: &error_callback_url,
-            disable_redirect: true,
-        })
-        .send()
-        .await
-        .map_err(|_| CloudFailure::new("cloud_network_unavailable"))?;
-    let response: SocialLoginResponse = json(response).await?;
-    let authorization_url =
-        Url::parse(&response.url).map_err(|_| CloudFailure::new("cloud_social_url_invalid"))?;
-    let host = authorization_url.host_str().unwrap_or_default();
-    if authorization_url.scheme() != "https"
-        || !matches!(host, "accounts.google.com" | "appleid.apple.com")
-    {
-        return Err(CloudFailure::new("cloud_social_url_not_allowed"));
+    if state.len() < 32 || verifier.len() < 43 || verifier.len() > 128 {
+        return Err(CloudFailure::new("cloud_auth_state_invalid"));
     }
+    let metadata = oauth_metadata().await?;
+    let challenge = URL_SAFE_NO_PAD.encode(Sha256::digest(verifier.as_bytes()));
+    let mut authorization_url = metadata.authorization_endpoint;
+    authorization_url
+        .query_pairs_mut()
+        .append_pair("response_type", "code")
+        .append_pair("client_id", OAUTH_CLIENT_ID)
+        .append_pair("redirect_uri", OAUTH_REDIRECT_URI)
+        .append_pair("scope", OAUTH_SCOPE)
+        .append_pair("state", state)
+        .append_pair("code_challenge", &challenge)
+        .append_pair("code_challenge_method", "S256")
+        .append_pair("resource", OAUTH_RESOURCE);
     Ok(authorization_url.to_string())
 }
 
@@ -831,7 +1096,7 @@ async fn bootstrap_device(app: &AppHandle) -> Result<(), CloudFailure> {
             format!("pressay-device:{}", uuid::Uuid::new_v4());
         write_settings(app, settings.clone());
     }
-    let token = bearer()?;
+    let token = access_token().await?;
     let response = client()
         .post(endpoint(&settings, "/v1/accounts/bootstrap")?)
         .bearer_auth(token)
@@ -919,7 +1184,7 @@ async fn load_sync_account_key(
     {
         return Ok(account_key);
     }
-    let envelope = sync_device_envelope(settings, &bearer()?, device_id).await?;
+    let envelope = sync_device_envelope(settings, &access_token().await?, device_id).await?;
     let account_key = crate::sync_crypto::open_account_key(&envelope, private)
         .map_err(|_| CloudFailure::new("cloud_sync_envelope_invalid"))?;
     set_cloud_sync_account_key(account_id, &account_key)
@@ -937,7 +1202,7 @@ async fn list_sync_devices(
     let response: SyncDeviceListResponse = json(
         client()
             .get(url)
-            .bearer_auth(bearer()?)
+            .bearer_auth(access_token().await?)
             .send()
             .await
             .map_err(|_| CloudFailure::new("cloud_network_unavailable"))?,
@@ -1031,7 +1296,7 @@ pub async fn initialize_cloud_sync(app: &AppHandle) -> Result<CloudSyncSnapshot,
     let response: EnrollSyncDeviceResponse = json(
         client()
             .post(endpoint(&settings, "/v1/sync/devices/enroll")?)
-            .bearer_auth(bearer()?)
+            .bearer_auth(access_token().await?)
             .json(&EnrollSyncDeviceRequest {
                 device_id,
                 public_key: &public_key,
@@ -1085,7 +1350,7 @@ pub async fn approve_cloud_sync_device(
             &settings,
             &format!("/v1/sync/devices/{target_device_id}/approve"),
         )?)
-        .bearer_auth(bearer()?)
+        .bearer_auth(access_token().await?)
         .json(&ApproveSyncDeviceRequest {
             approver_device_id: current_device_id,
             encrypted_account_key: &encrypted_account_key,
@@ -1111,7 +1376,7 @@ pub async fn create_cloud_sync_recovery_code(
             .map_err(|_| CloudFailure::new("cloud_sync_encryption_failed"))?;
     let response = client()
         .put(endpoint(&settings, "/v1/sync/recovery")?)
-        .bearer_auth(bearer()?)
+        .bearer_auth(access_token().await?)
         .json(&ConfigureSyncRecoveryRequest {
             device_id,
             code_hash: &STANDARD.encode(code_hash),
@@ -1138,7 +1403,7 @@ pub async fn recover_cloud_sync(
     let recovery: SyncRecoveryEnvelopeResponse = json(
         client()
             .post(endpoint(&settings, "/v1/sync/recovery/begin")?)
-            .bearer_auth(bearer()?)
+            .bearer_auth(access_token().await?)
             .json(&BeginSyncRecoveryRequest {
                 device_id,
                 public_key: &public_key,
@@ -1164,7 +1429,7 @@ pub async fn recover_cloud_sync(
     account_key.fill(0);
     let response = client()
         .post(endpoint(&settings, "/v1/sync/recovery/complete")?)
-        .bearer_auth(bearer()?)
+        .bearer_auth(access_token().await?)
         .json(&CompleteSyncRecoveryRequest {
             device_id,
             code_hash: &code_hash,
@@ -1188,7 +1453,7 @@ pub async fn append_sync_changes(
     let response: AppendSyncChangesResponse = json(
         client()
             .post(endpoint(settings, "/v1/sync/changes")?)
-            .bearer_auth(bearer()?)
+            .bearer_auth(access_token().await?)
             .json(&AppendSyncChangesRequest { device_id, changes })
             .send()
             .await
@@ -1211,7 +1476,7 @@ pub async fn fetch_sync_changes(
     json(
         client()
             .get(url)
-            .bearer_auth(bearer()?)
+            .bearer_auth(access_token().await?)
             .send()
             .await
             .map_err(|_| CloudFailure::new("cloud_network_unavailable"))?,
@@ -1220,19 +1485,31 @@ pub async fn fetch_sync_changes(
 }
 
 pub async fn account_snapshot(app: &AppHandle) -> Result<CloudAccountSnapshot, CloudFailure> {
-    let settings = get_settings(app);
-    let Some(device_id) = settings.pressay_cloud_device_id.as_deref() else {
-        return Ok(CloudAccountSnapshot {
-            connected: false,
-            account_id: None,
-            email: None,
-            device_id: None,
-            entitlement: None,
-            usage: None,
-        });
-    };
+    let mut settings = get_settings(app);
+    if settings.pressay_cloud_device_id.is_none() {
+        let has_session = stored_oauth_token_set()?.is_some()
+            || get_cloud_bearer_token()
+                .map_err(|_| CloudFailure::new("cloud_keychain_unavailable"))?
+                .is_some();
+        if !has_session {
+            return Ok(CloudAccountSnapshot {
+                connected: false,
+                account_id: None,
+                email: None,
+                device_id: None,
+                entitlement: None,
+                usage: None,
+            });
+        }
+        bootstrap_device(app).await?;
+        settings = get_settings(app);
+    }
+    let device_id = settings
+        .pressay_cloud_device_id
+        .as_deref()
+        .ok_or_else(|| CloudFailure::new("cloud_account_invalid"))?;
     let online = async {
-        let token = bearer()?;
+        let token = access_token().await?;
         let me: MeResponse = json(
             client()
                 .get(endpoint(&settings, "/v1/me")?)
@@ -1306,7 +1583,7 @@ pub async fn account_snapshot(app: &AppHandle) -> Result<CloudAccountSnapshot, C
 
 pub async fn sign_out(app: &AppHandle) -> Result<(), CloudFailure> {
     let settings = get_settings(app);
-    if let Ok(token) = bearer() {
+    if let Ok(token) = access_token().await {
         let _ = client()
             .post(endpoint(&settings, "/v1/auth/sign-out")?)
             .bearer_auth(token)
@@ -1314,6 +1591,7 @@ pub async fn sign_out(app: &AppHandle) -> Result<(), CloudFailure> {
             .await;
     }
     delete_cloud_bearer_token().map_err(|_| CloudFailure::new("cloud_keychain_unavailable"))?;
+    delete_cloud_oauth_token_set().map_err(|_| CloudFailure::new("cloud_keychain_unavailable"))?;
     delete_cloud_entitlement_snapshot()
         .map_err(|_| CloudFailure::new("cloud_keychain_unavailable"))?;
     let mut settings = get_settings(app);
@@ -1328,7 +1606,7 @@ pub async fn delete_account(app: &AppHandle) -> Result<(), CloudFailure> {
     let account_id = settings.pressay_cloud_account_id.clone();
     let response = client()
         .delete(endpoint(&settings, "/v1/me")?)
-        .bearer_auth(bearer()?)
+        .bearer_auth(access_token().await?)
         .send()
         .await
         .map_err(|_| CloudFailure::new("cloud_network_unavailable"))?;
@@ -1348,7 +1626,7 @@ pub async fn transform(
 ) -> Result<CloudTransformationResponse, CloudFailure> {
     let response = client()
         .post(endpoint(settings, "/v1/cloud/transformations")?)
-        .bearer_auth(bearer()?)
+        .bearer_auth(access_token().await?)
         .header("idempotency-key", idempotency_key)
         .json(&request)
         .send()
@@ -1387,7 +1665,7 @@ pub async fn transcribe_audio(
     }
     let response = client()
         .post(endpoint(settings, "/v1/cloud/transcriptions")?)
-        .bearer_auth(bearer()?)
+        .bearer_auth(access_token().await?)
         .header("idempotency-key", idempotency_key)
         .multipart(form)
         .send()
@@ -1405,13 +1683,24 @@ pub async fn transcribe_audio(
     Ok(response)
 }
 
-fn auth_callback_parts(url: &Url) -> Result<(String, String), CloudFailure> {
+fn auth_callback_parts(url: &Url) -> Result<AuthCallback, CloudFailure> {
     if url.scheme() != "pressay" || url.host_str() != Some("oauth") || url.path() != "/callback" {
         return Err(CloudFailure::new("cloud_auth_callback_invalid"));
     }
-    let fragment = url
-        .fragment()
-        .ok_or_else(|| CloudFailure::new("cloud_auth_callback_invalid"))?;
+    let mut code = None;
+    let mut query_state = None;
+    for (key, value) in url.query_pairs() {
+        match key.as_ref() {
+            "code" if code.is_none() => code = Some(value.into_owned()),
+            "state" if query_state.is_none() => query_state = Some(value.into_owned()),
+            _ => {}
+        }
+    }
+    if let (Some(code), Some(state)) = (code, query_state) {
+        return Ok(AuthCallback::OAuth { code, state });
+    }
+
+    let fragment = url.fragment().unwrap_or_default();
     let mut token = None;
     let mut state = None;
     for (key, value) in form_urlencoded::parse(fragment.as_bytes()) {
@@ -1423,11 +1712,18 @@ fn auth_callback_parts(url: &Url) -> Result<(String, String), CloudFailure> {
     }
     let token = token.ok_or_else(|| CloudFailure::new("cloud_auth_token_missing"))?;
     let state = state.ok_or_else(|| CloudFailure::new("cloud_auth_state_missing"))?;
-    Ok((token.into_owned(), state.into_owned()))
+    Ok(AuthCallback::Legacy {
+        token: token.into_owned(),
+        state: state.into_owned(),
+    })
 }
 
 fn auth_error_state(url: &Url) -> Result<String, CloudFailure> {
-    if url.scheme() != "pressay" || url.host_str() != Some("oauth") || url.path() != "/error" {
+    if url.scheme() != "pressay"
+        || url.host_str() != Some("oauth")
+        || !matches!(url.path(), "/error" | "/callback")
+        || (url.path() == "/callback" && !url.query_pairs().any(|(key, _)| key == "error"))
+    {
         return Err(CloudFailure::new("cloud_auth_callback_invalid"));
     }
     url.query_pairs()
@@ -1436,22 +1732,48 @@ fn auth_error_state(url: &Url) -> Result<String, CloudFailure> {
 }
 
 pub fn handle_deep_link(app: AppHandle, url: Url) {
-    let parsed = if url.host_str() == Some("oauth") && url.path() == "/error" {
+    let is_error = url.host_str() == Some("oauth")
+        && (url.path() == "/error"
+            || (url.path() == "/callback" && url.query_pairs().any(|(key, _)| key == "error")));
+    let parsed = if is_error {
         auth_error_state(&url).and_then(|state| {
-            app.state::<CloudAuthRuntime>().consume(&state)?;
+            let _ = app.state::<CloudAuthRuntime>().consume(&state)?;
             Err(CloudFailure::new("cloud_auth_provider_failed"))
         })
     } else {
         auth_callback_parts(&url)
     };
+    if parsed.is_ok() {
+        let _ = app.emit(
+            "cloud-auth-state-changed",
+            CloudAuthEvent {
+                status: CloudAuthEventStatus::Exchanging,
+                error_code: None,
+            },
+        );
+    }
     tauri::async_runtime::spawn(async move {
         let result = async {
-            let (token, state) = parsed?;
-            app.state::<CloudAuthRuntime>().consume(&state)?;
-            let settings = get_settings(&app);
-            exchange_one_time_token(&settings, &token).await?;
+            match parsed? {
+                AuthCallback::OAuth { code, state } => {
+                    let verifier = app
+                        .state::<CloudAuthRuntime>()
+                        .consume(&state)?
+                        .ok_or_else(|| CloudFailure::new("cloud_auth_state_mismatch"))?;
+                    exchange_oauth_code(&code, &verifier).await?;
+                }
+                AuthCallback::Legacy { token, state } => {
+                    let verifier = app.state::<CloudAuthRuntime>().consume(&state)?;
+                    if verifier.is_some() {
+                        return Err(CloudFailure::new("cloud_auth_state_mismatch"));
+                    }
+                    let settings = get_settings(&app);
+                    exchange_one_time_token(&settings, &token).await?;
+                }
+            }
             if let Err(error) = bootstrap_device(&app).await {
                 let _ = delete_cloud_bearer_token();
+                let _ = delete_cloud_oauth_token_set();
                 return Err(error);
             }
             Ok::<(), CloudFailure>(())
@@ -1479,6 +1801,17 @@ pub fn handle_deep_link(app: AppHandle, url: Url) {
 mod tests {
     use super::*;
     use ed25519_dalek::{Signer, SigningKey};
+
+    #[test]
+    fn api_error_body_accepts_modern_and_legacy_envelopes() {
+        let modern: ApiErrorBody =
+            serde_json::from_str(r#"{"error":{"code":"account_bootstrap_failed"}}"#).unwrap();
+        assert_eq!(modern.error.code(), "account_bootstrap_failed");
+
+        let legacy: ApiErrorBody =
+            serde_json::from_str(r#"{"error":"account_bootstrap_failed"}"#).unwrap();
+        assert_eq!(legacy.error.code(), "account_bootstrap_failed");
+    }
 
     fn signed_entitlement_fixture(
         signing_key: &SigningKey,
@@ -1542,17 +1875,28 @@ mod tests {
     }
 
     #[test]
-    fn callback_requires_exact_scheme_host_path_and_fragment_fields() {
-        let valid = Url::parse(
+    fn callback_accepts_oauth_query_and_legacy_fragment_on_exact_scheme_host_path() {
+        let oauth = Url::parse(
+            "pressay://oauth/callback?code=authorization-code&state=expected-state-value",
+        )
+        .unwrap();
+        assert_eq!(
+            auth_callback_parts(&oauth).unwrap(),
+            AuthCallback::OAuth {
+                code: "authorization-code".to_string(),
+                state: "expected-state-value".to_string(),
+            }
+        );
+        let legacy = Url::parse(
             "pressay://oauth/callback#token=one-time-token-value&state=expected-state-value",
         )
         .unwrap();
         assert_eq!(
-            auth_callback_parts(&valid).unwrap(),
-            (
-                "one-time-token-value".to_string(),
-                "expected-state-value".to_string()
-            )
+            auth_callback_parts(&legacy).unwrap(),
+            AuthCallback::Legacy {
+                token: "one-time-token-value".to_string(),
+                state: "expected-state-value".to_string(),
+            }
         );
         assert!(auth_callback_parts(
             &Url::parse("https://oauth/callback#token=x&state=y").unwrap()
@@ -1568,6 +1912,13 @@ mod tests {
     fn error_callback_accepts_only_the_expected_state_location() {
         let valid = Url::parse("pressay://oauth/error?state=expected-state-value").unwrap();
         assert_eq!(auth_error_state(&valid).unwrap(), "expected-state-value");
+        let oauth_error =
+            Url::parse("pressay://oauth/callback?error=access_denied&state=expected-state-value")
+                .unwrap();
+        assert_eq!(
+            auth_error_state(&oauth_error).unwrap(),
+            "expected-state-value"
+        );
         assert!(auth_error_state(
             &Url::parse("pressay://oauth/error#state=expected-state-value").unwrap()
         )
@@ -1579,6 +1930,15 @@ mod tests {
         let runtime = CloudAuthRuntime::default();
         let state = runtime.begin().unwrap();
         assert!(runtime.consume(&state).is_ok());
+        assert!(runtime.consume(&state).is_err());
+    }
+
+    #[test]
+    fn oauth_pending_state_carries_a_pkce_verifier_once() {
+        let runtime = CloudAuthRuntime::default();
+        let (state, verifier) = runtime.begin_oauth().unwrap();
+        assert!((43..=128).contains(&verifier.len()));
+        assert_eq!(runtime.consume(&state).unwrap(), Some(verifier));
         assert!(runtime.consume(&state).is_err());
     }
 

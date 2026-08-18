@@ -9,6 +9,15 @@ import type {
   OrtAcceleratorSetting,
 } from "@/bindings";
 import { commands } from "@/bindings";
+import {
+  chooseInitialProviderModel,
+  normalizeProviderModels,
+} from "@/lib/providerModels";
+
+export type PostProcessProviderConnection = {
+  status: "checking" | "valid" | "error";
+  error?: string;
+};
 
 interface SettingsStore {
   settings: Settings | null;
@@ -19,6 +28,7 @@ interface SettingsStore {
   outputDevices: AudioDevice[];
   customSounds: { start: boolean; stop: boolean };
   postProcessModelOptions: Record<string, string[]>;
+  postProcessProviderConnections: Record<string, PostProcessProviderConnection>;
 
   // Actions
   initialize: () => Promise<void>;
@@ -194,6 +204,7 @@ export const useSettingsStore = create<SettingsStore>()(
     outputDevices: [],
     customSounds: { start: false, stop: false },
     postProcessModelOptions: {},
+    postProcessProviderConnections: {},
 
     // Internal setters
     setSettings: (settings) => set({ settings }),
@@ -411,10 +422,17 @@ export const useSettingsStore = create<SettingsStore>()(
       setUpdating(updateKey, true);
 
       try {
-        await commands.resetBinding(id);
+        const result = await commands.resetBinding(id);
+        if (result.status === "error") {
+          throw new Error(result.error);
+        }
+        if (!result.data.success) {
+          throw new Error(result.data.error || "Failed to reset binding");
+        }
         await refreshSettings();
       } catch (error) {
         console.error(`Failed to reset binding ${id}:`, error);
+        throw error;
       } finally {
         setUpdating(updateKey, false);
       }
@@ -550,14 +568,60 @@ export const useSettingsStore = create<SettingsStore>()(
     },
 
     updatePostProcessApiKey: async (providerId, apiKey) => {
-      // Clear cached models when API key changes - user should click refresh after
+      const { setUpdating, refreshSettings } = get();
+      const updateKey = `post_process_api_key:${providerId}`;
+
       set((state) => ({
         postProcessModelOptions: {
           ...state.postProcessModelOptions,
           [providerId]: [],
         },
+        postProcessProviderConnections: {
+          ...state.postProcessProviderConnections,
+          [providerId]: { status: "checking" },
+        },
       }));
-      return get().updatePostProcessSetting("api_key", providerId, apiKey);
+
+      setUpdating(updateKey, true);
+      try {
+        const result = await commands.changePostProcessApiKeySetting(
+          providerId,
+          apiKey,
+        );
+        if (result.status === "error") {
+          throw new Error(result.error);
+        }
+
+        const modelResult = await commands.changePostProcessModelSetting(
+          providerId,
+          "",
+        );
+        if (modelResult.status === "error") {
+          throw new Error(modelResult.error);
+        }
+        await refreshSettings();
+
+        if (!apiKey.trim()) {
+          set((state) => {
+            const connections = { ...state.postProcessProviderConnections };
+            delete connections[providerId];
+            return { postProcessProviderConnections: connections };
+          });
+          return;
+        }
+
+        await get().fetchPostProcessModels(providerId);
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        set((state) => ({
+          postProcessProviderConnections: {
+            ...state.postProcessProviderConnections,
+            [providerId]: { status: "error", error: message },
+          },
+        }));
+      } finally {
+        setUpdating(updateKey, false);
+      }
     },
 
     updatePostProcessModel: async (providerId, model) => {
@@ -569,20 +633,56 @@ export const useSettingsStore = create<SettingsStore>()(
       const { setUpdating, setPostProcessModelOptions } = get();
 
       setUpdating(updateKey, true);
+      set((state) => ({
+        postProcessProviderConnections: {
+          ...state.postProcessProviderConnections,
+          [providerId]: { status: "checking" },
+        },
+      }));
 
       try {
-        // Call Tauri backend command instead of fetch
         const result = await commands.fetchPostProcessModels(providerId);
         if (result.status === "ok") {
-          setPostProcessModelOptions(providerId, result.data);
-          return result.data;
-        } else {
-          console.error("Failed to fetch models:", result.error);
-          return [];
+          const models = normalizeProviderModels(providerId, result.data);
+          setPostProcessModelOptions(providerId, models);
+
+          const currentModel =
+            get().settings?.post_process_models?.[providerId]?.trim() ?? "";
+          if (
+            !currentModel ||
+            (providerId !== "custom" && !models.includes(currentModel))
+          ) {
+            const initialModel = chooseInitialProviderModel(providerId, models);
+            if (initialModel) {
+              const modelResult = await commands.changePostProcessModelSetting(
+                providerId,
+                initialModel,
+              );
+              if (modelResult.status === "error") {
+                throw new Error(modelResult.error);
+              }
+              await get().refreshSettings();
+            }
+          }
+
+          set((state) => ({
+            postProcessProviderConnections: {
+              ...state.postProcessProviderConnections,
+              [providerId]: { status: "valid" },
+            },
+          }));
+          return models;
         }
+        throw new Error(result.error);
       } catch (error) {
-        console.error("Failed to fetch models:", error);
-        // Don't cache empty array on error - let user retry
+        const message = error instanceof Error ? error.message : String(error);
+        console.error("Failed to validate post-process provider:", message);
+        set((state) => ({
+          postProcessProviderConnections: {
+            ...state.postProcessProviderConnections,
+            [providerId]: { status: "error", error: message },
+          },
+        }));
         return [];
       } finally {
         setUpdating(updateKey, false);
@@ -633,6 +733,23 @@ export const useSettingsStore = create<SettingsStore>()(
       listen("settings-changed", () => {
         get().refreshSettings();
       });
+
+      const activeSettings = get().settings;
+      const providerId = activeSettings?.post_process_provider_id;
+      const provider = activeSettings?.post_process_providers?.find(
+        (candidate) => candidate.id === providerId,
+      );
+      const shouldValidateProvider =
+        providerId &&
+        providerId !== "apple_intelligence" &&
+        (providerId === "custom"
+          ? Boolean(provider?.base_url?.trim())
+          : Boolean(
+              activeSettings?.post_process_api_keys_configured?.[providerId],
+            ));
+      if (providerId && shouldValidateProvider) {
+        void get().fetchPostProcessModels(providerId);
+      }
     },
   })),
 );

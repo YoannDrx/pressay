@@ -1,24 +1,42 @@
-import React, { useCallback, useEffect, useRef, useState } from "react";
+import React, {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import {
   Archive,
   Check,
   Copy,
+  FileJson,
+  FileText,
   FolderOpen,
   RotateCcw,
+  Search,
+  ShieldCheck,
   Star,
+  Tag,
   Trash2,
+  WandSparkles,
 } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
+import { AppPageHeader } from "@/components/layout";
 import {
   commands,
   events,
   type HistoryEntry,
   type HistoryUpdatePayload,
+  type PressayMode,
 } from "@/bindings";
 import { formatDateTime } from "@/utils/dateFormat";
 import { AudioPlayer, AudioPlayerGroup } from "../../ui/AudioPlayer";
 import { Button } from "../../ui/Button";
+import { Input } from "../../ui/Input";
+import { useSettings } from "../../../hooks/useSettings";
+
+type HistoryFilter = "all" | "saved" | "derived" | "failed";
 
 const IconButton: React.FC<{
   onClick: () => void;
@@ -42,6 +60,25 @@ const IconButton: React.FC<{
 );
 
 const PAGE_SIZE = 30;
+const HISTORY_LOAD_TIMEOUT_MS = 12_000;
+
+const withTimeout = <T,>(promise: Promise<T>, timeoutMs: number) =>
+  new Promise<T>((resolve, reject) => {
+    const timeout = window.setTimeout(
+      () => reject(new Error("history_keychain_timeout")),
+      timeoutMs,
+    );
+    promise.then(
+      (value) => {
+        window.clearTimeout(timeout);
+        resolve(value);
+      },
+      (error) => {
+        window.clearTimeout(timeout);
+        reject(error);
+      },
+    );
+  });
 
 interface OpenRecordingsButtonProps {
   onClick: () => void;
@@ -66,9 +103,15 @@ const OpenRecordingsButton: React.FC<OpenRecordingsButtonProps> = ({
 
 export const HistorySettings: React.FC = () => {
   const { t } = useTranslation();
+  const { getSetting, updateSetting, isUpdating } = useSettings();
+  const historyEnabled = getSetting("history_enabled") ?? false;
   const [entries, setEntries] = useState<HistoryEntry[]>([]);
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
   const [hasMore, setHasMore] = useState(true);
+  const [query, setQuery] = useState("");
+  const [filter, setFilter] = useState<HistoryFilter>("all");
+  const [modes, setModes] = useState<PressayMode[]>([]);
   const sentinelRef = useRef<HTMLDivElement>(null);
   const entriesRef = useRef<HistoryEntry[]>([]);
   const loadingRef = useRef(false);
@@ -78,37 +121,86 @@ export const HistorySettings: React.FC = () => {
     entriesRef.current = entries;
   }, [entries]);
 
-  const loadPage = useCallback(async (cursor?: number) => {
-    const isFirstPage = cursor === undefined;
-    if (!isFirstPage && loadingRef.current) return;
-    loadingRef.current = true;
-
-    if (isFirstPage) setLoading(true);
-
-    try {
-      const result = await commands.getHistoryEntries(
-        cursor ?? null,
-        PAGE_SIZE,
-      );
-      if (result.status === "ok") {
-        const { entries: newEntries, has_more } = result.data;
-        setEntries((prev) =>
-          isFirstPage ? newEntries : [...prev, ...newEntries],
-        );
-        setHasMore(has_more);
+  const loadPage = useCallback(
+    async (cursor?: number) => {
+      if (!historyEnabled) {
+        setLoading(false);
+        return;
       }
-    } catch (error) {
-      console.error("Failed to load history entries:", error);
-    } finally {
-      setLoading(false);
-      loadingRef.current = false;
-    }
-  }, []);
+      const isFirstPage = cursor === undefined;
+      if (!isFirstPage && loadingRef.current) return;
+      loadingRef.current = true;
+
+      if (isFirstPage) {
+        setLoading(true);
+        setLoadError(null);
+      }
+
+      try {
+        const result = await withTimeout(
+          commands.getHistoryEntries(cursor ?? null, PAGE_SIZE),
+          HISTORY_LOAD_TIMEOUT_MS,
+        );
+        if (result.status === "ok") {
+          const { entries: newEntries, has_more } = result.data;
+          setEntries((prev) =>
+            isFirstPage ? newEntries : [...prev, ...newEntries],
+          );
+          setHasMore(has_more);
+        } else {
+          setLoadError(result.error);
+        }
+      } catch (error) {
+        console.error("Failed to load history entries:", error);
+        setLoadError(
+          error instanceof Error ? error.message : "history_load_failed",
+        );
+      } finally {
+        setLoading(false);
+        loadingRef.current = false;
+      }
+    },
+    [historyEnabled],
+  );
 
   // Initial load
   useEffect(() => {
-    loadPage();
-  }, [loadPage]);
+    if (historyEnabled) void loadPage();
+  }, [historyEnabled, loadPage]);
+
+  useEffect(() => {
+    if (!historyEnabled) return;
+    void commands.getProductivityConfig().then((config) => {
+      setModes(config.modes.filter((mode) => mode.id !== "faithful"));
+    });
+  }, [historyEnabled]);
+
+  useEffect(() => {
+    if (!historyEnabled || (!query.trim() && filter === "all")) return;
+    const timeout = window.setTimeout(() => {
+      void (async () => {
+        try {
+          const result = await withTimeout(
+            commands.getHistoryEntries(null, null),
+            HISTORY_LOAD_TIMEOUT_MS,
+          );
+          if (result.status === "ok") {
+            setEntries(result.data.entries);
+            setHasMore(false);
+            setLoadError(null);
+          } else {
+            setLoadError(result.error);
+          }
+        } catch (error) {
+          console.error("Failed to filter history entries:", error);
+          setLoadError(
+            error instanceof Error ? error.message : "history_load_failed",
+          );
+        }
+      })();
+    }, 180);
+    return () => window.clearTimeout(timeout);
+  }, [filter, historyEnabled, query]);
 
   // Infinite scroll via IntersectionObserver
   useEffect(() => {
@@ -231,6 +323,19 @@ export const HistorySettings: React.FC = () => {
     }
   };
 
+  const updateTags = async (id: number, tags: string[]) => {
+    const result = await commands.updateHistoryEntryTags(id, tags);
+    if (result.status === "error") throw new Error(String(result.error));
+    setEntries((current) =>
+      current.map((entry) => (entry.id === id ? result.data : entry)),
+    );
+  };
+
+  const reprocessEntry = async (id: number, modeId: string) => {
+    const result = await commands.reprocessHistoryEntry(id, modeId);
+    if (result.status === "error") throw new Error(String(result.error));
+  };
+
   const openRecordingsFolder = async () => {
     try {
       const result = await commands.openRecordingsFolder();
@@ -264,6 +369,97 @@ export const HistorySettings: React.FC = () => {
     setHasMore(false);
   };
 
+  const visibleEntries = useMemo(() => {
+    const normalizedQuery = query.trim().toLocaleLowerCase();
+    return entries.filter((entry) => {
+      const matchesFilter =
+        filter === "all" ||
+        (filter === "saved" && entry.saved) ||
+        (filter === "derived" && entry.metadata?.parent_entry_id != null) ||
+        (filter === "failed" && entry.metadata?.status === "failed");
+      if (!matchesFilter) return false;
+      if (!normalizedQuery) return true;
+      return [
+        entry.title,
+        entry.transcription_text,
+        entry.post_processed_text,
+        entry.metadata?.mode_id,
+        entry.metadata?.application_name,
+        ...(entry.metadata?.tags ?? []),
+      ]
+        .filter(Boolean)
+        .some((value) =>
+          String(value).toLocaleLowerCase().includes(normalizedQuery),
+        );
+    });
+  }, [entries, filter, query]);
+
+  const downloadExport = (format: "markdown" | "json") => {
+    const safeEntries = visibleEntries.map((entry) => ({
+      id: entry.id,
+      timestamp: entry.timestamp,
+      title: entry.title,
+      saved: entry.saved,
+      transcription: entry.transcription_text,
+      result: entry.post_processed_text,
+      tags: entry.metadata?.tags ?? [],
+      mode: entry.metadata?.mode_id ?? null,
+      parentId: entry.metadata?.parent_entry_id ?? null,
+    }));
+    const content =
+      format === "json"
+        ? JSON.stringify({ version: 1, entries: safeEntries }, null, 2)
+        : safeEntries
+            .map((entry) => {
+              const date = new Date(entry.timestamp * 1000).toISOString();
+              const result = entry.result || entry.transcription;
+              return `## ${entry.title || date}\n\n${result}\n\n<small>${date}</small>`;
+            })
+            .join("\n\n---\n\n");
+    const blob = new Blob([content], {
+      type: format === "json" ? "application/json" : "text/markdown",
+    });
+    const url = URL.createObjectURL(blob);
+    const anchor = document.createElement("a");
+    anchor.href = url;
+    anchor.download = `pressay-history.${format === "json" ? "json" : "md"}`;
+    anchor.click();
+    URL.revokeObjectURL(url);
+  };
+
+  if (!historyEnabled) {
+    return (
+      <div className="history-page settings-page signal-settings-page">
+        <AppPageHeader
+          eyebrow={t("settings.history.eyebrow")}
+          title={t("settings.history.title")}
+          description={t("settings.history.description")}
+        />
+        <section className="history-disabled-state">
+          <div className="history-privacy-icon">
+            <ShieldCheck size={22} aria-hidden="true" />
+          </div>
+          <p className="product-eyebrow">
+            {t("settings.history.privateEyebrow")}
+          </p>
+          <h2>{t("settings.history.disabledTitle")}</h2>
+          <p>{t("settings.history.disabledDescription")}</p>
+          <ul>
+            <li>{t("settings.history.privateText")}</li>
+            <li>{t("settings.history.privateAudio")}</li>
+            <li>{t("settings.history.privateControl")}</li>
+          </ul>
+          <Button
+            disabled={isUpdating("history_enabled")}
+            onClick={() => updateSetting("history_enabled", true)}
+          >
+            {t("settings.history.enable")}
+          </Button>
+        </section>
+      </div>
+    );
+  }
+
   let content: React.ReactNode;
 
   if (loading) {
@@ -272,7 +468,16 @@ export const HistorySettings: React.FC = () => {
         {t("settings.history.loading")}
       </div>
     );
-  } else if (entries.length === 0) {
+  } else if (loadError) {
+    content = (
+      <div className="history-load-error" role="alert">
+        <p>{t("settings.history.loadError")}</p>
+        <Button size="sm" variant="secondary" onClick={() => void loadPage()}>
+          {t("cloud.actions.retry")}
+        </Button>
+      </div>
+    );
+  } else if (visibleEntries.length === 0) {
     content = (
       <div className="px-4 py-3 text-center text-text/60">
         {t("settings.history.empty")}
@@ -283,16 +488,23 @@ export const HistorySettings: React.FC = () => {
       <>
         <AudioPlayerGroup>
           <div className="divide-y divide-mid-gray/20">
-            {entries.map((entry) => (
+            {visibleEntries.map((entry) => (
               <HistoryEntryComponent
                 key={entry.id}
                 entry={entry}
                 onToggleSaved={() => toggleSaved(entry.id)}
                 onToggleAudioSaved={() => toggleAudioSaved(entry.id)}
-                onCopyText={() => copyToClipboard(entry.transcription_text)}
+                onCopyText={() =>
+                  copyToClipboard(
+                    entry.post_processed_text ?? entry.transcription_text,
+                  )
+                }
                 getAudioUrl={getAudioUrl}
                 deleteAudio={deleteAudioEntry}
                 retryTranscription={retryHistoryEntry}
+                modes={modes}
+                updateTags={updateTags}
+                reprocessEntry={reprocessEntry}
               />
             ))}
           </div>
@@ -304,30 +516,79 @@ export const HistorySettings: React.FC = () => {
   }
 
   return (
-    <div className="max-w-3xl w-full mx-auto space-y-6">
-      <div className="space-y-2">
-        <div className="px-4 flex items-center justify-between">
-          <div>
-            <h2 className="text-xs font-medium text-mid-gray uppercase tracking-wide">
-              {t("settings.history.title")}
-            </h2>
-          </div>
-          <div className="flex items-center gap-2">
-            <Button onClick={deleteAllHistory} variant="danger-ghost" size="sm">
-              {t("settings.history.deleteAll", {
-                defaultValue: "Delete now",
-              })}
+    <div className="history-page settings-page signal-settings-page">
+      <AppPageHeader
+        eyebrow={t("settings.history.eyebrow")}
+        title={t("settings.history.title")}
+        description={t("settings.history.description")}
+        action={
+          <div className="history-header-actions">
+            <Button
+              onClick={() => updateSetting("history_enabled", false)}
+              variant="ghost"
+              size="sm"
+            >
+              {t("settings.history.disable")}
             </Button>
             <OpenRecordingsButton
               onClick={openRecordingsFolder}
               label={t("settings.history.openFolder")}
             />
           </div>
+        }
+      />
+
+      <div className="history-toolbar">
+        <label className="history-search">
+          <Search size={15} aria-hidden="true" />
+          <Input
+            value={query}
+            onChange={(event) => setQuery(event.target.value)}
+            placeholder={t("settings.history.search")}
+            aria-label={t("settings.history.search")}
+          />
+        </label>
+        <div
+          className="history-filters"
+          role="group"
+          aria-label={t("settings.history.filtersLabel")}
+        >
+          {(["all", "saved", "derived", "failed"] as const).map((value) => (
+            <Button
+              key={value}
+              onClick={() => setFilter(value)}
+              variant={filter === value ? "primary-soft" : "ghost"}
+              size="sm"
+              aria-pressed={filter === value}
+            >
+              {t(`settings.history.filters.${value}`)}
+            </Button>
+          ))}
         </div>
-        <div className="bg-background border border-mid-gray/20 rounded-lg overflow-visible">
-          {content}
+        <div className="history-export-actions">
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={() => downloadExport("markdown")}
+          >
+            <FileText size={14} aria-hidden="true" />
+            {t("settings.history.exportMarkdown")}
+          </Button>
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={() => downloadExport("json")}
+          >
+            <FileJson size={14} aria-hidden="true" />
+            {t("settings.history.exportJson")}
+          </Button>
+          <Button onClick={deleteAllHistory} variant="danger-ghost" size="sm">
+            {t("settings.history.deleteAll")}
+          </Button>
         </div>
       </div>
+
+      <div className="history-list">{content}</div>
     </div>
   );
 };
@@ -340,6 +601,9 @@ interface HistoryEntryProps {
   getAudioUrl: (fileName: string) => Promise<string | null>;
   deleteAudio: (id: number) => Promise<void>;
   retryTranscription: (id: number) => Promise<void>;
+  modes: PressayMode[];
+  updateTags: (id: number, tags: string[]) => Promise<void>;
+  reprocessEntry: (id: number, modeId: string) => Promise<void>;
 }
 
 const HistoryEntryComponent: React.FC<HistoryEntryProps> = ({
@@ -350,12 +614,25 @@ const HistoryEntryComponent: React.FC<HistoryEntryProps> = ({
   getAudioUrl,
   deleteAudio,
   retryTranscription,
+  modes,
+  updateTags,
+  reprocessEntry,
 }) => {
   const { t, i18n } = useTranslation();
   const [showCopied, setShowCopied] = useState(false);
   const [retrying, setRetrying] = useState(false);
+  const [editingTags, setEditingTags] = useState(false);
+  const [tagDraft, setTagDraft] = useState(
+    () => entry.metadata?.tags?.join(", ") ?? "",
+  );
+  const [selectedModeId, setSelectedModeId] = useState(
+    () => modes[0]?.id ?? "clean",
+  );
+  const [reprocessing, setReprocessing] = useState(false);
 
   const hasTranscription = entry.transcription_text.trim().length > 0;
+  const finalText =
+    entry.post_processed_text?.trim() || entry.transcription_text;
 
   const handleLoadAudio = useCallback(
     () => getAudioUrl(entry.file_name),
@@ -394,6 +671,34 @@ const HistoryEntryComponent: React.FC<HistoryEntryProps> = ({
   };
 
   const formattedDate = formatDateTime(String(entry.timestamp), i18n.language);
+
+  const handleSaveTags = async () => {
+    try {
+      const tags = tagDraft
+        .split(",")
+        .map((tag) => tag.trim())
+        .filter(Boolean);
+      await updateTags(entry.id, tags);
+      setEditingTags(false);
+    } catch (error) {
+      console.error("Failed to update history tags:", error);
+      toast.error(t("settings.history.tagsError"));
+    }
+  };
+
+  const handleReprocess = async () => {
+    if (!selectedModeId) return;
+    try {
+      setReprocessing(true);
+      await reprocessEntry(entry.id, selectedModeId);
+      toast.success(t("settings.history.reprocessSuccess"));
+    } catch (error) {
+      console.error("Failed to reprocess history entry:", error);
+      toast.error(t("settings.history.reprocessError"));
+    } finally {
+      setReprocessing(false);
+    }
+  };
 
   return (
     <div className="px-4 py-2 pb-5 flex flex-col gap-3">
@@ -491,9 +796,104 @@ const HistoryEntryComponent: React.FC<HistoryEntryProps> = ({
         {retrying
           ? t("settings.history.transcribing")
           : hasTranscription
-            ? entry.transcription_text
+            ? finalText
             : t("settings.history.transcriptionFailed")}
       </p>
+
+      {entry.post_processed_text?.trim() ? (
+        <details className="history-source-text">
+          <summary>{t("settings.history.showOriginal")}</summary>
+          <p>{entry.transcription_text}</p>
+        </details>
+      ) : null}
+
+      <div className="history-entry-context">
+        {entry.metadata?.parent_entry_id != null ? (
+          <span className="history-context-chip">
+            <WandSparkles size={12} aria-hidden="true" />
+            {t("settings.history.derived")}
+          </span>
+        ) : null}
+        {entry.metadata?.mode_id ? (
+          <span className="history-context-chip">{entry.metadata.mode_id}</span>
+        ) : null}
+        {entry.metadata?.processing_route ? (
+          <span className="history-context-chip is-route">
+            {entry.metadata.processing_route}
+          </span>
+        ) : null}
+        {entry.metadata?.application_name ? (
+          <span className="history-context-chip">
+            {entry.metadata.application_name}
+          </span>
+        ) : null}
+      </div>
+
+      <div className="history-tags-row">
+        <Tag size={13} aria-hidden="true" />
+        {(entry.metadata?.tags ?? []).map((tag) => (
+          <span key={tag} className="history-tag">
+            #{tag}
+          </span>
+        ))}
+        <Button variant="ghost" size="sm" onClick={() => setEditingTags(true)}>
+          {t("settings.history.editTags")}
+        </Button>
+      </div>
+
+      {editingTags ? (
+        <div className="history-tag-editor">
+          <Input
+            value={tagDraft}
+            onChange={(event) => setTagDraft(event.target.value)}
+            placeholder={t("settings.history.tagsPlaceholder")}
+            aria-label={t("settings.history.tagsLabel")}
+            onKeyDown={(event) => {
+              if (event.key === "Enter") void handleSaveTags();
+              if (event.key === "Escape") setEditingTags(false);
+            }}
+          />
+          <Button size="sm" onClick={() => void handleSaveTags()}>
+            {t("common.save")}
+          </Button>
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={() => setEditingTags(false)}
+          >
+            {t("common.cancel")}
+          </Button>
+        </div>
+      ) : null}
+
+      {hasTranscription && modes.length > 0 ? (
+        <div className="history-reprocess-row">
+          <select
+            value={selectedModeId}
+            onChange={(event) => setSelectedModeId(event.target.value)}
+            aria-label={t("settings.history.reprocessMode")}
+          >
+            {modes.map((mode) => (
+              <option key={mode.id} value={mode.id}>
+                {mode.is_builtin
+                  ? t(`pressay.modes.builtins.${mode.id}.name`)
+                  : mode.name}
+              </option>
+            ))}
+          </select>
+          <Button
+            variant="secondary"
+            size="sm"
+            disabled={reprocessing}
+            onClick={() => void handleReprocess()}
+          >
+            <WandSparkles size={14} aria-hidden="true" />
+            {reprocessing
+              ? t("settings.history.reprocessing")
+              : t("settings.history.reprocess")}
+          </Button>
+        </div>
+      ) : null}
 
       {entry.audio_available && (
         <AudioPlayer onLoadRequest={handleLoadAudio} className="w-full" />

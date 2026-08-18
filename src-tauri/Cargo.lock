@@ -4904,6 +4904,7 @@ dependencies = [
  "objc2-foundation",
  "objc2-service-management",
  "once_cell",
+ "plist",
  "rand_core 0.6.4",
  "rdev",
  "regex",

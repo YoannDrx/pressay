@@ -1,48 +1,39 @@
 import { useEffect, useState } from "react";
-import { ArrowRight, CheckCircle2, Command } from "lucide-react";
+import { ArrowRight, Check, Command, Mic2, Radio } from "lucide-react";
 import { useTranslation } from "react-i18next";
-import { events } from "@/bindings";
+import { commands, events } from "@/bindings";
 import { ShortcutInput } from "@/components/settings/ShortcutInput";
 import PressayWordmark from "../icons/PressayWordmark";
-
-const COPY = {
-  en: {
-    eyebrow: "YOUR SHORTCUT",
-    title: "Make dictation instinctive.",
-    description:
-      "Keep the default shortcut or choose your own. Press it once to test that Pressay receives it.",
-    label: "Recording shortcut",
-    test: "Waiting for a shortcut test",
-    tested: "Shortcut detected",
-    continue: "Choose a model",
-    skip: "Continue without testing",
-  },
-  fr: {
-    eyebrow: "VOTRE RACCOURCI",
-    title: "Rendez la dictée instinctive.",
-    description:
-      "Gardez le raccourci par défaut ou choisissez le vôtre. Appuyez une fois dessus pour vérifier que Pressay le reçoit.",
-    label: "Raccourci d’enregistrement",
-    test: "En attente d’un test",
-    tested: "Raccourci détecté",
-    continue: "Choisir un modèle",
-    skip: "Continuer sans tester",
-  },
-} as const;
 
 export const ShortcutOnboarding = ({
   onComplete,
 }: {
   onComplete: () => void;
 }) => {
-  const { i18n } = useTranslation();
-  const copy = COPY[i18n.resolvedLanguage?.startsWith("fr") ? "fr" : "en"];
+  const { t } = useTranslation();
+  const gesture = [
+    t("signalOs.onboarding.shortcut.gesture.hold"),
+    t("signalOs.onboarding.shortcut.gesture.speak"),
+    t("signalOs.onboarding.shortcut.gesture.release"),
+  ];
   const [tested, setTested] = useState(false);
+  const [gestureStep, setGestureStep] = useState(0);
 
   useEffect(() => {
-    const unlisten = events.pipelineState.listen((event) => {
-      if (event.payload.phase === "recording") {
+    // Register the configured global shortcut for the rehearsal. Keyboard
+    // insertion stays uninitialised until the real sandbox step.
+    void commands.initializeShortcuts();
+    const unlisten = events.voiceSurfaceState.listen((event) => {
+      if (["arming", "listening"].includes(event.payload.phase)) {
+        setGestureStep((step) => Math.max(step, 1));
+      }
+      if (event.payload.phase === "listening") {
+        setGestureStep((step) => Math.max(step, 2));
+      }
+      if (["captured", "transcribing"].includes(event.payload.phase)) {
+        setGestureStep(3);
         setTested(true);
+        void commands.cancelOperation();
       }
     });
     return () => {
@@ -55,20 +46,43 @@ export const ShortcutOnboarding = ({
       <div className="onboarding-panel shortcut-panel">
         <PressayWordmark width={138} />
         <div className="onboarding-heading">
-          <p className="product-eyebrow">{copy.eyebrow}</p>
-          <h1>{copy.title}</h1>
-          <p>{copy.description}</p>
+          <p className="product-eyebrow">
+            {t("signalOs.onboarding.shortcut.eyebrow")}
+          </p>
+          <h1>{t("signalOs.onboarding.shortcut.title")}</h1>
+          <p>{t("signalOs.onboarding.shortcut.description")}</p>
         </div>
 
         <div className="shortcut-setup-card">
           <div className="shortcut-setup-label">
             <Command size={18} />
-            <span>{copy.label}</span>
+            <span>{t("signalOs.onboarding.shortcut.label")}</span>
           </div>
           <ShortcutInput shortcutId="transcribe" grouped />
+          <ol className="gesture-rehearsal">
+            {gesture.map((label, index) => {
+              const complete = gestureStep > index;
+              const Icon = index === 0 ? Command : index === 1 ? Mic2 : Radio;
+              return (
+                <li
+                  key={label}
+                  className={complete ? "is-complete" : undefined}
+                >
+                  <span>
+                    {complete ? <Check size={13} /> : <Icon size={13} />}
+                  </span>
+                  {label}
+                </li>
+              );
+            })}
+          </ol>
           <div className={`shortcut-test-status ${tested ? "is-tested" : ""}`}>
-            <CheckCircle2 size={16} />
-            <span>{tested ? copy.tested : copy.test}</span>
+            <Check size={16} />
+            <span>
+              {tested
+                ? t("signalOs.onboarding.shortcut.tested")
+                : t("signalOs.onboarding.shortcut.test")}
+            </span>
           </div>
         </div>
 
@@ -77,7 +91,9 @@ export const ShortcutOnboarding = ({
           className="onboarding-primary"
           onClick={onComplete}
         >
-          {tested ? copy.continue : copy.skip}
+          {tested
+            ? t("signalOs.onboarding.shortcut.continue")
+            : t("signalOs.onboarding.shortcut.skip")}
           <ArrowRight size={16} />
         </button>
       </div>

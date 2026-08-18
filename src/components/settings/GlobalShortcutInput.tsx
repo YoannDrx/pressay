@@ -203,6 +203,15 @@ export const GlobalShortcutInput: React.FC<GlobalShortcutInputProps> = ({
     return formatKeyCombination(recordedKeys.join("+"), osType);
   };
 
+  const handleReset = async () => {
+    try {
+      await resetBinding(shortcutId);
+    } catch (error) {
+      console.error("Failed to reset binding:", error);
+      toast.error(t("settings.general.shortcut.errors.reset"));
+    }
+  };
+
   // Store references to shortcut elements
   const setShortcutRef = (id: string, ref: HTMLDivElement | null) => {
     shortcutRefs.current.set(id, ref);
@@ -279,20 +288,20 @@ export const GlobalShortcutInput: React.FC<GlobalShortcutInputProps> = ({
         {editingShortcutId === shortcutId ? (
           <div
             ref={(ref) => setShortcutRef(shortcutId, ref)}
-            className="px-2 py-1 text-sm font-semibold border border-logo-primary bg-logo-primary/30 rounded-md"
+            className="shortcut-key-button is-recording"
           >
             {formatCurrentKeys()}
           </div>
         ) : (
           <div
-            className="px-2 py-1 text-sm font-semibold bg-mid-gray/10 border border-mid-gray/80 hover:bg-logo-primary/10 rounded-md cursor-pointer hover:border-logo-primary"
+            className="shortcut-key-button"
             onClick={() => startRecording(shortcutId)}
           >
             {formatKeyCombination(binding.current_binding, osType)}
           </div>
         )}
         <ResetButton
-          onClick={() => resetBinding(shortcutId)}
+          onClick={handleReset}
           disabled={isUpdating(`binding_${shortcutId}`)}
         />
       </div>

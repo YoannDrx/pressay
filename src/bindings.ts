@@ -514,6 +514,20 @@ async showMainWindowCommand() : Promise<Result<null, string>> {
 async cancelOperation() : Promise<void> {
     await TAURI_INVOKE("cancel_operation");
 },
+async completeOnboarding() : Promise<Result<null, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("complete_onboarding") };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+async getLocalReadiness() : Promise<LocalReadiness> {
+    return await TAURI_INVOKE("get_local_readiness");
+},
+async getCapabilities() : Promise<Capabilities> {
+    return await TAURI_INVOKE("get_capabilities");
+},
 async getCloudAuthConfig() : Promise<Result<CloudAuthConfig, string>> {
     try {
     return { status: "ok", data: await TAURI_INVOKE("get_cloud_auth_config") };
@@ -952,6 +966,22 @@ async toggleHistoryEntrySaved(id: number) : Promise<Result<null, string>> {
     else return { status: "error", error: e  as any };
 }
 },
+async updateHistoryEntryTags(id: number, tags: string[]) : Promise<Result<HistoryEntry, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("update_history_entry_tags", { id, tags }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+async reprocessHistoryEntry(id: number, modeId: string) : Promise<Result<HistoryEntry, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("reprocess_history_entry", { id, modeId }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
 async toggleHistoryAudioSaved(id: number) : Promise<Result<HistoryEntry, string>> {
     try {
     return { status: "ok", data: await TAURI_INVOKE("toggle_history_audio_saved", { id }) };
@@ -1124,6 +1154,15 @@ async importProductivityConfig() : Promise<Result<ProductivityTransferReport, st
 async getPipelineState() : Promise<PipelineState> {
     return await TAURI_INVOKE("get_pipeline_state");
 },
+async getVoiceSurfaceState() : Promise<VoiceSurfaceState> {
+    return await TAURI_INVOKE("get_voice_surface_state");
+},
+async dismissVoiceSurface() : Promise<void> {
+    await TAURI_INVOKE("dismiss_voice_surface");
+},
+async previewVoiceCommand(text: string) : Promise<VoiceCommandIntent | null> {
+    return await TAURI_INVOKE("preview_voice_command", { text });
+},
 /**
  * Checks if the Mac is a laptop by detecting battery presence
  *
@@ -1147,12 +1186,14 @@ export const events = __makeEvents__<{
 historyUpdatePayload: HistoryUpdatePayload,
 pipelineState: PipelineState,
 streamPhaseEvent: StreamPhaseEvent,
-streamTextEvent: StreamTextEvent
+streamTextEvent: StreamTextEvent,
+voiceSurfaceState: VoiceSurfaceState
 }>({
 historyUpdatePayload: "history-update-payload",
 pipelineState: "pipeline-state",
 streamPhaseEvent: "stream-phase-event",
-streamTextEvent: "stream-text-event"
+streamTextEvent: "stream-text-event",
+voiceSurfaceState: "voice-surface-state"
 })
 
 /** user-defined constants **/
@@ -1176,6 +1217,11 @@ export type AppSettings = {
  * treated as version 0 and migrated forward.
  */
 settings_schema_version?: number;
+/**
+ * One-time bridge from the former native Swift app. Source files remain
+ * untouched so migration is recoverable and independently auditable.
+ */
+legacy_pressay_migration_version?: number;
 /**
  * Defaults to empty on partial stores; the load path merges in the
  * default bindings for any missing keys before the settings are used.
@@ -1219,6 +1265,18 @@ export type AudioDevice = { index: string; name: string; is_default: boolean }
 export type AutoSubmitKey = "enter" | "ctrl_enter" | "cmd_enter"
 export type AvailableAccelerators = { transcribe: string[]; ort: string[]; gpu_devices: GpuDeviceOption[] }
 export type BindingResponse = { success: boolean; binding: ShortcutBinding | null; error: string | null }
+/**
+ * The single product matrix consumed by UI and backend gates. It deliberately
+ * distinguishes commercial release gates from an ordinary Free entitlement:
+ * unavailable payment infrastructure must never masquerade as a user upgrade.
+ */
+export type Capabilities = {
+/**
+ * False in beta builds until checkout, restore and refund gates pass.
+ * The matrix remains visible while backend guards stay non-disruptive.
+ */
+entitlementsEnforced: boolean; tier: EntitlementTier; entitlementSource: EntitlementSource; entitlementState: EntitlementState; entitlementError: string | null; localDictation: CapabilityAccess; localHistory: CapabilityAccess; basicDictionary: CapabilityAccess; deterministicVoiceCommands: CapabilityAccess; customModes: CapabilityAccess; appProfiles: CapabilityAccess; voiceCorrection: CapabilityAccess; byok: CapabilityAccess; appleIntelligence: CapabilityAccess; encryptedSync: CapabilityAccess; pressayCloud: CapabilityAccess; directCheckout: CapabilityAccess; appStorePurchase: CapabilityAccess }
+export type CapabilityAccess = "enabled" | "upgrade_required" | "release_gate"
 export type ClipboardHandling = "dont_modify" | "copy_to_clipboard"
 export type CloudAccountSnapshot = { connected: boolean; accountId: string | null; email: string | null; deviceId: string | null; entitlement: EntitlementSnapshot | null; usage: UsageSnapshot | null }
 export type CloudAuthConfig = { magicLink: boolean; providers: CloudAuthProvider[]; callbackUrl: string }
@@ -1242,9 +1300,12 @@ export type EngineType =
 "TranscribeCpp" | "Parakeet" | "Moonshine" | "MoonshineStreaming" | "SenseVoice" | "GigaAM" | "Canary" | "Cohere"
 export type EntitlementSnapshot = { tier: EntitlementTier; source: EntitlementSource; validFrom: string; validUntil: string | null; offlineGraceUntil: string | null; revision: number }
 export type EntitlementSource = "none" | "trial" | "stripe" | "app_store" | "support"
+export type EntitlementState = "local_free" | "verified" | "unavailable"
 export type EntitlementTier = "free" | "pro"
 export type GpuDeviceOption = { id: number; name: string; total_vram_mb: number }
-export type HistoryEntry = { id: number; file_name: string; timestamp: number; saved: boolean; title: string; transcription_text: string; post_processed_text: string | null; post_process_prompt: string | null; post_process_requested: boolean; audio_available: boolean; audio_saved: boolean }
+export type HistoryEntry = { id: number; file_name: string; timestamp: number; saved: boolean; title: string; transcription_text: string; post_processed_text: string | null; post_process_prompt: string | null; post_process_requested: boolean; audio_available: boolean; audio_saved: boolean; metadata: HistoryMetadata }
+export type HistoryEntryStatus = "completed" | "failed"
+export type HistoryMetadata = { tags?: string[]; mode_id?: string | null; processing_route?: string | null; application_name?: string | null; application_bundle_id?: string | null; parent_entry_id?: number | null; status?: HistoryEntryStatus }
 export type HistoryRetentionPeriod = "hours_24" | "days_7" | "days_30" | "forever"
 export type HistoryUpdatePayload = { action: "added"; entry: HistoryEntry } | { action: "updated"; entry: HistoryEntry } | { action: "deleted"; id: number } | { action: "toggled"; id: number }
 /**
@@ -1262,6 +1323,7 @@ export type KeyboardDiagnosticReport = { secure_input_enabled: boolean; culprit_
 key_down: number; key_up: number; flags_changed: number; mouse: number; duration_ms: number }
 export type KeyboardImplementation = "tauri" | "handy_keys"
 export type LLMPrompt = { id: string; name: string; prompt: string }
+export type LocalReadiness = { architecture: string; chip: string | null; memory_bytes: number | null; available_storage_bytes: number | null; macos_version: string | null; supported: boolean; recommended_preset: string }
 export type LogLevel = "trace" | "debug" | "info" | "warn" | "error"
 export type ModeStep = { id: string; kind: ModeStepKind; instruction?: string | null }
 export type ModeStepKind = "normalize" | "dictionary" | "transform" | "format"
@@ -1307,7 +1369,7 @@ export type PasteMethod = "ctrl_v" | "direct" | "none" | "shift_insert" | "ctrl_
 export type PermissionAccess = "allowed" | "denied" | "unknown"
 export type PipelineFailure = { stage: PipelinePhase; code: string; recoverable: boolean }
 export type PipelinePhase = "idle" | "recording" | "transcribing" | "transforming" | "pasting" | "cancelled" | "failed"
-export type PipelineState = { phase: PipelinePhase; operation_id: number; binding_id: string | null; failure: PipelineFailure | null }
+export type PipelineState = { phase: PipelinePhase; operation_id: number; binding_id: string | null; failure: PipelineFailure | null; voice: VoiceSurfaceState }
 export type PostProcessProvider = { id: string; label: string; base_url: string; allow_base_url_edit?: boolean; models_endpoint?: string | null; supports_structured_output?: boolean }
 export type PressayMode = { id: string; name: string; description: string; route: ProcessingRoute; steps: ModeStep[]; tone?: string | null; length?: string | null; language?: string | null; is_builtin?: boolean }
 export type ProcessingRoute = "local" | "byok" | "pressay_cloud"
@@ -1347,7 +1409,7 @@ uncovered_bindings: string[];
  */
 recorder_blocked: boolean }
 export type ShortcutBinding = { id: string; name: string; description: string; default_binding: string; current_binding: string }
-export type SoundTheme = "marimba" | "pop" | "custom"
+export type SoundTheme = "marimba" | "pop" | "minimal" | "soft" | "glass" | "mechanical" | "dreamy" | "scifi" | "studio" | "zen" | "custom"
 /**
  * Phase of the streaming overlay card, emitted to drive its UI state.
  */
@@ -1390,6 +1452,32 @@ export type TranscriptionUsage = { usedSeconds: number; reservedSeconds: number;
 export type TransformationUsage = { used: number; reserved: number; limit: number }
 export type TypingTool = "auto" | "wtype" | "kwtype" | "dotool" | "ydotool" | "xdotool"
 export type UsageSnapshot = { periodStart: string; transcription: TranscriptionUsage; transformations: TransformationUsage }
+/**
+ * A deliberately small, local command grammar. Commands are only recognized
+ * behind an explicit wake phrase so ordinary dictation can never silently turn
+ * into an action.
+ */
+export type VoiceCommandIntent = { kind: VoiceCommandKind; arguments: Partial<{ [key in string]: string }>; risk: VoiceCommandRisk; preview: string; confirmationRequired: boolean }
+export type VoiceCommandKind = "insert_new_line" | "insert_new_paragraph" | "format_bullet_list" | "insert_snippet" | "set_temporary_mode" | "set_next_mode" | "cancel"
+export type VoiceCommandRisk = "safe_text" | "context_change"
+export type VoiceProcessingRoute = "local_stt" | "apple_intelligence" | "byok" | "pressay_cloud"
+export type VoiceSurfaceAction = "cancel" | "retry" | "copy" | "open_microphone_settings" | "open_accessibility_settings" | "open_model_settings" | "open_provider_settings"
+export type VoiceSurfaceError = { code: string; recoverable: boolean }
+/**
+ * User-facing lifecycle shared by the overlay, dashboard, and menu bar.
+ *
+ * This deliberately stays separate from [`PipelinePhase`]: the pipeline owns
+ * concurrency while this state can expose short-lived presentation moments
+ * such as arming, captured, and success without holding up the next dictation.
+ */
+export type VoiceSurfacePhase = "hidden" | "arming" | "listening" | "captured" | "transcribing" | "transforming" | "inserting" | "success" | "cancelled" | "failed"
+export type VoiceSurfaceState = { operation_id: number; phase: VoiceSurfacePhase; route: VoiceProcessingRoute; provider_id: string | null; mode_id: string | null; target_application: VoiceTargetApplication | null;
+/**
+ * Integer percentage only when the backend has real progress information.
+ * Indeterminate work is represented by `None`, never a fake percentage.
+ */
+progress: number | null; error: VoiceSurfaceError | null; available_actions: VoiceSurfaceAction[] }
+export type VoiceTargetApplication = { bundle_id: string; app_name: string }
 export type WindowsMicrophonePermissionStatus = { supported: boolean; overall_access: PermissionAccess; device_access: PermissionAccess; app_access: PermissionAccess; desktop_app_access: PermissionAccess }
 
 /** tauri-specta globals **/

@@ -22,14 +22,16 @@
       "or": "or",
       "google": "Continue with Google",
       "apple": "Continue with Apple",
-      "unavailable": "Cloud sign-in is not enabled on this environment yet."
+      "unavailable": "Cloud sign-in is not enabled on this environment yet.",
+      "unavailableTitle": "Sign-in service unavailable"
     },
     "actions": {
       "loading": "Checking Cloud availability…",
       "refresh": "Refresh",
       "disconnect": "Disconnect",
       "delete": "Delete account",
-      "confirmDelete": "Delete your Pressay Cloud account and synced settings? This cannot be undone."
+      "confirmDelete": "Delete your Pressay Cloud account and synced settings? This cannot be undone.",
+      "retry": "Retry"
     },
     "sync": {
       "title": "Encrypted sync",
@@ -79,12 +81,14 @@
       "error": "Cloud transcription could not be completed. No text was inserted."
     },
     "errors": {
+      "detail": "Account setup was rejected by the Cloud service. Your local dictation and data were not affected. You can retry safely.",
       "load": "Cloud account status could not be loaded.",
       "auth": "Cloud sign-in could not be completed.",
       "start": "Cloud sign-in could not be started.",
       "disconnect": "The account could not be disconnected.",
       "delete": "The account could not be deleted."
-    }
+    },
+    "eyebrow": "ACCOUNT & ENTITLEMENTS"
   },
   "tray": {
     "settings": "Configuración...",
@@ -323,7 +327,10 @@
       "pushToTalk": {
         "label": "Presionar para hablar",
         "description": "Mantén presionado para grabar, suelta para detener"
-      }
+      },
+      "eyebrow": "VOICE INPUT",
+      "description": "Tune the gesture, microphone and feedback that make Pressay feel native on this Mac.",
+      "interface": "Interface"
     },
     "sound": {
       "title": "Sonido",
@@ -355,6 +362,7 @@
       }
     },
     "advanced": {
+      "description": "Controla cómo se inicia Pressay, procesa el audio, inserta texto y almacena datos locales en este Mac.",
       "groups": {
         "app": "Aplicación",
         "output": "Salida",
@@ -494,6 +502,13 @@
       },
       "api": {
         "title": "API (compatible con OpenAI)",
+        "connection": {
+          "verify": "Verificar",
+          "stored": "Clave guardada en el Llavero",
+          "valid": "Conexión verificada",
+          "error": "Error de conexión",
+          "translationReady": "BYOK está listo. Traducción y los demás modos de transformación ya están disponibles."
+        },
         "provider": {
           "title": "Proveedor",
           "description": "Selecciona un proveedor compatible con OpenAI."
@@ -540,12 +555,18 @@
         "cancel": "Cancelar",
         "selectToEdit": "Selecciona un prompt arriba para ver y editar sus detalles.",
         "createFirst": "Haz clic en 'Crear nuevo prompt' arriba para crear tu primer prompt de post procesamiento."
-      }
+      },
+      "eyebrow": "PROCESSING ROUTES",
+      "title": "Providers & privacy",
+      "description": "Choose the intelligence used by transformation modes and see exactly when text can leave your Mac.",
+      "privacy": "Keys stay in macOS Keychain. A remote route is used only by a mode that displays BYOK or Cloud.",
+      "activation": "Legacy AI shortcut"
     },
     "history": {
       "title": "Historial",
       "openFolder": "Abrir carpeta de grabaciones",
       "loading": "Cargando historial...",
+      "loadError": "No se pudo desbloquear el historial. Autoriza el acceso de Pressay en el Llavero de macOS e inténtalo de nuevo.",
       "empty": "Aún no hay transcripciones. ¡Comienza a grabar para crear tu historial!",
       "copyToClipboard": "Copiar transcripción al portapapeles",
       "save": "Guardar transcripción",
@@ -555,7 +576,41 @@
       "retranscribe": "Re-transcribir",
       "retranscribeError": "No se pudo re-transcribir. Por favor, inténtalo de nuevo.",
       "transcribing": "Transcribiendo...",
-      "transcriptionFailed": "La transcripción falló. Puedes re-transcribir usando el icono de reintentar."
+      "transcriptionFailed": "La transcripción falló. Puedes re-transcribir usando el icono de reintentar.",
+      "eyebrow": "PRIVATE MEMORY",
+      "description": "Search, revisit and export the text Pressay keeps encrypted on this Mac.",
+      "privateEyebrow": "LOCAL BY DEFAULT",
+      "disabledTitle": "Your private history is off",
+      "disabledDescription": "Pressay does not retain transcripts or recordings until you explicitly enable history.",
+      "privateText": "Transcripts are encrypted locally",
+      "privateAudio": "Text and audio have separate retention controls",
+      "privateControl": "You can disable history or delete its encryption key at any time",
+      "enable": "Enable private history",
+      "disable": "Turn off",
+      "search": "Search transcripts",
+      "filtersLabel": "History filters",
+      "filters": {
+        "all": "All",
+        "saved": "Saved",
+        "failed": "Failed",
+        "derived": "Reprocessed"
+      },
+      "exportMarkdown": "Markdown",
+      "exportJson": "JSON",
+      "showOriginal": "Show original transcription",
+      "deleteAll": "Delete all",
+      "deleteAllConfirmation": "Delete all local history, encrypted recordings and the history encryption key? This cannot be undone.",
+      "deleteAllError": "The local history could not be deleted.",
+      "derived": "Reprocessed",
+      "editTags": "Edit tags",
+      "tagsLabel": "History tags",
+      "tagsPlaceholder": "project, client, idea",
+      "tagsError": "The encrypted tags could not be saved.",
+      "reprocess": "Reprocess",
+      "reprocessing": "Reprocessing…",
+      "reprocessMode": "Mode used to reprocess this transcription",
+      "reprocessSuccess": "A new derived entry was added to your private history.",
+      "reprocessError": "This transcription could not be reprocessed. Check the selected processing route in Providers."
     },
     "debug": {
       "title": "Depuración",
@@ -681,6 +736,7 @@
     },
     "about": {
       "title": "Acerca de",
+      "developer": "Diseñado y desarrollado en Francia por YoDev.",
       "version": {
         "title": "Versión",
         "description": "Versión actual de Pressay"
@@ -740,7 +796,13 @@
     "open": "Abrir",
     "copy": "Copiar",
     "clear": "Limpiar",
-    "noOptionsFound": "No se encontraron opciones"
+    "noOptionsFound": "No se encontraron opciones",
+    "name": "Name",
+    "description": "Description",
+    "save": "Save",
+    "cancel": "Cancel",
+    "import": "Import",
+    "export": "Export"
   },
   "accessibility": {
     "permissionsDescription": "Pressay necesita permisos de accesibilidad para escribir texto transcrito.",
@@ -796,5 +858,316 @@
     "learnMore": "Cómo solucionarlo",
     "recorderBlocked": "Ahora mismo no se pueden grabar atajos: Secure Input de macOS está bloqueando los eventos de teclado. Resuelve primero el aviso de Secure Input.",
     "dismiss": "Descartar"
+  },
+  "signalOs": {
+    "onboarding": {
+      "progress": "Onboarding progress",
+      "welcome": {
+        "eyebrow": "WELCOME TO PRESSAY",
+        "title": "Your voice, without the trade-off.",
+        "description": "Start with private transcription on your Mac. No account, no Internet connection, no behavioural analytics.",
+        "localTitle": "Local",
+        "localBody": "Free · Offline · No account",
+        "recommended": "Recommended",
+        "cloudTitle": "Pressay Cloud",
+        "cloudBody": "Optional · Explicit · Pro",
+        "cloudNote": "Configure it later from your account.",
+        "continue": "Continue locally",
+        "footnote": "Pressay never switches a local workflow to Cloud without asking you."
+      },
+      "diagnostic": {
+        "eyebrow": "LOCAL READINESS",
+        "title": "Built for this Mac.",
+        "description": "Pressay checks only the hardware needed for private dictation. This diagnostic stays on your Mac.",
+        "chip": "Apple silicon",
+        "memory": "Unified memory",
+        "storage": "Available storage",
+        "system": "macOS",
+        "unknown": "Not available",
+        "supported": "Ready for Pressay",
+        "limited": "You can continue, but this Mac is outside the supported target.",
+        "recommendation": "Recommended starting point",
+        "presets": {
+          "fast": "Fast — lowest memory and latency",
+          "polyglot": "Polyglot — balanced multilingual dictation",
+          "precise": "Precise — highest local accuracy"
+        },
+        "continue": "Review permissions",
+        "retry": "Try the diagnostic again"
+      },
+      "shortcut": {
+        "eyebrow": "YOUR SHORTCUT",
+        "title": "Make dictation instinctive.",
+        "description": "Choose your shortcut, then rehearse the gesture: hold, speak for a moment, and release. This practice recording is cancelled before transcription.",
+        "label": "Recording shortcut",
+        "gesture": {
+          "hold": "Hold",
+          "speak": "Speak",
+          "release": "Release"
+        },
+        "test": "Waiting for the gesture",
+        "tested": "Gesture understood",
+        "continue": "Choose a model",
+        "skip": "Continue without testing"
+      },
+      "firstDictation": {
+        "eyebrow": "FIRST DICTATION",
+        "title": "Say something. See it appear.",
+        "description": "Keep this field focused, hold your shortcut, speak, then release. The audio and text stay on this Mac.",
+        "placeholder": "Your first private dictation will appear here…",
+        "route": "Local",
+        "privacy": "No account · No network",
+        "status": {
+          "hidden": "Ready for your shortcut",
+          "arming": "Preparing the microphone",
+          "listening": "Listening — release when finished",
+          "captured": "Voice captured",
+          "transcribing": "Transcribing locally",
+          "transforming": "Applying your local mode",
+          "inserting": "Inserting into the field",
+          "success": "First dictation complete",
+          "cancelled": "Cancelled — try again when ready",
+          "failed": "Action needed — check the message and retry"
+        },
+        "continue": "Personalize Pressay",
+        "skip": "I’ll test it later"
+      },
+      "personalization": {
+        "eyebrow": "YOUR SETUP",
+        "title": "Make it feel native.",
+        "description": "Choose the microphone, language and Voice Bar style you want. Every setting can be changed later.",
+        "continue": "See what Pro adds"
+      },
+      "pro": {
+        "eyebrow": "OPTIONAL POWER",
+        "title": "Local first. More when you ask.",
+        "description": "Pro adds transformations, correction, per-app profiles, BYOK and encrypted sync. Your unlimited local dictation remains free.",
+        "free": "Always Free",
+        "freeItems": {
+          "1": "Unlimited local dictation",
+          "2": "Offline and no account",
+          "3": "Local dictionary and history"
+        },
+        "pro": "Pressay Pro",
+        "proItems": {
+          "1": "Voice Bar transformations",
+          "2": "Apple Intelligence and BYOK",
+          "3": "Encrypted preference sync"
+        },
+        "finish": "Start using Pressay",
+        "later": "No account is created during onboarding."
+      }
+    },
+    "dashboard": {
+      "eyebrow": "LOCAL DICTATION",
+      "title": "Ready when you are.",
+      "subtitle": "Your voice is transcribed on this Mac by default.",
+      "local": "Local",
+      "private": "Private by default",
+      "statusLabel": "Pressay status",
+      "status": {
+        "hidden": "Ready",
+        "arming": "Preparing",
+        "listening": "Listening",
+        "captured": "Captured",
+        "transcribing": "Transcribing",
+        "transforming": "Transforming",
+        "inserting": "Inserting",
+        "success": "Inserted",
+        "cancelled": "Cancelled",
+        "failed": "Action needed"
+      },
+      "routes": {
+        "local_stt": "Local",
+        "apple_intelligence": "Apple Intelligence",
+        "byok": "Your API key",
+        "pressay_cloud": "Pressay Cloud"
+      },
+      "model": "Model",
+      "microphone": "Microphone",
+      "shortcut": "Shortcut",
+      "defaultMicrophone": "System default",
+      "noModel": "Choose a model",
+      "privacyTitle": "Nothing leaves your Mac",
+      "privacyBody": "Local dictation works offline and without an account. Cloud processing is never selected silently.",
+      "mode": "Mode",
+      "faithful": "Faithful",
+      "route": "Processing route",
+      "correctionTitle": "Correct the last result",
+      "correctionBody": "Arm correction, return to the original app, then dictate only the change you want.",
+      "correctionDisclosure": "Your configured text provider processes the original and instruction. If it is remote, both leave this Mac.",
+      "correctionAction": "Correct with voice",
+      "correctionArmed": "Waiting for your correction",
+      "correctionArmedBody": "Return to {{app}} and use your dictation shortcut.",
+      "correctionCancel": "Cancel",
+      "originalApp": "the original app",
+      "freePlan": "Free · Local",
+      "proPlan": "Pro",
+      "voiceCommandsTitle": "Local voice commands",
+      "voiceCommandsBody": "Say the explicit wake phrase to keep commands separate from ordinary dictation.",
+      "voiceCommandsWake": "Pressay command",
+      "voiceCommandSamples": {
+        "1": "new line",
+        "2": "bullet list: one; two",
+        "3": "next mode"
+      },
+      "previewPlan": "Beta · Pro preview"
+    },
+    "overlay": {
+      "routes": {
+        "local_stt": "Local",
+        "apple_intelligence": "Apple Intelligence",
+        "byok": "BYOK",
+        "pressay_cloud": "Pressay Cloud"
+      },
+      "success": "Inserted",
+      "cancelled": "Cancelled",
+      "retry": "Retry",
+      "settings": "Open settings",
+      "inserting": "Inserting",
+      "errors": {
+        "no_audio": "No audio detected",
+        "silent_input": "No voice detected",
+        "microphone_permission_denied": "Microphone access required",
+        "paste_failed": "Text could not be inserted",
+        "transform_timeout": "Transformation timed out",
+        "fallback": "Pressay needs your attention"
+      }
+    }
+  },
+  "pressay": {
+    "sidebar": {
+      "modes": "Modes",
+      "dictionary": "Dictionary",
+      "settings": "Settings",
+      "search": "Find a setting",
+      "navigation": "Pressay settings",
+      "noResults": "No setting matches your search.",
+      "status": {
+        "off": "Off",
+        "setup": "Setup",
+        "offline": "Offline"
+      },
+      "searchShortcut": "⌘K"
+    },
+    "routes": {
+      "setupRequired": "Setup required",
+      "local": {
+        "label": "Local",
+        "detail": "Nothing leaves this Mac"
+      },
+      "byok": {
+        "label": "BYOK",
+        "detail": "Directly through your provider",
+        "notConfigured": "Configure a provider and model first"
+      },
+      "pressay_cloud": {
+        "label": "Pressay Cloud",
+        "detail": "Connected to your private Cloud account",
+        "notConnected": "Connect your Pressay account first"
+      }
+    },
+    "modes": {
+      "eyebrow": "WORKFLOW",
+      "title": "Modes",
+      "description": "Choose how Pressay turns speech into useful text. Remote processing is always explicit.",
+      "new": "New mode",
+      "route": "Route",
+      "instruction": "Transformation instruction",
+      "variables": "Variables: ${transcript}, ${selected}, ${app_name}, ${custom_words}",
+      "save": "Save mode",
+      "active": "Active",
+      "selected": "Selected",
+      "useMode": "Use mode",
+      "useOnce": "Once",
+      "available": "Available modes",
+      "editorLabel": "Custom mode editor",
+      "namePlaceholder": "Stand-up update",
+      "descriptionPlaceholder": "What this mode produces",
+      "deleteLabel": "Delete {{name}}",
+      "loading": "Loading modes…",
+      "unavailable": "Modes are unavailable.",
+      "builtins": {
+        "faithful": {
+          "name": "Faithful",
+          "description": "Local transcription, native punctuation and dictionary."
+        },
+        "clean": {
+          "name": "Clean",
+          "description": "Locally removes hesitations, repetitions and artifacts."
+        },
+        "message": {
+          "name": "Message",
+          "description": "Rewrites speech as a short conversational message."
+        },
+        "email": {
+          "name": "Email",
+          "description": "Structures a professional email ready to send."
+        },
+        "ai_prompt": {
+          "name": "AI prompt",
+          "description": "Turns speech into a clear, structured instruction."
+        },
+        "note": {
+          "name": "Note",
+          "description": "Organizes speech into a clear, durable note."
+        },
+        "meeting_notes": {
+          "name": "Meeting notes",
+          "description": "Structures key points, decisions and next steps."
+        },
+        "ticket": {
+          "name": "Ticket",
+          "description": "Produces an actionable ticket with context and criteria."
+        },
+        "commit": {
+          "name": "Commit",
+          "description": "Generates a concise Conventional Commit message."
+        },
+        "translation": {
+          "name": "Translation",
+          "description": "Faithfully translates speech into English."
+        },
+        "summary": {
+          "name": "Summary",
+          "description": "Condenses speech without losing important information."
+        },
+        "tasks": {
+          "name": "Tasks",
+          "description": "Extracts a clear, verifiable action list."
+        }
+      }
+    },
+    "profiles": {
+      "eyebrow": "CONTEXT",
+      "title": "Application profiles",
+      "description": "Automatically apply a mode and output behavior for a specific Mac app.",
+      "add": "Add profile",
+      "empty": "No application profile yet.",
+      "appName": "Application name",
+      "appPlaceholder": "Notion",
+      "bundleId": "Bundle ID",
+      "bundlePlaceholder": "notion.id",
+      "mode": "Profile mode",
+      "output": "Profile output",
+      "language": "Profile language",
+      "model": "Profile model",
+      "microphone": "Profile microphone",
+      "defaultLanguage": "Default language",
+      "defaultModel": "Default model",
+      "defaultMicrophone": "Default microphone",
+      "deleteLabel": "Delete {{name}} profile",
+      "outputs": {
+        "paste": "Paste",
+        "copy": "Copy",
+        "type": "Type"
+      }
+    },
+    "transfer": {
+      "exported": "Configuration exported",
+      "imported": "Configuration imported",
+      "summary": "{{modes}} modes · {{profiles}} profiles · {{terms}} terms",
+      "conflicts": "{{count}} conflicts preserved"
+    }
   }
 }

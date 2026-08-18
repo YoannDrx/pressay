@@ -2,12 +2,15 @@ use log::{debug, warn};
 use serde::de::{self, Visitor};
 use serde::{Deserialize, Deserializer, Serialize};
 use specta::Type;
-use std::collections::HashMap;
-use tauri::AppHandle;
+use std::collections::{HashMap, HashSet};
+use std::fs;
+use tauri::{AppHandle, Manager};
 use tauri_plugin_store::StoreExt;
 
 use crate::productivity::{
-    builtin_modes, dictionary_entries_from_legacy_words, AppProfile, DictionaryEntry, PressayMode,
+    builtin_modes, dictionary_entries_from_legacy_words, validate_mode, AppProfile,
+    DictionaryEntry, DictionaryMatchKind, ModeStep, ModeStepKind, OutputBehavior, PressayMode,
+    ProcessingRoute,
 };
 
 pub const APPLE_INTELLIGENCE_PROVIDER_ID: &str = "apple_intelligence";
@@ -249,6 +252,14 @@ impl ModelUnloadTimeout {
 pub enum SoundTheme {
     Marimba,
     Pop,
+    Minimal,
+    Soft,
+    Glass,
+    Mechanical,
+    Dreamy,
+    Scifi,
+    Studio,
+    Zen,
     Custom,
 }
 
@@ -257,6 +268,14 @@ impl SoundTheme {
         match self {
             SoundTheme::Marimba => "marimba",
             SoundTheme::Pop => "pop",
+            SoundTheme::Minimal => "minimal",
+            SoundTheme::Soft => "soft",
+            SoundTheme::Glass => "glass",
+            SoundTheme::Mechanical => "mechanical",
+            SoundTheme::Dreamy => "dreamy",
+            SoundTheme::Scifi => "scifi",
+            SoundTheme::Studio => "studio",
+            SoundTheme::Zen => "zen",
             SoundTheme::Custom => "custom",
         }
     }
@@ -327,6 +346,10 @@ pub struct AppSettings {
     /// treated as version 0 and migrated forward.
     #[serde(default = "default_settings_schema_version")]
     pub settings_schema_version: u32,
+    /// One-time bridge from the former native Swift app. Source files remain
+    /// untouched so migration is recoverable and independently auditable.
+    #[serde(default)]
+    pub legacy_pressay_migration_version: u32,
     /// Defaults to empty on partial stores; the load path merges in the
     /// default bindings for any missing keys before the settings are used.
     #[serde(default)]
@@ -491,7 +514,7 @@ fn default_model() -> String {
     "".to_string()
 }
 
-const CURRENT_SETTINGS_SCHEMA_VERSION: u32 = 6;
+const CURRENT_SETTINGS_SCHEMA_VERSION: u32 = 8;
 
 fn default_settings_schema_version() -> u32 {
     CURRENT_SETTINGS_SCHEMA_VERSION
@@ -893,6 +916,7 @@ pub fn get_default_settings() -> AppSettings {
 
     AppSettings {
         settings_schema_version: default_settings_schema_version(),
+        legacy_pressay_migration_version: 0,
         bindings,
         push_to_talk: default_push_to_talk(),
         audio_feedback: false,
@@ -1063,6 +1087,10 @@ pub fn get_settings(app: &AppHandle) -> AppSettings {
         updated = true;
     }
 
+    if migrate_legacy_pressay_installation(app, &mut settings) {
+        updated = true;
+    }
+
     if updated {
         store.set(
             "settings",
@@ -1071,6 +1099,421 @@ pub fn get_settings(app: &AppHandle) -> AppSettings {
     }
 
     settings
+}
+
+const LEGACY_PRESSAY_MIGRATION_VERSION: u32 = 1;
+const MAX_LEGACY_MODES_FILE_BYTES: u64 = 2 * 1024 * 1024;
+
+#[derive(Debug, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+struct LegacyPressayModesFile {
+    #[serde(default)]
+    custom_modes: Vec<LegacyPressayMode>,
+    #[serde(default)]
+    application_profiles: Vec<LegacyPressayProfile>,
+}
+
+#[derive(Debug, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+struct LegacyPressayMode {
+    id: String,
+    name: String,
+    #[serde(default)]
+    transcription_language: Option<String>,
+    #[serde(default)]
+    cleaning_level: String,
+    #[serde(default)]
+    prompt: String,
+    #[serde(default)]
+    output_format: String,
+    #[serde(default = "legacy_mode_enabled")]
+    is_enabled: bool,
+}
+
+#[derive(Debug, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+struct LegacyPressayProfile {
+    id: String,
+    bundle_identifier: String,
+    #[serde(rename = "modeID", alias = "modeId")]
+    mode_id: String,
+    #[serde(default = "legacy_mode_enabled")]
+    is_enabled: bool,
+    #[serde(default)]
+    delivery_policy: Option<String>,
+}
+
+fn legacy_mode_enabled() -> bool {
+    true
+}
+
+fn legacy_builtin_mode_id(id: &str) -> Option<&'static str> {
+    match id.to_ascii_lowercase().as_str() {
+        "00000000-0000-4000-8000-000000000001" => Some("faithful"),
+        "00000000-0000-4000-8000-000000000002" => Some("clean"),
+        "00000000-0000-4000-8000-000000000003" => Some("message"),
+        "00000000-0000-4000-8000-000000000004" => Some("email"),
+        "00000000-0000-4000-8000-000000000005" => Some("ai_prompt"),
+        "00000000-0000-4000-8000-000000000006" => Some("note"),
+        "00000000-0000-4000-8000-000000000007" => Some("meeting_notes"),
+        "00000000-0000-4000-8000-000000000008" => Some("ticket"),
+        "00000000-0000-4000-8000-000000000009" => Some("commit"),
+        "00000000-0000-4000-8000-000000000010" => Some("translation"),
+        "00000000-0000-4000-8000-000000000011" => Some("summary"),
+        "00000000-0000-4000-8000-000000000012" => Some("tasks"),
+        _ => None,
+    }
+}
+
+fn import_legacy_pressay_modes(settings: &mut AppSettings, contents: &str) -> Result<bool, String> {
+    let legacy: LegacyPressayModesFile =
+        serde_json::from_str(contents).map_err(|error| error.to_string())?;
+    let mut updated = false;
+    let mut known_mode_ids = settings
+        .pressay_modes
+        .iter()
+        .map(|mode| mode.id.clone())
+        .collect::<HashSet<_>>();
+
+    for legacy_mode in legacy.custom_modes {
+        if !legacy_mode.is_enabled {
+            continue;
+        }
+        let id = legacy_mode.id.to_ascii_lowercase();
+        if known_mode_ids.contains(&id) || legacy_builtin_mode_id(&id).is_some() {
+            continue;
+        }
+        let name = legacy_mode.name.trim().chars().take(80).collect::<String>();
+        if name.is_empty() {
+            continue;
+        }
+        let raw_prompt = legacy_mode
+            .prompt
+            .trim()
+            .replace("${", "$ {")
+            .chars()
+            .take(3_700)
+            .collect::<String>();
+        let mut steps = vec![
+            ModeStep {
+                id: "normalize".to_string(),
+                kind: ModeStepKind::Normalize,
+                instruction: None,
+            },
+            ModeStep {
+                id: "dictionary".to_string(),
+                kind: ModeStepKind::Dictionary,
+                instruction: None,
+            },
+        ];
+        let route = if raw_prompt.is_empty() {
+            if legacy_mode.cleaning_level == "light" {
+                steps.push(ModeStep {
+                    id: "clean".to_string(),
+                    kind: ModeStepKind::Format,
+                    instruction: Some("remove_fillers".to_string()),
+                });
+            }
+            ProcessingRoute::Local
+        } else {
+            let format_rule = match legacy_mode.output_format.as_str() {
+                "markdown" => " Return valid Markdown.",
+                "code" => " Return only the requested code.",
+                "structured" => " Return a clearly structured result.",
+                _ => "",
+            };
+            steps.push(ModeStep {
+                id: "transform".to_string(),
+                kind: ModeStepKind::Transform,
+                instruction: Some(format!(
+                    "Source transcription:\n${{transcript}}\n\nInstruction:\n{raw_prompt}{format_rule}"
+                )),
+            });
+            ProcessingRoute::Byok
+        };
+        let mode = PressayMode {
+            id: id.clone(),
+            name,
+            description: format!(
+                "Imported from Pressay 1 · {}",
+                if legacy_mode.cleaning_level.is_empty() {
+                    "faithful"
+                } else {
+                    legacy_mode.cleaning_level.as_str()
+                }
+            ),
+            route,
+            steps,
+            tone: None,
+            length: (!legacy_mode.output_format.is_empty()).then_some(legacy_mode.output_format),
+            language: legacy_mode.transcription_language,
+            is_builtin: false,
+        };
+        if validate_mode(&mode).is_ok() {
+            known_mode_ids.insert(id);
+            settings.pressay_modes.push(mode);
+            updated = true;
+        }
+    }
+
+    let mut known_profile_ids = settings
+        .app_profiles
+        .iter()
+        .map(|profile| profile.id.clone())
+        .collect::<HashSet<_>>();
+    let mut known_bundles = settings
+        .app_profiles
+        .iter()
+        .map(|profile| profile.bundle_id.clone())
+        .collect::<HashSet<_>>();
+    for profile in legacy.application_profiles {
+        if !profile.is_enabled || profile.delivery_policy.as_deref() == Some("excluded") {
+            continue;
+        }
+        let id = profile.id.to_ascii_lowercase();
+        let mode_id = legacy_builtin_mode_id(&profile.mode_id)
+            .map(str::to_string)
+            .unwrap_or_else(|| profile.mode_id.to_ascii_lowercase());
+        if known_profile_ids.contains(&id)
+            || known_bundles.contains(&profile.bundle_identifier)
+            || !known_mode_ids.contains(&mode_id)
+            || profile.bundle_identifier.trim().is_empty()
+        {
+            continue;
+        }
+        let app_name = profile
+            .bundle_identifier
+            .rsplit('.')
+            .next()
+            .unwrap_or(&profile.bundle_identifier)
+            .to_string();
+        let output = match profile.delivery_policy.as_deref() {
+            Some("copyOnly" | "preview") => OutputBehavior::Copy,
+            _ => OutputBehavior::Paste,
+        };
+        known_profile_ids.insert(id.clone());
+        known_bundles.insert(profile.bundle_identifier.clone());
+        settings.app_profiles.push(AppProfile {
+            id,
+            bundle_id: profile.bundle_identifier,
+            app_name,
+            priority: 0,
+            mode_id,
+            language: None,
+            microphone: None,
+            model: None,
+            output,
+        });
+        updated = true;
+    }
+    Ok(updated)
+}
+
+fn import_legacy_pressay_preferences(
+    settings: &mut AppSettings,
+    preferences: &plist::Dictionary,
+) -> bool {
+    let mut updated = false;
+    if let Some(language) = preferences
+        .get("transcription-language")
+        .and_then(plist::Value::as_string)
+        .filter(|value| !value.trim().is_empty())
+    {
+        settings.selected_language = language.to_string();
+        updated = true;
+    }
+    if let Some(activation) = preferences
+        .get("dictation-activation-mode")
+        .and_then(plist::Value::as_string)
+    {
+        settings.push_to_talk = activation != "toggle";
+        updated = true;
+    }
+    if let Some(enabled) = preferences
+        .get("history-enabled")
+        .and_then(plist::Value::as_boolean)
+    {
+        settings.history_enabled = enabled;
+        updated = true;
+    }
+    if let Some(days) = preferences.get("history-retention-days").and_then(|value| {
+        value.as_unsigned_integer().or_else(|| {
+            value
+                .as_signed_integer()
+                .and_then(|days| days.try_into().ok())
+        })
+    }) {
+        settings.history_text_retention = match days {
+            0 | 1 => HistoryRetentionPeriod::Hours24,
+            2..=7 => HistoryRetentionPeriod::Days7,
+            8..=30 => HistoryRetentionPeriod::Days30,
+            _ => HistoryRetentionPeriod::Forever,
+        };
+        updated = true;
+    }
+    if let Some(size) = preferences
+        .get("hud-size")
+        .and_then(plist::Value::as_string)
+    {
+        settings.overlay_style = if size == "compact" {
+            OverlayStyle::Minimal
+        } else {
+            OverlayStyle::Live
+        };
+        updated = true;
+    }
+    if let Some(completed) = preferences
+        .get("onboarding-completed-v1")
+        .and_then(plist::Value::as_boolean)
+    {
+        settings.onboarding_completed = completed;
+        updated = true;
+    }
+    if let Some(selected_mode) = preferences
+        .get("selected-mode-id")
+        .and_then(plist::Value::as_string)
+    {
+        let mode_id = legacy_builtin_mode_id(selected_mode)
+            .map(str::to_string)
+            .unwrap_or_else(|| selected_mode.to_ascii_lowercase());
+        if settings.pressay_modes.iter().any(|mode| mode.id == mode_id) {
+            settings.active_mode_id = mode_id;
+            updated = true;
+        }
+    }
+    if let Some(vocabulary) = preferences
+        .get("technical-vocabulary")
+        .and_then(plist::Value::as_string)
+    {
+        let mut existing = settings
+            .dictionary_entries
+            .iter()
+            .map(|entry| entry.term.to_lowercase())
+            .collect::<HashSet<_>>();
+        for (index, term) in vocabulary
+            .split([',', '\n', ';'])
+            .map(str::trim)
+            .filter(|term| !term.is_empty())
+            .take(500)
+            .enumerate()
+        {
+            if existing.insert(term.to_lowercase()) {
+                settings.dictionary_entries.push(DictionaryEntry {
+                    id: format!("legacy_native_{index}"),
+                    term: term.chars().take(200).collect(),
+                    variants: Vec::new(),
+                    replacement: None,
+                    match_kind: DictionaryMatchKind::Exact,
+                    language: None,
+                    enabled: true,
+                });
+                updated = true;
+            }
+        }
+    }
+    updated
+}
+
+fn migrate_legacy_pressay_installation(app: &AppHandle, settings: &mut AppSettings) -> bool {
+    if settings.legacy_pressay_migration_version >= LEGACY_PRESSAY_MIGRATION_VERSION {
+        return false;
+    }
+    let app_data_dir = match app.path().app_data_dir() {
+        Ok(path) => path,
+        Err(error) => {
+            warn!("Unable to locate app data for Pressay 1 migration: {error}");
+            return false;
+        }
+    };
+    let Some(application_support) = app_data_dir.parent() else {
+        return false;
+    };
+    let mode_candidates = [
+        application_support.join("Pressay").join("modes.json"),
+        application_support.join("Whisper").join("modes.json"),
+    ];
+    let mut source_found = false;
+    let mut migration_complete = true;
+    let mut imported = false;
+    match crate::secrets::migrate_legacy_openai_api_key() {
+        Ok(true) => {
+            settings
+                .post_process_api_keys_configured
+                .insert("openai".to_string(), true);
+            imported = true;
+        }
+        Ok(false) => {}
+        Err(_) => {
+            // Do not expose a Keychain error that may contain account metadata.
+            warn!("Unable to migrate the legacy OpenAI key from Keychain");
+            migration_complete = false;
+        }
+    }
+    if let Some(source) = mode_candidates.iter().find(|path| path.is_file()) {
+        source_found = true;
+        match fs::metadata(source) {
+            Ok(metadata) if metadata.is_file() && metadata.len() <= MAX_LEGACY_MODES_FILE_BYTES => {
+                match fs::read_to_string(source) {
+                    Ok(contents) => match import_legacy_pressay_modes(settings, &contents) {
+                        Ok(changed) => imported |= changed,
+                        Err(error) => {
+                            warn!("Unable to parse Pressay 1 modes file: {error}");
+                            migration_complete = false;
+                        }
+                    },
+                    Err(error) => {
+                        warn!("Unable to read Pressay 1 modes file: {error}");
+                        migration_complete = false;
+                    }
+                }
+            }
+            Ok(_) => {
+                warn!("Pressay 1 modes migration refused an oversized or invalid source file");
+                migration_complete = false;
+            }
+            Err(error) => {
+                warn!("Unable to inspect Pressay 1 modes file: {error}");
+                migration_complete = false;
+            }
+        }
+    }
+
+    if let Ok(home) = app.path().home_dir() {
+        let preferences_dir = home.join("Library").join("Preferences");
+        let preference_candidates = [
+            preferences_dir.join("fr.yodev.pressay.plist"),
+            preferences_dir.join("fr.yodev.whisper.plist"),
+            preferences_dir.join("com.hyrak.whisper.plist"),
+        ];
+        if let Some(source) = preference_candidates.iter().find(|path| path.is_file()) {
+            source_found = true;
+            match plist::Value::from_file(source) {
+                Ok(plist::Value::Dictionary(preferences)) => {
+                    imported |= import_legacy_pressay_preferences(settings, &preferences);
+                }
+                Ok(_) => {
+                    warn!("Pressay 1 preferences are not a dictionary");
+                    migration_complete = false;
+                }
+                Err(error) => {
+                    warn!("Unable to parse Pressay 1 preferences: {error}");
+                    migration_complete = false;
+                }
+            }
+        }
+    }
+
+    if migration_complete {
+        settings.legacy_pressay_migration_version = LEGACY_PRESSAY_MIGRATION_VERSION;
+        if imported {
+            debug!("Imported preferences, modes and application profiles from Pressay 1");
+        } else if source_found {
+            debug!("Pressay 1 migration sources contained no new compatible settings");
+        }
+        true
+    } else {
+        imported
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -1275,17 +1718,41 @@ fn apply_settings_migrations(
         updated = true;
     }
 
-    // Built-ins are immutable product definitions. Re-add any missing entry
-    // while preserving every custom mode from the store.
-    let mut known_mode_ids = settings
-        .pressay_modes
-        .iter()
-        .map(|mode| mode.id.clone())
-        .collect::<std::collections::HashSet<_>>();
-    for builtin in builtin_modes() {
-        if known_mode_ids.insert(builtin.id.clone()) {
-            settings.pressay_modes.push(builtin);
-            updated = true;
+    // Pre-release builds use the isolated Cloud control plane. Some beta
+    // installs persisted the production API URL before the staging endpoint
+    // existed; keeping it would send the modern desktop contract to the legacy
+    // commercial API and make OAuth fail after a successful provider callback.
+    if stored_schema_version < 8
+        && env!("CARGO_PKG_VERSION").contains('-')
+        && settings.pressay_cloud_api_url == "https://api.press-say.app"
+    {
+        settings.pressay_cloud_api_url = default_pressay_cloud_api_url();
+        updated = true;
+    }
+
+    // Built-ins are immutable product definitions. Schema 7 restores the full
+    // Pressay catalogue and replaces stale built-in snapshots by id while
+    // preserving every custom mode and its ordering.
+    let canonical_builtins = builtin_modes();
+    if stored_schema_version < 7 {
+        settings
+            .pressay_modes
+            .retain(|mode| !crate::productivity::is_builtin_mode_id(&mode.id));
+        settings
+            .pressay_modes
+            .splice(0..0, canonical_builtins.clone());
+        updated = true;
+    } else {
+        let mut known_mode_ids = settings
+            .pressay_modes
+            .iter()
+            .map(|mode| mode.id.clone())
+            .collect::<std::collections::HashSet<_>>();
+        for builtin in canonical_builtins {
+            if known_mode_ids.insert(builtin.id.clone()) {
+                settings.pressay_modes.push(builtin);
+                updated = true;
+            }
         }
     }
     if !settings
@@ -1533,6 +2000,21 @@ mod tests {
     }
 
     #[test]
+    fn beta_migration_moves_legacy_production_cloud_url_to_staging() {
+        let mut stored = default_settings_json();
+        stored["settings_schema_version"] = serde_json::json!(7);
+        stored["pressay_cloud_api_url"] = serde_json::json!("https://api.press-say.app");
+        let mut settings: AppSettings = serde_json::from_value(stored.clone()).unwrap();
+
+        assert!(apply_settings_migrations(&mut settings, &stored));
+        assert_eq!(
+            settings.pressay_cloud_api_url,
+            default_pressay_cloud_api_url()
+        );
+        assert_eq!(settings.settings_schema_version, 8);
+    }
+
+    #[test]
     fn salvage_drops_only_wrong_typed_fields() {
         let mut stored = default_settings_json();
         let map = stored.as_object_mut().unwrap();
@@ -1546,6 +2028,27 @@ mod tests {
         assert_eq!(salvaged.paste_delay_ms, default_paste_delay_ms());
         assert_eq!(salvaged.sound_theme, default_sound_theme());
         assert_eq!(salvaged.custom_words, vec!["handy".to_string()]);
+    }
+
+    #[test]
+    fn bundled_sound_themes_resolve_to_resource_pairs() {
+        let themes = [
+            SoundTheme::Marimba,
+            SoundTheme::Pop,
+            SoundTheme::Minimal,
+            SoundTheme::Soft,
+            SoundTheme::Glass,
+            SoundTheme::Mechanical,
+            SoundTheme::Dreamy,
+            SoundTheme::Scifi,
+            SoundTheme::Studio,
+            SoundTheme::Zen,
+        ];
+        for theme in themes {
+            assert!(theme.to_start_path().starts_with("resources/"));
+            assert!(theme.to_start_path().ends_with("_start.wav"));
+            assert!(theme.to_stop_path().ends_with("_stop.wav"));
+        }
     }
 
     #[test]
@@ -1775,7 +2278,7 @@ mod tests {
     fn productivity_defaults_start_in_faithful_local_mode() {
         let settings = get_default_settings();
         assert_eq!(settings.active_mode_id, "faithful");
-        assert_eq!(settings.pressay_modes.len(), 5);
+        assert_eq!(settings.pressay_modes.len(), 12);
         assert!(settings
             .pressay_modes
             .iter()
@@ -1783,6 +2286,136 @@ mod tests {
             .is_some_and(|mode| mode.route == crate::productivity::ProcessingRoute::Local));
         assert!(settings.app_profiles.is_empty());
         assert!(settings.dictionary_entries.is_empty());
+    }
+
+    #[test]
+    fn schema_seven_restores_all_builtins_without_overwriting_custom_modes() {
+        let mut settings = get_default_settings();
+        let mut custom = settings
+            .pressay_modes
+            .iter()
+            .find(|mode| mode.id == "message")
+            .unwrap()
+            .clone();
+        custom.id = "my_status_update".into();
+        custom.name = "My status update".into();
+        custom.is_builtin = false;
+        settings.pressay_modes = vec![
+            settings
+                .pressay_modes
+                .iter()
+                .find(|mode| mode.id == "faithful")
+                .unwrap()
+                .clone(),
+            custom.clone(),
+        ];
+        let raw = serde_json::json!({
+            "settings_schema_version": 6,
+            "onboarding_completed": true,
+            "whats_new_last_seen_version": default_whats_new_last_seen_version(),
+            "overlay_style": "live"
+        });
+
+        assert!(apply_settings_migrations(&mut settings, &raw));
+        assert_eq!(
+            settings.settings_schema_version,
+            CURRENT_SETTINGS_SCHEMA_VERSION
+        );
+        assert_eq!(settings.pressay_modes.len(), 13);
+        assert_eq!(settings.pressay_modes[..12], builtin_modes());
+        assert_eq!(settings.pressay_modes[12], custom);
+
+        let serialized = serde_json::to_value(&settings).unwrap();
+        assert!(!apply_settings_migrations(&mut settings, &serialized));
+        assert_eq!(settings.pressay_modes.len(), 13);
+    }
+
+    #[test]
+    fn legacy_native_modes_and_profiles_import_without_touching_source_ids() {
+        let mut settings = get_default_settings();
+        let legacy = r#"{
+          "schemaVersion": 2,
+          "customModes": [{
+            "id": "A1111111-1111-4111-8111-111111111111",
+            "name": "Compte client",
+            "cleaningLevel": "rewrite",
+            "prompt": "Rédige un compte rendu fidèle.",
+            "outputFormat": "markdown",
+            "isEnabled": true
+          }],
+          "applicationProfiles": [{
+            "id": "B2222222-2222-4222-8222-222222222222",
+            "bundleIdentifier": "com.apple.mail",
+            "modeID": "00000000-0000-4000-8000-000000000004",
+            "source": "manual",
+            "isEnabled": true,
+            "deliveryPolicy": "automatic"
+          }],
+          "overrides": {},
+          "successfulLaunchesAfterMigration": 2
+        }"#;
+
+        assert!(import_legacy_pressay_modes(&mut settings, legacy).unwrap());
+        let imported = settings
+            .pressay_modes
+            .iter()
+            .find(|mode| mode.id == "a1111111-1111-4111-8111-111111111111")
+            .unwrap();
+        assert_eq!(imported.route, ProcessingRoute::Byok);
+        assert!(imported
+            .steps
+            .iter()
+            .any(|step| step.kind == ModeStepKind::Transform));
+        assert_eq!(settings.app_profiles.len(), 1);
+        assert_eq!(settings.app_profiles[0].mode_id, "email");
+        assert_eq!(settings.app_profiles[0].bundle_id, "com.apple.mail");
+
+        assert!(!import_legacy_pressay_modes(&mut settings, legacy).unwrap());
+        assert_eq!(settings.pressay_modes.len(), 13);
+        assert_eq!(settings.app_profiles.len(), 1);
+    }
+
+    #[test]
+    fn legacy_native_preferences_restore_privacy_and_workflow_choices() {
+        let mut settings = get_default_settings();
+        let mut preferences = plist::Dictionary::new();
+        preferences.insert(
+            "transcription-language".into(),
+            plist::Value::String("fr".into()),
+        );
+        preferences.insert(
+            "dictation-activation-mode".into(),
+            plist::Value::String("toggle".into()),
+        );
+        preferences.insert("history-enabled".into(), plist::Value::Boolean(true));
+        preferences.insert(
+            "history-retention-days".into(),
+            plist::Value::Integer(7.into()),
+        );
+        preferences.insert("hud-size".into(), plist::Value::String("compact".into()));
+        preferences.insert(
+            "selected-mode-id".into(),
+            plist::Value::String("00000000-0000-4000-8000-000000000010".into()),
+        );
+        preferences.insert(
+            "technical-vocabulary".into(),
+            plist::Value::String("Pressay, TypeScript; Pressay".into()),
+        );
+
+        assert!(import_legacy_pressay_preferences(
+            &mut settings,
+            &preferences
+        ));
+        assert_eq!(settings.selected_language, "fr");
+        assert!(!settings.push_to_talk);
+        assert!(settings.history_enabled);
+        assert_eq!(
+            settings.history_text_retention,
+            HistoryRetentionPeriod::Days7
+        );
+        assert_eq!(settings.overlay_style, OverlayStyle::Minimal);
+        assert_eq!(settings.active_mode_id, "translation");
+        assert_eq!(settings.dictionary_entries.len(), 2);
     }
 
     #[test]
@@ -1799,7 +2432,10 @@ mod tests {
 
         assert!(apply_settings_migrations(&mut settings, &raw));
         assert!(settings.history_enabled);
-        assert_eq!(settings.settings_schema_version, 6);
+        assert_eq!(
+            settings.settings_schema_version,
+            CURRENT_SETTINGS_SCHEMA_VERSION
+        );
     }
 
     #[test]
@@ -1820,7 +2456,10 @@ mod tests {
         assert_eq!(settings.dictionary_entries.len(), 2);
         assert_eq!(settings.dictionary_entries[0].id, "legacy_0");
         assert_eq!(settings.dictionary_entries[1].term, "Mac Book Pro");
-        assert_eq!(settings.settings_schema_version, 6);
+        assert_eq!(
+            settings.settings_schema_version,
+            CURRENT_SETTINGS_SCHEMA_VERSION
+        );
 
         let serialized = serde_json::to_value(&settings).unwrap();
         let before = settings.dictionary_entries.clone();

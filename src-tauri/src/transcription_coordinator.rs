@@ -38,6 +38,90 @@ pub enum PipelinePhase {
     Failed,
 }
 
+/// User-facing lifecycle shared by the overlay, dashboard, and menu bar.
+///
+/// This deliberately stays separate from [`PipelinePhase`]: the pipeline owns
+/// concurrency while this state can expose short-lived presentation moments
+/// such as arming, captured, and success without holding up the next dictation.
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize, Type)]
+#[serde(rename_all = "snake_case")]
+pub enum VoiceSurfacePhase {
+    Hidden,
+    Arming,
+    Listening,
+    Captured,
+    Transcribing,
+    Transforming,
+    Inserting,
+    Success,
+    Cancelled,
+    Failed,
+}
+
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize, Type)]
+#[serde(rename_all = "snake_case")]
+pub enum VoiceProcessingRoute {
+    LocalStt,
+    AppleIntelligence,
+    Byok,
+    PressayCloud,
+}
+
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize, Type)]
+#[serde(rename_all = "snake_case")]
+pub enum VoiceSurfaceAction {
+    Cancel,
+    Retry,
+    Copy,
+    OpenMicrophoneSettings,
+    OpenAccessibilitySettings,
+    OpenModelSettings,
+    OpenProviderSettings,
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize, Type)]
+pub struct VoiceTargetApplication {
+    pub bundle_id: String,
+    pub app_name: String,
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize, Type)]
+pub struct VoiceSurfaceError {
+    pub code: String,
+    pub recoverable: bool,
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize, Type, tauri_specta::Event)]
+pub struct VoiceSurfaceState {
+    pub operation_id: u64,
+    pub phase: VoiceSurfacePhase,
+    pub route: VoiceProcessingRoute,
+    pub provider_id: Option<String>,
+    pub mode_id: Option<String>,
+    pub target_application: Option<VoiceTargetApplication>,
+    /// Integer percentage only when the backend has real progress information.
+    /// Indeterminate work is represented by `None`, never a fake percentage.
+    pub progress: Option<u8>,
+    pub error: Option<VoiceSurfaceError>,
+    pub available_actions: Vec<VoiceSurfaceAction>,
+}
+
+impl Default for VoiceSurfaceState {
+    fn default() -> Self {
+        Self {
+            operation_id: 0,
+            phase: VoiceSurfacePhase::Hidden,
+            route: VoiceProcessingRoute::LocalStt,
+            provider_id: None,
+            mode_id: None,
+            target_application: None,
+            progress: None,
+            error: None,
+            available_actions: Vec::new(),
+        }
+    }
+}
+
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize, Type)]
 pub struct PipelineFailure {
     pub stage: PipelinePhase,
@@ -51,6 +135,7 @@ pub struct PipelineState {
     pub operation_id: u64,
     pub binding_id: Option<String>,
     pub failure: Option<PipelineFailure>,
+    pub voice: VoiceSurfaceState,
 }
 
 impl Default for PipelineState {
@@ -60,6 +145,7 @@ impl Default for PipelineState {
             operation_id: 0,
             binding_id: None,
             failure: None,
+            voice: VoiceSurfaceState::default(),
         }
     }
 }
@@ -94,8 +180,20 @@ enum Command {
         operation_id: u64,
         phase: PipelinePhase,
         failure: Option<PipelineFailure>,
+        route: Option<(VoiceProcessingRoute, Option<String>)>,
+    },
+    Listening {
+        operation_id: u64,
+    },
+    SurfaceContext {
+        operation_id: u64,
+        mode_id: Option<String>,
+        target_application: Option<VoiceTargetApplication>,
     },
     ProcessingFinished {
+        operation_id: u64,
+    },
+    HideSurface {
         operation_id: u64,
     },
 }
@@ -144,9 +242,24 @@ pub fn get_pipeline_state(
     coordinator.current_state()
 }
 
+#[tauri::command]
+#[specta::specta]
+pub fn get_voice_surface_state(
+    coordinator: tauri::State<'_, TranscriptionCoordinator>,
+) -> VoiceSurfaceState {
+    coordinator.current_voice_surface_state()
+}
+
+#[tauri::command]
+#[specta::specta]
+pub fn dismiss_voice_surface(coordinator: tauri::State<'_, TranscriptionCoordinator>) {
+    coordinator.dismiss_current_voice_surface();
+}
+
 impl TranscriptionCoordinator {
     pub fn new(app: AppHandle) -> Self {
         let (tx, rx) = mpsc::channel();
+        let delayed_tx = tx.clone();
         let state = Arc::new(RwLock::new(PipelineState::default()));
         let shared_state = Arc::clone(&state);
 
@@ -289,25 +402,68 @@ impl TranscriptionCoordinator {
                             {
                                 pipeline.phase = PipelinePhase::Cancelled;
                                 pipeline.failure = None;
+                                set_voice_phase(&mut pipeline, VoiceSurfacePhase::Cancelled);
                                 publish_state(&app, &shared_state, &pipeline);
+                                schedule_surface_hide(
+                                    delayed_tx.clone(),
+                                    pipeline.operation_id,
+                                    Duration::from_millis(450),
+                                );
                             }
                         }
                         Command::Transition {
                             operation_id,
                             phase,
                             failure,
+                            route,
                         } => {
                             if operation_id == pipeline.operation_id
                                 && transition_allowed(pipeline.phase, phase)
                             {
                                 pipeline.phase = phase;
                                 pipeline.failure = failure;
+                                if let Some((route, provider_id)) = route {
+                                    pipeline.voice.route = route;
+                                    pipeline.voice.provider_id = provider_id;
+                                }
+                                sync_voice_with_pipeline(&mut pipeline);
                                 publish_state(&app, &shared_state, &pipeline);
+                                if pipeline.phase == PipelinePhase::Failed
+                                    && pipeline
+                                        .failure
+                                        .as_ref()
+                                        .is_some_and(|failure| auto_hides_failure(&failure.code))
+                                {
+                                    schedule_surface_hide(
+                                        delayed_tx.clone(),
+                                        operation_id,
+                                        Duration::from_millis(2200),
+                                    );
+                                }
                             } else {
                                 debug!(
                                     "Ignoring stale or invalid pipeline transition: op={} {:?}->{:?}",
                                     operation_id, pipeline.phase, phase
                                 );
+                            }
+                        }
+                        Command::Listening { operation_id } => {
+                            if operation_id == pipeline.operation_id
+                                && pipeline.phase == PipelinePhase::Recording
+                            {
+                                set_voice_phase(&mut pipeline, VoiceSurfacePhase::Listening);
+                                publish_state(&app, &shared_state, &pipeline);
+                            }
+                        }
+                        Command::SurfaceContext {
+                            operation_id,
+                            mode_id,
+                            target_application,
+                        } => {
+                            if operation_id == pipeline.operation_id {
+                                pipeline.voice.mode_id = mode_id;
+                                pipeline.voice.target_application = target_application;
+                                publish_state(&app, &shared_state, &pipeline);
                             }
                         }
                         Command::ProcessingFinished { operation_id } => {
@@ -320,6 +476,25 @@ impl TranscriptionCoordinator {
                                 pipeline.phase = PipelinePhase::Idle;
                                 pipeline.binding_id = None;
                                 pipeline.failure = None;
+                                set_voice_phase(&mut pipeline, VoiceSurfacePhase::Success);
+                                publish_state(&app, &shared_state, &pipeline);
+                                schedule_surface_hide(
+                                    delayed_tx.clone(),
+                                    operation_id,
+                                    Duration::from_millis(650),
+                                );
+                            }
+                        }
+                        Command::HideSurface { operation_id } => {
+                            if operation_id == pipeline.operation_id
+                                && matches!(
+                                    pipeline.voice.phase,
+                                    VoiceSurfacePhase::Success
+                                        | VoiceSurfacePhase::Cancelled
+                                        | VoiceSurfacePhase::Failed
+                                )
+                            {
+                                set_voice_phase(&mut pipeline, VoiceSurfacePhase::Hidden);
                                 publish_state(&app, &shared_state, &pipeline);
                             }
                         }
@@ -381,6 +556,44 @@ impl TranscriptionCoordinator {
         self.current_state().operation_id
     }
 
+    pub fn current_voice_surface_state(&self) -> VoiceSurfaceState {
+        self.current_state().voice
+    }
+
+    pub fn dismiss_current_voice_surface(&self) {
+        let operation_id = self.current_operation_id();
+        if self.tx.send(Command::HideSurface { operation_id }).is_err() {
+            warn!("Transcription coordinator channel closed");
+        }
+    }
+
+    /// Marks the microphone as ready only for the currently active operation.
+    /// A late hardware callback from a cancelled capture is ignored.
+    pub fn notify_listening(&self, operation_id: u64) {
+        if self.tx.send(Command::Listening { operation_id }).is_err() {
+            warn!("Transcription coordinator channel closed");
+        }
+    }
+
+    pub fn set_surface_context(
+        &self,
+        operation_id: u64,
+        mode_id: Option<String>,
+        target_application: Option<VoiceTargetApplication>,
+    ) {
+        if self
+            .tx
+            .send(Command::SurfaceContext {
+                operation_id,
+                mode_id,
+                target_application,
+            })
+            .is_err()
+        {
+            warn!("Transcription coordinator channel closed");
+        }
+    }
+
     pub fn transition(&self, operation_id: u64, phase: PipelinePhase) {
         if self
             .tx
@@ -388,6 +601,28 @@ impl TranscriptionCoordinator {
                 operation_id,
                 phase,
                 failure: None,
+                route: None,
+            })
+            .is_err()
+        {
+            warn!("Transcription coordinator channel closed");
+        }
+    }
+
+    pub fn transition_with_route(
+        &self,
+        operation_id: u64,
+        phase: PipelinePhase,
+        route: VoiceProcessingRoute,
+        provider_id: Option<String>,
+    ) {
+        if self
+            .tx
+            .send(Command::Transition {
+                operation_id,
+                phase,
+                failure: None,
+                route: Some((route, provider_id)),
             })
             .is_err()
         {
@@ -413,6 +648,7 @@ impl TranscriptionCoordinator {
                 operation_id,
                 phase: PipelinePhase::Failed,
                 failure: Some(failure),
+                route: None,
             })
             .is_err()
         {
@@ -438,6 +674,100 @@ fn publish_state(app: &AppHandle, shared: &RwLock<PipelineState>, state: &Pipeli
     if let Err(error) = state.clone().emit(app) {
         warn!("Failed to emit pipeline state: {error}");
     }
+    if let Err(error) = state.voice.clone().emit(app) {
+        warn!("Failed to emit voice surface state: {error}");
+    }
+    crate::tray::change_tray_icon(
+        app,
+        crate::tray::TrayIconState::from_voice_phase(state.voice.phase),
+    );
+    match state.voice.phase {
+        VoiceSurfacePhase::Hidden => crate::overlay::hide_recording_overlay(app),
+        VoiceSurfacePhase::Success | VoiceSurfacePhase::Cancelled | VoiceSurfacePhase::Failed => {
+            crate::overlay::show_processing_overlay(app)
+        }
+        _ => {}
+    }
+}
+
+fn schedule_surface_hide(tx: Sender<Command>, operation_id: u64, delay: Duration) {
+    thread::spawn(move || {
+        thread::sleep(delay);
+        let _ = tx.send(Command::HideSurface { operation_id });
+    });
+}
+
+fn set_voice_phase(state: &mut PipelineState, phase: VoiceSurfacePhase) {
+    state.voice.operation_id = state.operation_id;
+    state.voice.phase = phase;
+    state.voice.progress = None;
+    state.voice.error = None;
+    state.voice.available_actions = match phase {
+        VoiceSurfacePhase::Arming
+        | VoiceSurfacePhase::Listening
+        | VoiceSurfacePhase::Captured
+        | VoiceSurfacePhase::Transcribing
+        | VoiceSurfacePhase::Transforming
+        | VoiceSurfacePhase::Inserting => vec![VoiceSurfaceAction::Cancel],
+        VoiceSurfacePhase::Cancelled => vec![VoiceSurfaceAction::Retry],
+        VoiceSurfacePhase::Hidden | VoiceSurfacePhase::Success | VoiceSurfacePhase::Failed => {
+            Vec::new()
+        }
+    };
+}
+
+fn sync_voice_with_pipeline(state: &mut PipelineState) {
+    let phase = match state.phase {
+        PipelinePhase::Idle => VoiceSurfacePhase::Hidden,
+        PipelinePhase::Recording => VoiceSurfacePhase::Listening,
+        PipelinePhase::Transcribing => VoiceSurfacePhase::Transcribing,
+        PipelinePhase::Transforming => VoiceSurfacePhase::Transforming,
+        PipelinePhase::Pasting => VoiceSurfacePhase::Inserting,
+        PipelinePhase::Cancelled => VoiceSurfacePhase::Cancelled,
+        PipelinePhase::Failed => VoiceSurfacePhase::Failed,
+    };
+    set_voice_phase(state, phase);
+
+    if let Some(failure) = state.failure.as_ref() {
+        state.voice.error = Some(VoiceSurfaceError {
+            code: failure.code.clone(),
+            recoverable: failure.recoverable,
+        });
+        state.voice.available_actions = failure_actions(&failure.code, failure.recoverable);
+    }
+}
+
+fn failure_actions(code: &str, recoverable: bool) -> Vec<VoiceSurfaceAction> {
+    let mut actions = match code {
+        "microphone_permission_denied" | "microphone_permission_required" => {
+            vec![VoiceSurfaceAction::OpenMicrophoneSettings]
+        }
+        "accessibility_permission_required" => {
+            vec![
+                VoiceSurfaceAction::OpenAccessibilitySettings,
+                VoiceSurfaceAction::Copy,
+            ]
+        }
+        "model_unavailable" | "model_not_loaded" => {
+            vec![VoiceSurfaceAction::OpenModelSettings]
+        }
+        "provider_auth" | "provider_error" | "transform_failed" | "transform_timeout" => {
+            vec![VoiceSurfaceAction::OpenProviderSettings]
+        }
+        "paste_failed" => vec![
+            VoiceSurfaceAction::Copy,
+            VoiceSurfaceAction::OpenAccessibilitySettings,
+        ],
+        _ => Vec::new(),
+    };
+    if recoverable && !actions.contains(&VoiceSurfaceAction::Retry) {
+        actions.insert(0, VoiceSurfaceAction::Retry);
+    }
+    actions
+}
+
+fn auto_hides_failure(code: &str) -> bool {
+    matches!(code, "no_audio" | "silent_input")
 }
 
 fn transition_allowed(current: PipelinePhase, next: PipelinePhase) -> bool {
@@ -487,6 +817,13 @@ fn begin_start(
     state.phase = PipelinePhase::Recording;
     state.binding_id = Some(binding_id.to_string());
     state.failure = None;
+    state.voice = VoiceSurfaceState {
+        operation_id: state.operation_id,
+        phase: VoiceSurfacePhase::Arming,
+        route: VoiceProcessingRoute::LocalStt,
+        available_actions: vec![VoiceSurfaceAction::Cancel],
+        ..VoiceSurfaceState::default()
+    };
     publish_state(app, shared, state);
 
     let Some(action) = ACTION_MAP.get(binding_id) else {
@@ -497,6 +834,7 @@ fn begin_start(
             code: "unknown_binding".to_string(),
             recoverable: true,
         });
+        sync_voice_with_pipeline(state);
         publish_state(app, shared, state);
         return;
     };
@@ -511,6 +849,7 @@ fn begin_start(
             code: "recording_start_failed".to_string(),
             recoverable: true,
         });
+        sync_voice_with_pipeline(state);
         publish_state(app, shared, state);
     }
 }
@@ -526,7 +865,10 @@ fn begin_stop(
         warn!("No action in ACTION_MAP for '{binding_id}'");
         return;
     };
+    set_voice_phase(state, VoiceSurfacePhase::Captured);
+    publish_state(app, shared, state);
     state.phase = PipelinePhase::Transcribing;
+    set_voice_phase(state, VoiceSurfacePhase::Transcribing);
     publish_state(app, shared, state);
     action.stop(app, binding_id, hotkey_string);
 }
@@ -534,6 +876,14 @@ fn begin_stop(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn silent_capture_failures_auto_hide_but_actionable_failures_remain() {
+        assert!(auto_hides_failure("no_audio"));
+        assert!(auto_hides_failure("silent_input"));
+        assert!(!auto_hides_failure("microphone_permission_denied"));
+        assert!(!auto_hides_failure("provider_error"));
+    }
 
     #[test]
     fn push_to_talk_release_while_recording_defers_release() {
@@ -647,6 +997,75 @@ mod tests {
             ..PipelineState::default()
         };
         assert!(!busy.accepts_start());
+    }
+
+    #[test]
+    fn voice_surface_uses_stable_route_names() {
+        assert_eq!(
+            serde_json::to_string(&VoiceProcessingRoute::LocalStt).unwrap(),
+            "\"local_stt\""
+        );
+        assert_eq!(
+            serde_json::to_string(&VoiceProcessingRoute::AppleIntelligence).unwrap(),
+            "\"apple_intelligence\""
+        );
+        assert_eq!(
+            serde_json::to_string(&VoiceProcessingRoute::PressayCloud).unwrap(),
+            "\"pressay_cloud\""
+        );
+    }
+
+    #[test]
+    fn voice_surface_tracks_pipeline_without_sensitive_payloads() {
+        let mut state = PipelineState {
+            phase: PipelinePhase::Transforming,
+            operation_id: 42,
+            ..PipelineState::default()
+        };
+        state.voice.mode_id = Some("email".to_string());
+        state.voice.target_application = Some(VoiceTargetApplication {
+            bundle_id: "com.apple.mail".to_string(),
+            app_name: "Mail".to_string(),
+        });
+
+        sync_voice_with_pipeline(&mut state);
+
+        assert_eq!(state.voice.operation_id, 42);
+        assert_eq!(state.voice.phase, VoiceSurfacePhase::Transforming);
+        assert_eq!(
+            state.voice.available_actions,
+            vec![VoiceSurfaceAction::Cancel]
+        );
+        let serialized = serde_json::to_string(&state.voice).unwrap();
+        assert!(!serialized.contains("transcription"));
+        assert!(!serialized.contains("prompt"));
+        assert!(!serialized.contains("api_key"));
+    }
+
+    #[test]
+    fn recoverable_failure_exposes_only_safe_recovery_actions() {
+        let mut state = PipelineState {
+            phase: PipelinePhase::Failed,
+            operation_id: 7,
+            failure: Some(PipelineFailure {
+                stage: PipelinePhase::Pasting,
+                code: "paste_failed".to_string(),
+                recoverable: true,
+            }),
+            ..PipelineState::default()
+        };
+
+        sync_voice_with_pipeline(&mut state);
+
+        assert_eq!(state.voice.phase, VoiceSurfacePhase::Failed);
+        assert_eq!(
+            state.voice.available_actions,
+            vec![
+                VoiceSurfaceAction::Retry,
+                VoiceSurfaceAction::Copy,
+                VoiceSurfaceAction::OpenAccessibilitySettings,
+            ]
+        );
     }
 
     // ---------------------------------------------------------------------

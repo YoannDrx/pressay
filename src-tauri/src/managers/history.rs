@@ -41,12 +41,15 @@ static MIGRATIONS: &[M] = &[
          ALTER TABLE transcription_history ADD COLUMN audio_available BOOLEAN NOT NULL DEFAULT 1;
          ALTER TABLE transcription_history ADD COLUMN audio_saved BOOLEAN NOT NULL DEFAULT 0;",
     ),
+    M::up(
+        "ALTER TABLE transcription_history ADD COLUMN metadata_ciphertext BLOB;",
+    ),
 ];
 
 const ENCRYPTION_VERSION: i64 = 1;
 const HISTORY_COLUMNS: &str = "id, file_name, timestamp, saved, title, post_process_requested, \
     transcription_ciphertext, post_processed_ciphertext, post_process_prompt_ciphertext, \
-    encryption_version, audio_available, audio_saved";
+    encryption_version, audio_available, audio_saved, metadata_ciphertext";
 
 fn is_safe_audio_identifier(file_name: &str, encrypted_only: bool) -> bool {
     let mut components = Path::new(file_name).components();
@@ -87,6 +90,33 @@ pub struct HistoryEntry {
     pub post_process_requested: bool,
     pub audio_available: bool,
     pub audio_saved: bool,
+    pub metadata: HistoryMetadata,
+}
+
+#[derive(Clone, Debug, Default, Serialize, Deserialize, Type, PartialEq, Eq)]
+pub struct HistoryMetadata {
+    #[serde(default)]
+    pub tags: Vec<String>,
+    #[serde(default)]
+    pub mode_id: Option<String>,
+    #[serde(default)]
+    pub processing_route: Option<String>,
+    #[serde(default)]
+    pub application_name: Option<String>,
+    #[serde(default)]
+    pub application_bundle_id: Option<String>,
+    #[serde(default)]
+    pub parent_entry_id: Option<i64>,
+    #[serde(default)]
+    pub status: HistoryEntryStatus,
+}
+
+#[derive(Clone, Copy, Debug, Default, Serialize, Deserialize, Type, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum HistoryEntryStatus {
+    #[default]
+    Completed,
+    Failed,
 }
 
 struct StoredHistoryEntry {
@@ -102,6 +132,7 @@ struct StoredHistoryEntry {
     encryption_version: i64,
     audio_available: bool,
     audio_saved: bool,
+    metadata_ciphertext: Option<Vec<u8>>,
 }
 
 pub struct HistoryManager {
@@ -275,6 +306,7 @@ impl HistoryManager {
             encryption_version: row.get("encryption_version")?,
             audio_available: row.get("audio_available")?,
             audio_saved: row.get("audio_saved")?,
+            metadata_ciphertext: row.get("metadata_ciphertext")?,
         })
     }
 
@@ -319,6 +351,21 @@ impl HistoryManager {
             .as_deref()
             .map(|value| self.decrypt_text(stored.id, "prompt", value))
             .transpose()?;
+        let metadata = stored
+            .metadata_ciphertext
+            .as_deref()
+            .map(|value| self.decrypt_text(stored.id, "metadata", value))
+            .transpose()?
+            .map(|value| serde_json::from_str::<HistoryMetadata>(&value))
+            .transpose()?
+            .unwrap_or_else(|| HistoryMetadata {
+                status: if transcription_text.trim().is_empty() {
+                    HistoryEntryStatus::Failed
+                } else {
+                    HistoryEntryStatus::Completed
+                },
+                ..HistoryMetadata::default()
+            });
 
         Ok(HistoryEntry {
             id: stored.id,
@@ -332,6 +379,7 @@ impl HistoryManager {
             post_process_requested: stored.post_process_requested,
             audio_available: stored.audio_available,
             audio_saved: stored.audio_saved,
+            metadata,
         })
     }
 
@@ -545,6 +593,39 @@ impl HistoryManager {
         post_processed_text: Option<String>,
         post_process_prompt: Option<String>,
     ) -> Result<HistoryEntry> {
+        let status = if transcription_text.trim().is_empty() {
+            HistoryEntryStatus::Failed
+        } else {
+            HistoryEntryStatus::Completed
+        };
+        self.save_entry_with_metadata(
+            file_name,
+            transcription_text,
+            post_process_requested,
+            post_processed_text,
+            post_process_prompt,
+            true,
+            HistoryMetadata {
+                status,
+                ..HistoryMetadata::default()
+            },
+        )
+    }
+
+    /// Save an entry with encrypted operational metadata. Tags and application
+    /// context are user data, so they share the history master key and are never
+    /// written to SQLite in plaintext.
+    #[allow(clippy::too_many_arguments)]
+    pub fn save_entry_with_metadata(
+        &self,
+        file_name: String,
+        transcription_text: String,
+        post_process_requested: bool,
+        post_processed_text: Option<String>,
+        post_process_prompt: Option<String>,
+        audio_available: bool,
+        metadata: HistoryMetadata,
+    ) -> Result<HistoryEntry> {
         let timestamp = Utc::now().timestamp();
         let title = self.format_timestamp_title(timestamp);
 
@@ -578,18 +659,24 @@ impl HistoryManager {
             .as_deref()
             .map(|value| self.encrypt_text(id, "prompt", value))
             .transpose()?;
+        let metadata_json = serde_json::to_string(&metadata)?;
+        let metadata_ciphertext = self.encrypt_text(id, "metadata", &metadata_json)?;
         transaction.execute(
             "UPDATE transcription_history
              SET transcription_ciphertext = ?1,
                  post_processed_ciphertext = ?2,
                  post_process_prompt_ciphertext = ?3,
-                 encryption_version = ?4
-             WHERE id = ?5",
+                 encryption_version = ?4,
+                 audio_available = ?5,
+                 metadata_ciphertext = ?6
+             WHERE id = ?7",
             params![
                 transcription_ciphertext,
                 post_processed_ciphertext,
                 post_process_prompt_ciphertext,
                 ENCRYPTION_VERSION,
+                audio_available,
+                metadata_ciphertext,
                 id
             ],
         )?;
@@ -605,8 +692,9 @@ impl HistoryManager {
             post_processed_text,
             post_process_prompt,
             post_process_requested,
-            audio_available: true,
+            audio_available,
             audio_saved: false,
+            metadata,
         };
 
         debug!("Saved history entry with id {}", entry.id);
@@ -874,6 +962,53 @@ impl HistoryManager {
         Ok(())
     }
 
+    pub async fn update_tags(&self, id: i64, tags: Vec<String>) -> Result<HistoryEntry> {
+        let mut entry = self
+            .get_entry_by_id(id)
+            .await?
+            .ok_or_else(|| anyhow!("History entry {} not found", id))?;
+        let mut normalized = Vec::new();
+        for tag in tags {
+            let tag = tag.trim().trim_start_matches('#').trim().to_string();
+            if tag.is_empty() || tag.chars().count() > 40 {
+                continue;
+            }
+            if !normalized
+                .iter()
+                .any(|existing: &String| existing.eq_ignore_ascii_case(&tag))
+            {
+                normalized.push(tag);
+            }
+            if normalized.len() == 20 {
+                break;
+            }
+        }
+        entry.metadata.tags = normalized;
+        self.update_metadata(id, &entry.metadata)?;
+        if let Err(error) = (HistoryUpdatePayload::Updated {
+            entry: entry.clone(),
+        })
+        .emit(&self.app_handle)
+        {
+            error!("Failed to emit history-updated event: {}", error);
+        }
+        Ok(entry)
+    }
+
+    fn update_metadata(&self, id: i64, metadata: &HistoryMetadata) -> Result<()> {
+        let metadata_json = serde_json::to_string(metadata)?;
+        let metadata_ciphertext = self.encrypt_text(id, "metadata", &metadata_json)?;
+        let conn = self.get_connection()?;
+        let updated = conn.execute(
+            "UPDATE transcription_history SET metadata_ciphertext = ?1 WHERE id = ?2",
+            params![metadata_ciphertext, id],
+        )?;
+        if updated == 0 {
+            return Err(anyhow!("History entry {} not found", id));
+        }
+        Ok(())
+    }
+
     pub async fn toggle_audio_saved_status(&self, id: i64) -> Result<HistoryEntry> {
         let conn = self.get_connection()?;
         let (current, available): (bool, bool) = conn.query_row(
@@ -1006,6 +1141,17 @@ mod tests {
         assert!(columns.contains(&"transcription_ciphertext".to_string()));
         assert!(columns.contains(&"encryption_version".to_string()));
         assert!(columns.contains(&"audio_available".to_string()));
+        assert!(columns.contains(&"metadata_ciphertext".to_string()));
+    }
+
+    #[test]
+    fn metadata_defaults_are_private_and_backward_compatible() {
+        let metadata = HistoryMetadata::default();
+        assert!(metadata.tags.is_empty());
+        assert_eq!(metadata.status, HistoryEntryStatus::Completed);
+        assert!(!serde_json::to_string(&metadata)
+            .unwrap()
+            .contains("transcription"));
     }
 
     #[test]

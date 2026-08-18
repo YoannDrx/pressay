@@ -15,3 +15,11 @@ each production release. A model is not eligible for the default Pressay
 catalogue until its redistribution and commercial-use terms are documented.
 The launch catalogue and its attribution evidence are documented in
 docs/MODELS.md.
+
+The Minimal, Soft, Glass, Mechanical, Dreamy, Sci-Fi, Studio, and Zen audio
+feedback pairs are adapted from the `press` and `release` cues in UI SFX:
+
+  https://github.com/romainsimon/uisfx
+
+Those procedurally generated audio assets are dedicated to the public domain
+under CC0 1.0. SPDX-License-Identifier: CC0-1.0.
