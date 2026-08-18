@@ -540,8 +540,26 @@ jobs:
           tagName: ${{ inputs.release-id && format('v{0}', steps.get-version.outputs.version) || '' }}
           releaseName: ${{ inputs.release-id && format('v{0}', steps.get-version.outputs.version) || '' }}
           releaseId: ${{ inputs.release-id }}
-          assetNamePattern: ${{ steps.patch-release-name.outputs.platform }}
+          releaseAssetNamePattern: ${{ steps.patch-release-name.outputs.platform }}
           args: ${{ inputs.build-args }}
+
+      - name: Publish canonical macOS download assets
+        if: inputs.release-id != '' && contains(inputs.platform, 'macos')
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          PROFILE="${{ steps.build-profile.outputs.profile }}"
+          DMG_PATH="$(find "src-tauri/target/${{ inputs.target }}/${PROFILE}/bundle/dmg" -name '*.dmg' -print -quit)"
+          if [ -z "$DMG_PATH" ]; then
+            echo "No DMG produced for the release" >&2
+            exit 1
+          fi
+          cp "$DMG_PATH" Pressay.dmg
+          shasum -a 256 Pressay.dmg > Pressay.dmg.sha256
+          gh release upload "v${{ steps.get-version.outputs.version }}" \
+            Pressay.dmg Pressay.dmg.sha256 --clobber
 
       # tauri-action uploads release assets before returning. All AppImage
       # filtering therefore happens inside linuxdeploy above; this verifies the
