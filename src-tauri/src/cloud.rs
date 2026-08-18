@@ -971,14 +971,44 @@ pub(crate) fn cached_account_snapshot(
         .ok_or_else(|| CloudFailure::new("cloud_network_unavailable"))?;
     let (entitlement, usage) =
         verify_entitlement_token(&token, settings, chrono::Utc::now().timestamp())?;
-    Ok(CloudAccountSnapshot {
+    let mut snapshot = CloudAccountSnapshot {
         connected: true,
         account_id: settings.pressay_cloud_account_id.clone(),
         email: None,
         device_id: settings.pressay_cloud_device_id.clone(),
         entitlement: Some(entitlement),
         usage: Some(usage),
-    })
+    };
+    if let Some(live) = last_account_snapshot().filter(|live| {
+        live.account_id == snapshot.account_id && live.device_id == snapshot.device_id
+    }) {
+        snapshot.email = live.email;
+    }
+    Ok(snapshot)
+}
+
+fn account_snapshot_cache() -> &'static Mutex<Option<CloudAccountSnapshot>> {
+    static CACHE: OnceLock<Mutex<Option<CloudAccountSnapshot>>> = OnceLock::new();
+    CACHE.get_or_init(|| Mutex::new(None))
+}
+
+fn remember_account_snapshot(snapshot: &CloudAccountSnapshot) {
+    if let Ok(mut cached) = account_snapshot_cache().lock() {
+        *cached = Some(snapshot.clone());
+    }
+}
+
+fn last_account_snapshot() -> Option<CloudAccountSnapshot> {
+    account_snapshot_cache()
+        .lock()
+        .ok()
+        .and_then(|cached| cached.clone())
+}
+
+fn clear_account_snapshot_cache() {
+    if let Ok(mut cached) = account_snapshot_cache().lock() {
+        *cached = None;
+    }
 }
 
 fn callback_urls(config: &CloudAuthConfig, state: &str) -> Result<(String, String), CloudFailure> {
@@ -1492,6 +1522,7 @@ pub async fn account_snapshot(app: &AppHandle) -> Result<CloudAccountSnapshot, C
                 .map_err(|_| CloudFailure::new("cloud_keychain_unavailable"))?
                 .is_some();
         if !has_session {
+            clear_account_snapshot_cache();
             return Ok(CloudAccountSnapshot {
                 connected: false,
                 account_id: None,
@@ -1568,7 +1599,10 @@ pub async fn account_snapshot(app: &AppHandle) -> Result<CloudAccountSnapshot, C
     .await;
 
     match online {
-        Ok(snapshot) => Ok(snapshot),
+        Ok(snapshot) => {
+            remember_account_snapshot(&snapshot);
+            Ok(snapshot)
+        }
         Err(error)
             if matches!(
                 error.code.as_str(),
@@ -1598,6 +1632,7 @@ pub async fn sign_out(app: &AppHandle) -> Result<(), CloudFailure> {
     settings.pressay_cloud_account_id = None;
     settings.pressay_cloud_device_id = None;
     write_settings(app, settings);
+    clear_account_snapshot_cache();
     Ok(())
 }
 

@@ -3525,6 +3525,19 @@
   color: var(--color-route-local);
 }
 
+.sandbox-shortcut {
+  margin-left: auto;
+  padding: 3px 7px;
+  border: 1px solid color-mix(in srgb, var(--color-muted), transparent 72%);
+  border-radius: 6px;
+  color: var(--color-text);
+  background: var(--color-surface);
+  font-family: ui-monospace, "SFMono-Regular", Menlo, monospace;
+  font-size: 9px;
+  font-weight: 650;
+  white-space: nowrap;
+}
+
 .sandbox-route {
   display: flex;
   align-items: center;

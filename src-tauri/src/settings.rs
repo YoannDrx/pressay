@@ -333,6 +333,22 @@ pub enum OrtAcceleratorSetting {
 }
 
 /* still handy for composing the initial JSON in the store ------------- */
+#[derive(Serialize, Deserialize, Debug, Clone, Type, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct ByokUsageSummary {
+    pub period_start: String,
+    pub provider_id: String,
+    pub model: String,
+    pub requests: u64,
+    pub input_tokens: u64,
+    pub cached_input_tokens: u64,
+    pub output_tokens: u64,
+    /// Estimated cost captured at request time using a versioned public price
+    /// table. None means the provider/model did not expose a reliable rate.
+    pub estimated_cost_microusd: Option<u64>,
+    pub pricing_version: Option<String>,
+}
+
 /// The container-level `serde(default)` (backed by the `Default` impl below)
 /// guarantees every field — including ones added in the future — falls back to
 /// its `get_default_settings()` value when missing from a stored settings
@@ -460,6 +476,10 @@ pub struct AppSettings {
     pub post_process_prompts: Vec<LLMPrompt>,
     #[serde(default)]
     pub post_process_selected_prompt_id: Option<String>,
+    /// Aggregate token metadata only; prompts, transcriptions and responses are
+    /// never included. Kept locally for twelve rolling monthly periods.
+    #[serde(default)]
+    pub byok_usage: Vec<ByokUsageSummary>,
     #[serde(default)]
     pub mute_while_recording: bool,
     #[serde(default)]
@@ -966,6 +986,7 @@ pub fn get_default_settings() -> AppSettings {
         post_process_models: default_post_process_models(),
         post_process_prompts: default_post_process_prompts(),
         post_process_selected_prompt_id: None,
+        byok_usage: Vec::new(),
         mute_while_recording: false,
         append_trailing_space: false,
         app_language: default_app_language(),

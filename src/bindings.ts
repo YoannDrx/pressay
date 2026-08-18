@@ -1248,7 +1248,12 @@ pressay_cloud_api_url?: string; pressay_cloud_device_identifier?: string; pressa
  * Presence metadata only. API key values live exclusively in macOS
  * Keychain and are never serialized into settings or sent to the webview.
  */
-post_process_api_keys_configured?: Partial<{ [key in string]: boolean }>; post_process_models?: Partial<{ [key in string]: string }>; post_process_prompts?: LLMPrompt[]; post_process_selected_prompt_id?: string | null; mute_while_recording?: boolean; append_trailing_space?: boolean; app_language?: string; theme?: Theme; experimental_enabled?: boolean; lazy_stream_close?: boolean; keyboard_implementation?: KeyboardImplementation; show_tray_icon?: boolean; paste_delay_ms?: number; paste_delay_after_ms?: number;
+post_process_api_keys_configured?: Partial<{ [key in string]: boolean }>; post_process_models?: Partial<{ [key in string]: string }>; post_process_prompts?: LLMPrompt[]; post_process_selected_prompt_id?: string | null;
+/**
+ * Aggregate token metadata only; prompts, transcriptions and responses are
+ * never included. Kept locally for twelve rolling monthly periods.
+ */
+byok_usage?: ByokUsageSummary[]; mute_while_recording?: boolean; append_trailing_space?: boolean; app_language?: string; theme?: Theme; experimental_enabled?: boolean; lazy_stream_close?: boolean; keyboard_implementation?: KeyboardImplementation; show_tray_icon?: boolean; paste_delay_ms?: number; paste_delay_after_ms?: number;
 /**
  * Debug-gated ("beta") receipt-sequenced paste: restore the clipboard only
  * after the target app actually reads the transcript, instead of after a
@@ -1265,6 +1270,7 @@ export type AudioDevice = { index: string; name: string; is_default: boolean }
 export type AutoSubmitKey = "enter" | "ctrl_enter" | "cmd_enter"
 export type AvailableAccelerators = { transcribe: string[]; ort: string[]; gpu_devices: GpuDeviceOption[] }
 export type BindingResponse = { success: boolean; binding: ShortcutBinding | null; error: string | null }
+export type ByokUsageSummary = { periodStart: string; providerId: string; model: string; requests: number; inputTokens: number; cachedInputTokens: number; outputTokens: number; estimatedCostMicrousd: number | null; pricingVersion: string | null }
 /**
  * The single product matrix consumed by UI and backend gates. It deliberately
  * distinguishes commercial release gates from an ordinary Free entitlement:

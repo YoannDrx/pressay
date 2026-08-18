@@ -71,7 +71,16 @@
       "title": "Utilisation mensuelle",
       "transformations": "Transformations",
       "transcription": "Transcription Cloud",
-      "minutes": "{{used}} / {{limit}} min"
+      "minutes": "{{used}} / {{limit}} min",
+      "byok": {
+        "title": "Utilisation BYOK ce mois-ci",
+        "description": "Les compteurs de tokens viennent des réponses du fournisseur et restent sur ce Mac. Aucun prompt ni aucune transcription n’est enregistré ici.",
+        "requests": "Requêtes",
+        "tokens": "Tokens",
+        "estimatedCost": "Coût estimé",
+        "empty": "Votre première transformation BYOK mesurée apparaîtra ici.",
+        "disclaimer": "Les tokens sont exacts lorsque le fournisseur les indique. Le coût est une estimation pour les modèles OpenAI reconnus avec le tarif enregistré au moment de la requête ; la facture du fournisseur reste la référence."
+      }
     },
     "transcription": {
       "availableTitle": "La transcription locale a échoué",

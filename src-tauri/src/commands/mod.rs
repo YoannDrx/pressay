@@ -62,8 +62,7 @@ fn available_storage_bytes(path: &Path) -> Option<u64> {
     }
     let line = String::from_utf8_lossy(&output.stdout)
         .lines()
-        .filter(|line| !line.trim().is_empty())
-        .next_back()?
+        .rfind(|line| !line.trim().is_empty())?
         .to_string();
     line.split_whitespace()
         .nth(3)?

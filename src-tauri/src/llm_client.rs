@@ -127,6 +127,32 @@ struct ChatCompletionRequest {
 #[derive(Debug, Deserialize)]
 struct ChatCompletionResponse {
     choices: Vec<ChatChoice>,
+    #[serde(default)]
+    usage: Option<ProviderTokenUsage>,
+}
+
+#[derive(Debug, Clone, Default, Deserialize, PartialEq, Eq)]
+pub struct ProviderTokenUsage {
+    #[serde(default, alias = "input_tokens")]
+    pub prompt_tokens: u64,
+    #[serde(default, alias = "output_tokens")]
+    pub completion_tokens: u64,
+    #[serde(default)]
+    pub total_tokens: u64,
+    #[serde(default)]
+    pub prompt_tokens_details: Option<PromptTokenDetails>,
+}
+
+#[derive(Debug, Clone, Default, Deserialize, PartialEq, Eq)]
+pub struct PromptTokenDetails {
+    #[serde(default)]
+    pub cached_tokens: u64,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ChatCompletionOutput {
+    pub content: Option<String>,
+    pub usage: Option<ProviderTokenUsage>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -300,14 +326,27 @@ fn report_reqwest_error(context: &str, error: &reqwest::Error) -> String {
 /// Send a chat completion request to an OpenAI-compatible API
 /// Returns Ok(Some(content)) on success, Ok(None) if response has no content,
 /// or Err on actual errors (HTTP, parsing, etc.)
-pub async fn send_chat_completion(
+#[cfg(test)]
+async fn send_chat_completion(
     provider: &PostProcessProvider,
     api_key: String,
     model: &str,
     prompt: String,
     disable_reasoning: bool,
 ) -> Result<Option<String>, String> {
-    send_chat_completion_with_schema(
+    send_chat_completion_metered(provider, api_key, model, prompt, disable_reasoning)
+        .await
+        .map(|output| output.content)
+}
+
+pub async fn send_chat_completion_metered(
+    provider: &PostProcessProvider,
+    api_key: String,
+    model: &str,
+    prompt: String,
+    disable_reasoning: bool,
+) -> Result<ChatCompletionOutput, String> {
+    send_chat_completion_with_schema_metered(
         provider,
         api_key,
         model,
@@ -329,7 +368,7 @@ pub async fn send_chat_completion(
 /// upstreams reject with 400), so a 400/422 answer to such a request triggers
 /// one retry without the fields, and the rejection is remembered per
 /// (base_url, model) so later requests skip the failing attempt entirely.
-pub async fn send_chat_completion_with_schema(
+pub async fn send_chat_completion_with_schema_metered(
     provider: &PostProcessProvider,
     api_key: String,
     model: &str,
@@ -337,7 +376,7 @@ pub async fn send_chat_completion_with_schema(
     system_prompt: Option<String>,
     json_schema: Option<Value>,
     disable_reasoning: bool,
-) -> Result<Option<String>, String> {
+) -> Result<ChatCompletionOutput, String> {
     let base_url = provider.base_url.trim_end_matches('/');
     let url = format!("{}/chat/completions", base_url);
 
@@ -450,10 +489,13 @@ pub async fn send_chat_completion_with_schema(
         .await
         .map_err(|e| report_reqwest_error("Failed to parse API response", &e))?;
 
-    Ok(completion
-        .choices
-        .first()
-        .and_then(|choice| choice.message.content.clone()))
+    Ok(ChatCompletionOutput {
+        content: completion
+            .choices
+            .first()
+            .and_then(|choice| choice.message.content.clone()),
+        usage: completion.usage,
+    })
 }
 
 /// Fetch available models from an OpenAI-compatible API
@@ -680,6 +722,36 @@ mod tests {
         assert!(json.get("reasoning_effort").is_none());
         assert!(json.get("reasoning").is_none());
         assert!(json.get("thinking").is_none());
+    }
+
+    #[test]
+    fn decodes_openai_token_usage_without_response_content() {
+        let response: ChatCompletionResponse = serde_json::from_value(serde_json::json!({
+            "choices": [{ "message": { "content": "ok" } }],
+            "usage": {
+                "prompt_tokens": 120,
+                "completion_tokens": 30,
+                "total_tokens": 150,
+                "prompt_tokens_details": { "cached_tokens": 20 }
+            }
+        }))
+        .unwrap();
+        let usage = response.usage.unwrap();
+        assert_eq!(usage.prompt_tokens, 120);
+        assert_eq!(usage.completion_tokens, 30);
+        assert_eq!(usage.prompt_tokens_details.unwrap().cached_tokens, 20);
+    }
+
+    #[test]
+    fn decodes_openai_compatible_input_output_aliases() {
+        let response: ChatCompletionResponse = serde_json::from_value(serde_json::json!({
+            "choices": [],
+            "usage": { "input_tokens": 12, "output_tokens": 7, "total_tokens": 19 }
+        }))
+        .unwrap();
+        let usage = response.usage.unwrap();
+        assert_eq!(usage.prompt_tokens, 12);
+        assert_eq!(usage.completion_tokens, 7);
     }
 
     #[test]

@@ -63,6 +63,35 @@ pub struct CurrentTrayIconState {
     revision: AtomicU64,
 }
 
+/// Session-only transcript cache used by the menu bar. Disabling history still
+/// means no transcript is written to disk; the current process can nevertheless
+/// provide a preview and copy action.
+pub struct CurrentLastTranscript(Mutex<Option<String>>);
+
+impl CurrentLastTranscript {
+    pub fn new() -> Self {
+        Self(Mutex::new(None))
+    }
+
+    fn get(&self) -> Option<String> {
+        self.0.lock().ok().and_then(|value| value.clone())
+    }
+
+    fn set(&self, text: String) {
+        if let Ok(mut value) = self.0.lock() {
+            *value = Some(text);
+        }
+    }
+}
+
+pub fn remember_last_transcript(app: &AppHandle, text: &str) {
+    let trimmed = text.trim();
+    if !trimmed.is_empty() {
+        app.state::<CurrentLastTranscript>()
+            .set(trimmed.to_string());
+    }
+}
+
 impl CurrentTrayIconState {
     pub fn new() -> Self {
         Self {
@@ -306,6 +335,44 @@ fn version_label() -> String {
     }
 }
 
+fn state_label(state: TrayIconState) -> &'static str {
+    match state {
+        TrayIconState::Idle => "●  Signal · Ready",
+        TrayIconState::Arming => "🔵  Signal · Arming",
+        TrayIconState::Listening => "🔵  Signal · Listening",
+        TrayIconState::Transcribing => "🔵  Signal · Transcribing",
+        TrayIconState::Transforming => "🟣  Signal · Transforming",
+        TrayIconState::Inserting => "🔵  Signal · Inserting",
+        TrayIconState::Success => "🟢  Signal · Complete",
+        TrayIconState::Error => "🔴  Signal · Attention",
+    }
+}
+
+fn transcript_preview(text: &str) -> String {
+    const MAX_CHARS: usize = 54;
+    let normalized = text.split_whitespace().collect::<Vec<_>>().join(" ");
+    let mut chars = normalized.chars();
+    let preview: String = chars.by_ref().take(MAX_CHARS).collect();
+    if chars.next().is_some() {
+        format!("{preview}…")
+    } else {
+        preview
+    }
+}
+
+fn latest_transcript(app: &AppHandle) -> Option<String> {
+    if let Some(text) = app.state::<CurrentLastTranscript>().get() {
+        return Some(text);
+    }
+    let history_manager = app.state::<Arc<HistoryManager>>();
+    history_manager
+        .get_latest_completed_entry()
+        .ok()
+        .flatten()
+        .map(|entry| last_transcript_text(&entry).to_string())
+        .filter(|text| !text.trim().is_empty())
+}
+
 pub fn update_tray_menu(app: &AppHandle, locale: Option<&str>) {
     let state = app.state::<CurrentTrayIconState>().get();
     let settings = settings::get_settings(app);
@@ -337,14 +404,8 @@ pub fn update_tray_menu(app: &AppHandle, locale: Option<&str>) {
     let version_label = version_label();
     let version_i = MenuItem::with_id(app, "version", &version_label, false, None::<&str>)
         .expect("failed to create version item");
-    let state_i = MenuItem::with_id(
-        app,
-        "voice_state",
-        format!("Signal · {:?}", state),
-        false,
-        None::<&str>,
-    )
-    .expect("failed to create voice state item");
+    let state_i = MenuItem::with_id(app, "voice_state", state_label(state), false, None::<&str>)
+        .expect("failed to create voice state item");
     let settings_i = MenuItem::with_id(
         app,
         "settings",
@@ -361,14 +422,27 @@ pub fn update_tray_menu(app: &AppHandle, locale: Option<&str>) {
         None::<&str>,
     )
     .expect("failed to create check updates item");
+    let last_transcript = latest_transcript(app);
     let copy_last_transcript_i = MenuItem::with_id(
         app,
         "copy_last_transcript",
         &strings.copy_last_transcript,
-        true,
+        last_transcript.is_some(),
         None::<&str>,
     )
     .expect("failed to create copy last transcript item");
+    let last_transcript_i = MenuItem::with_id(
+        app,
+        "last_transcript_preview",
+        last_transcript
+            .as_deref()
+            .map(transcript_preview)
+            .map(|text| format!("↳ {text}"))
+            .unwrap_or_else(|| "↳ —".to_string()),
+        false,
+        None::<&str>,
+    )
+    .expect("failed to create last transcript preview item");
     let model_loaded = app.state::<Arc<TranscriptionManager>>().is_model_loaded();
     let quit_i = MenuItem::with_id(app, "quit", &strings.quit, true, quit_accelerator)
         .expect("failed to create quit item");
@@ -469,13 +543,25 @@ pub fn update_tray_menu(app: &AppHandle, locale: Option<&str>) {
     )
     .expect("failed to create processing route item");
 
-    let account_label = crate::cloud::cached_account_snapshot(&settings)
-        .ok()
-        .and_then(|snapshot| snapshot.entitlement)
-        .map(|entitlement| format!("Pressay Cloud · {:?}", entitlement.tier))
-        .unwrap_or_else(|| "Pressay Cloud · Offline".to_string());
+    let account = crate::cloud::cached_account_snapshot(&settings).ok();
+    let account_label = account
+        .as_ref()
+        .and_then(|snapshot| snapshot.email.as_deref())
+        .map(|email| format!("🟢  {email}"))
+        .unwrap_or_else(|| "●  Pressay Cloud · Offline".to_string());
     let account_i = MenuItem::with_id(app, "account_state", account_label, false, None::<&str>)
         .expect("failed to create account state item");
+    let plan_i = MenuItem::with_id(
+        app,
+        "account_plan",
+        account
+            .and_then(|snapshot| snapshot.entitlement)
+            .map(|entitlement| format!("    Plan · {:?}", entitlement.tier))
+            .unwrap_or_else(|| "    Plan · —".to_string()),
+        false,
+        None::<&str>,
+    )
+    .expect("failed to create account plan item");
 
     let shortcut_label = settings
         .bindings
@@ -506,9 +592,11 @@ pub fn update_tray_menu(app: &AppHandle, locale: Option<&str>) {
                 &model_submenu,
                 &route_i,
                 &account_i,
+                &plan_i,
                 &shortcut_i,
                 &separator(),
                 &copy_last_transcript_i,
+                &last_transcript_i,
                 &separator(),
                 &settings_i,
                 &check_updates_i,
@@ -525,11 +613,13 @@ pub fn update_tray_menu(app: &AppHandle, locale: Option<&str>) {
                 &state_i,
                 &separator(),
                 &copy_last_transcript_i,
+                &last_transcript_i,
                 &separator(),
                 &mode_submenu,
                 &model_submenu,
                 &route_i,
                 &account_i,
+                &plan_i,
                 &shortcut_i,
                 &unload_model_i,
                 &separator(),
@@ -573,23 +663,10 @@ pub fn set_tray_visibility(app: &AppHandle, visible: bool) {
 }
 
 pub fn copy_last_transcript(app: &AppHandle) {
-    let history_manager = app.state::<Arc<HistoryManager>>();
-    let entry = match history_manager.get_latest_completed_entry() {
-        Ok(Some(entry)) => entry,
-        Ok(None) => {
-            warn!("No completed transcription history entries available for tray copy.");
-            return;
-        }
-        Err(err) => {
-            error!(
-                "Failed to fetch last completed transcription entry: {}",
-                err
-            );
-            return;
-        }
+    let Some(text) = latest_transcript(app) else {
+        warn!("No completed transcription is available for tray copy.");
+        return;
     };
-
-    let text = last_transcript_text(&entry);
     if text.trim().is_empty() {
         warn!("Last completed transcription is empty; skipping tray copy.");
         return;

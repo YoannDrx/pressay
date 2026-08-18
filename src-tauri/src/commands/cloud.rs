@@ -63,7 +63,9 @@ pub async fn begin_cloud_social_login(
 #[tauri::command]
 #[specta::specta]
 pub async fn get_cloud_account_snapshot(app: AppHandle) -> Result<CloudAccountSnapshot, String> {
-    cloud::account_snapshot(&app).await.map_err(public_error)
+    let snapshot = cloud::account_snapshot(&app).await.map_err(public_error)?;
+    crate::tray::update_tray_menu(&app, None);
+    Ok(snapshot)
 }
 
 #[tauri::command]

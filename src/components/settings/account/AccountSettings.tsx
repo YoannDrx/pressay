@@ -23,6 +23,7 @@ import {
 import { Button } from "@/components/ui/Button";
 import { SettingsGroup } from "@/components/ui/SettingsGroup";
 import { AppPageHeader } from "@/components/layout";
+import { useSettings } from "@/hooks/useSettings";
 
 type CloudAuthEvent = {
   status: "exchanging" | "connected" | "failed";
@@ -42,6 +43,7 @@ const EMPTY_ACCOUNT: CloudAccountSnapshot = {
 
 export function AccountSettings() {
   const { t } = useTranslation();
+  const { settings } = useSettings();
   const [config, setConfig] = useState<CloudAuthConfig | null>(null);
   const [account, setAccount] = useState<CloudAccountSnapshot>(EMPTY_ACCOUNT);
   const [email, setEmail] = useState("");
@@ -280,6 +282,25 @@ export function AccountSettings() {
 
   const providersAvailable =
     config?.magicLink || (config?.providers.length ?? 0) > 0;
+  const currentPeriod = new Date().toISOString().slice(0, 7);
+  const byokUsage = (settings?.byok_usage ?? []).filter(
+    (summary) => summary.periodStart === currentPeriod,
+  );
+  const byokRequests = byokUsage.reduce(
+    (total, summary) => total + summary.requests,
+    0,
+  );
+  const byokTokens = byokUsage.reduce(
+    (total, summary) => total + summary.inputTokens + summary.outputTokens,
+    0,
+  );
+  const byokEstimatedCost = byokUsage.reduce(
+    (total, summary) => total + (summary.estimatedCostMicrousd ?? 0),
+    0,
+  );
+  const hasByokCostEstimate = byokUsage.some(
+    (summary) => summary.estimatedCostMicrousd !== null,
+  );
 
   return (
     <div className="account-page space-y-6">
@@ -334,8 +355,9 @@ export function AccountSettings() {
                     {t("cloud.usage.transformations")}
                   </p>
                   <p className="mt-1 font-medium text-text">
-                    {account.usage.transformations.used} /{" "}
-                    {account.usage.transformations.limit}
+                    {account.usage.transformations.used +
+                      account.usage.transformations.reserved}{" "}
+                    / {account.usage.transformations.limit}
                   </p>
                 </div>
                 <div>
@@ -345,7 +367,9 @@ export function AccountSettings() {
                   <p className="mt-1 font-medium text-text">
                     {t("cloud.usage.minutes", {
                       used: Math.ceil(
-                        account.usage.transcription.usedSeconds / 60,
+                        (account.usage.transcription.usedSeconds +
+                          account.usage.transcription.reservedSeconds) /
+                          60,
                       ),
                       limit: Math.ceil(
                         account.usage.transcription.limitSeconds / 60,
@@ -693,6 +717,78 @@ export function AccountSettings() {
           </div>
         </SettingsGroup>
       )}
+
+      <SettingsGroup title={t("cloud.usage.byok.title")}>
+        <div className="space-y-4 p-4">
+          <p className="text-xs leading-5 text-mid-gray">
+            {t("cloud.usage.byok.description")}
+          </p>
+          {byokUsage.length > 0 ? (
+            <>
+              <div className="grid grid-cols-3 gap-3">
+                <div className="rounded-lg border border-mid-gray/10 bg-white/70 p-3 dark:bg-white/[0.04]">
+                  <p className="text-[11px] text-mid-gray">
+                    {t("cloud.usage.byok.requests")}
+                  </p>
+                  <strong className="mt-1 block text-sm text-text">
+                    {byokRequests.toLocaleString()}
+                  </strong>
+                </div>
+                <div className="rounded-lg border border-mid-gray/10 bg-white/70 p-3 dark:bg-white/[0.04]">
+                  <p className="text-[11px] text-mid-gray">
+                    {t("cloud.usage.byok.tokens")}
+                  </p>
+                  <strong className="mt-1 block text-sm text-text">
+                    {byokTokens.toLocaleString()}
+                  </strong>
+                </div>
+                <div className="rounded-lg border border-mid-gray/10 bg-white/70 p-3 dark:bg-white/[0.04]">
+                  <p className="text-[11px] text-mid-gray">
+                    {t("cloud.usage.byok.estimatedCost")}
+                  </p>
+                  <strong className="mt-1 block text-sm text-text">
+                    {hasByokCostEstimate
+                      ? (byokEstimatedCost / 1_000_000).toLocaleString(
+                          undefined,
+                          {
+                            style: "currency",
+                            currency: "USD",
+                            minimumFractionDigits: 2,
+                            maximumFractionDigits: 4,
+                          },
+                        )
+                      : "—"}
+                  </strong>
+                </div>
+              </div>
+              <div className="space-y-2 border-t border-mid-gray/10 pt-3">
+                {byokUsage.map((summary) => (
+                  <div
+                    key={`${summary.providerId}:${summary.model}`}
+                    className="flex items-center justify-between gap-3 text-xs"
+                  >
+                    <span className="truncate text-text">
+                      {summary.providerId} · {summary.model}
+                    </span>
+                    <span className="shrink-0 font-mono text-mid-gray">
+                      {(
+                        summary.inputTokens + summary.outputTokens
+                      ).toLocaleString()}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            </>
+          ) : (
+            <p className="rounded-lg border border-dashed border-mid-gray/15 px-3 py-4 text-center text-xs text-mid-gray">
+              {t("cloud.usage.byok.empty")}
+            </p>
+          )}
+          <p className="text-[10px] leading-4 text-mid-gray">
+            {t("cloud.usage.byok.disclaimer")}
+          </p>
+        </div>
+      </SettingsGroup>
     </div>
   );
 }
