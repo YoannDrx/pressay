@@ -292,7 +292,7 @@ export const ProductPreview = () => {
       </div>
       <footer className="preview-footer">
         <span>Parakeet V3</span>
-        <span className="technical-label">v2.0.0-beta.1</span>
+        <span className="technical-label">v2.0.0-beta.2</span>
       </footer>
     </div>
   );
