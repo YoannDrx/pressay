@@ -15,7 +15,7 @@ No gate in this document authorizes enabling paid production traffic by itself.
 | --------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------ | ----------- |
 | Cloud source of truth | Cloud control-plane history is merged through a reviewed PR to `main`; Vercel production deploys only an immutable `main` commit.                      | in_progress |
 | Environment inventory | Direct app, MAS app, web, Cloud staging and Cloud production each have a named owner, URL, database branch and secret scope.                           | in_progress |
-| Database identity     | A non-secret deployment fingerprint exposes environment, database project fingerprint, schema version and commit without exposing a connection string. | open        |
+| Database identity     | A non-secret deployment fingerprint exposes environment, database project fingerprint, schema version and commit without exposing a connection string. | in_progress |
 | Migration gate        | Migrations run on a Neon branch, pass schema comparison and smoke tests, then run once during a controlled production deploy.                          | open        |
 | Rollback              | The previous deployment and the pre-migration Neon restore point are recorded before promotion.                                                        | open        |
 
@@ -72,8 +72,8 @@ old Prices only after all active subscriptions have moved; archive the Product l
   `app.pressay.desktop.mas.pro.annual`.
 - Load Apple-configured monthly and annual products with Apple-localized prices.
 - Purchase using the authenticated Pressay account UUID as `appAccountToken`.
-- Verify StoreKit transactions on-device, finish them and send their signed JWS to the
-  authenticated Cloud restore endpoint.
+- Verify StoreKit transactions on-device, send their signed JWS to the authenticated
+  Cloud restore endpoint, then finish them only after the server accepts the purchase.
 - Listen for transaction updates and reconcile current entitlements at launch.
 - Implement Restore Purchases, pending, user-cancelled, unverified and offline states.
 - Never embed App Store Server credentials in the desktop application.
@@ -116,3 +116,21 @@ old Prices only after all active subscriptions have moved; archive the Product l
 7. Distribute the MAS build through TestFlight.
 8. Enable Direct Checkout gradually after reconciliation.
 9. Submit the stable MAS build and its subscriptions for review.
+
+## 6. Current release-gate ledger — 20 August 2026
+
+| Gate                       | Evidence available                                                                                                                                                           | Remaining exit condition                                                                                                                                        | Status        |
+| -------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------- |
+| App source                 | `2.0.0-beta.2` is committed on `codex/commercialization-readiness`; translations, lint, frontend build, Playwright, MAS Cargo check and focused StoreKit tests pass locally. | Required PR checks, native macOS matrix, owner-authored PR section and human review.                                                                            | in_progress   |
+| StoreKit client            | Closed product catalogue, Apple-localized products, purchase, restore, JWS verification and background reconciliation are implemented.                                       | Apple-signed Sandbox and TestFlight evidence with real App Store Connect products.                                                                              | external_gate |
+| MAS sandbox graph          | Dedicated identifier, public feature graph, App Sandbox and audio-input entitlement are implemented and inspected by CI.                                                     | Apple Distribution and Mac Installer Distribution identities, provisioning profile and protected upload environment.                                            | external_gate |
+| Cloud source               | The full control plane is represented by one secret-scan-clean commit in the draft Cloud PR. Local verification passes 23 files / 83 tests.                                  | Review, staging database migration, schema check, smoke tests and controlled merge to `main`.                                                                   | in_progress   |
+| Cloud database             | Immutable migrations through `0013_billing_financial_events.sql`, `/health` environment identity and `/ready` schema version are implemented.                                | Run on a disposable Neon branch, record the destination fingerprint and restore point, then validate against production-shaped settings.                        | external_gate |
+| Stripe Direct              | Exact-account and exact-catalogue audit, idempotent provisioning script, webhook lifecycle projection and server-side checkout kill switch are implemented.                  | Dedicated Pressay Stripe account, branding, restricted credentials, Test Clocks and signed webhook evidence. RoutineKids must remain untouched.                 | external_gate |
+| Public DMG                 | Release workflow signs and notarizes a tagged DMG; landing and portfolio already resolve the latest non-draft GitHub release dynamically.                                    | Merge validated app PR, tag `v2.0.0-beta.2`, let the protected release workflow produce checksum and notarized DMG, then publish the draft after smoke testing. | external_gate |
+| Landing/portfolio download | No code change is required for the download destination. Both consumers follow the latest valid GitHub release.                                                              | Publish the validated `beta.2` release; never point them at a branch artifact.                                                                                  | in_progress   |
+
+The word `external_gate` is deliberate: source code cannot create legal agreements,
+banking/tax verification, Apple certificates, production credentials or native-device
+evidence. Paid traffic remains disabled until the corresponding evidence is attached
+to the release record.
