@@ -12,6 +12,16 @@
       "free": "Free plan",
       "pro": "Pro plan"
     },
+    "appStore": {
+      "title": "App Store सदस्यता",
+      "description": "Pressay Pro की सदस्यता लें और Apple के ज़रिए इसे सुरक्षित रूप से प्रबंधित करें।",
+      "subscribe": "सदस्यता लें",
+      "restore": "खरीदारी बहाल करें",
+      "managedByApple": "बिलिंग और रद्द करना Apple द्वारा प्रबंधित होता है।",
+      "purchased": "Pressay Pro अब सक्रिय है।",
+      "restored": "App Store की खरीदारी बहाल हो गई।",
+      "error": "App Store प्रक्रिया पूरी नहीं हो सकी।"
+    },
     "email": {
       "label": "Email",
       "placeholder": "you@example.com",

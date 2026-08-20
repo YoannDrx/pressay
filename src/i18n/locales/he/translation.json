@@ -12,6 +12,16 @@
       "free": "Free plan",
       "pro": "Pro plan"
     },
+    "appStore": {
+      "title": "מינוי App Store",
+      "description": "הירשמו ל-Pressay Pro ונהלו את המינוי בצורה מאובטחת דרך Apple.",
+      "subscribe": "הרשמה",
+      "restore": "שחזור רכישות",
+      "managedByApple": "החיוב והביטול מנוהלים על ידי Apple.",
+      "purchased": "Pressay Pro פעיל כעת.",
+      "restored": "רכישות App Store שוחזרו.",
+      "error": "לא ניתן היה להשלים את פעולת ה-App Store."
+    },
     "email": {
       "label": "Email",
       "placeholder": "you@example.com",

@@ -12,6 +12,16 @@
       "free": "Free plan",
       "pro": "Pro plan"
     },
+    "appStore": {
+      "title": "App Store 구독",
+      "description": "Pressay Pro를 구독하고 Apple을 통해 안전하게 관리하세요.",
+      "subscribe": "구독",
+      "restore": "구입 항목 복원",
+      "managedByApple": "결제 및 취소는 Apple에서 관리합니다.",
+      "purchased": "Pressay Pro가 활성화되었습니다.",
+      "restored": "App Store 구입 항목을 복원했습니다.",
+      "error": "App Store 작업을 완료할 수 없습니다."
+    },
     "email": {
       "label": "Email",
       "placeholder": "you@example.com",

@@ -12,6 +12,16 @@
       "free": "Free plan",
       "pro": "Pro plan"
     },
+    "appStore": {
+      "title": "Předplatné v App Storu",
+      "description": "Předplaťte si Pressay Pro a spravujte předplatné bezpečně přes Apple.",
+      "subscribe": "Předplatit",
+      "restore": "Obnovit nákupy",
+      "managedByApple": "Platby a zrušení spravuje Apple.",
+      "purchased": "Pressay Pro je nyní aktivní.",
+      "restored": "Nákupy z App Storu byly obnoveny.",
+      "error": "Operaci App Storu se nepodařilo dokončit."
+    },
     "email": {
       "label": "Email",
       "placeholder": "you@example.com",

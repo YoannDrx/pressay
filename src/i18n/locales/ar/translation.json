@@ -12,6 +12,16 @@
       "free": "Free plan",
       "pro": "Pro plan"
     },
+    "appStore": {
+      "title": "اشتراك App Store",
+      "description": "اشترك في Pressay Pro وأدر اشتراكك بأمان عبر Apple.",
+      "subscribe": "اشتراك",
+      "restore": "استعادة المشتريات",
+      "managedByApple": "تتم إدارة الفوترة والإلغاء بواسطة Apple.",
+      "purchased": "اشتراك Pressay Pro نشط الآن.",
+      "restored": "تمت استعادة مشتريات App Store.",
+      "error": "تعذر إكمال عملية App Store."
+    },
     "email": {
       "label": "Email",
       "placeholder": "you@example.com",

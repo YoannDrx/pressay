@@ -12,6 +12,16 @@
       "free": "Free plan",
       "pro": "Pro plan"
     },
+    "appStore": {
+      "title": "App Store-prenumeration",
+      "description": "Prenumerera på Pressay Pro och hantera prenumerationen säkert via Apple.",
+      "subscribe": "Prenumerera",
+      "restore": "Återställ köp",
+      "managedByApple": "Betalning och uppsägning hanteras av Apple.",
+      "purchased": "Pressay Pro är nu aktivt.",
+      "restored": "App Store-köp har återställts.",
+      "error": "App Store-åtgärden kunde inte slutföras."
+    },
     "email": {
       "label": "Email",
       "placeholder": "you@example.com",

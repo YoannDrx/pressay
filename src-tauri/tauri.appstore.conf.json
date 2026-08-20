@@ -11,6 +11,7 @@
     "createUpdaterArtifacts": false,
     "targets": ["app"],
     "macOS": {
+      "signingIdentity": null,
       "entitlements": "Entitlements.AppStore.plist"
     }
   }

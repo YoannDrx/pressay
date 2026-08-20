@@ -12,6 +12,16 @@
       "free": "Free plan",
       "pro": "Pro plan"
     },
+    "appStore": {
+      "title": "Assinatura da App Store",
+      "description": "Assine o Pressay Pro e gerencie sua assinatura com segurança pela Apple.",
+      "subscribe": "Assinar",
+      "restore": "Restaurar compras",
+      "managedByApple": "O faturamento e o cancelamento são gerenciados pela Apple.",
+      "purchased": "O Pressay Pro agora está ativo.",
+      "restored": "As compras da App Store foram restauradas.",
+      "error": "Não foi possível concluir a operação da App Store."
+    },
     "email": {
       "label": "Email",
       "placeholder": "you@example.com",

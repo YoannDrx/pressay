@@ -9,6 +9,7 @@ import {
   LoaderCircle,
   RefreshCw,
   ShieldCheck,
+  ShoppingBag,
 } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
@@ -19,6 +20,7 @@ import {
   type CloudAuthConfig,
   type CloudAuthProvider,
   type CloudSyncSnapshot,
+  type StoreKitProduct,
 } from "@/bindings";
 import { Button } from "@/components/ui/Button";
 import { SettingsGroup } from "@/components/ui/SettingsGroup";
@@ -59,6 +61,8 @@ export function AccountSettings() {
   const [authErrorCode, setAuthErrorCode] = useState<string | null>(null);
   const [lastRefresh, setLastRefresh] = useState<Date | null>(null);
   const [syncError, setSyncError] = useState<string | null>(null);
+  const [storeProducts, setStoreProducts] = useState<StoreKitProduct[]>([]);
+  const [storeError, setStoreError] = useState<string | null>(null);
 
   const refresh = useCallback(
     async (silent = false) => {
@@ -96,6 +100,24 @@ export function AccountSettings() {
   useEffect(() => {
     void refresh();
   }, [refresh]);
+
+  useEffect(() => {
+    if (!account.connected) {
+      setStoreProducts([]);
+      return;
+    }
+    let active = true;
+    void commands.getAppStoreProducts().then(async (result) => {
+      if (!active || result.status === "error") return;
+      setStoreProducts(result.data);
+      const reconciliation = await commands.reconcileAppStorePurchases();
+      if (!active || reconciliation.status === "error") return;
+      setAccount(reconciliation.data);
+    });
+    return () => {
+      active = false;
+    };
+  }, [account.connected]);
 
   useEffect(() => {
     const interval = window.setInterval(() => void refresh(true), 30_000);
@@ -280,6 +302,34 @@ export function AccountSettings() {
     }
   };
 
+  const purchaseAppStoreProduct = async (productId: string) => {
+    setPendingAction(`store-purchase-${productId}`);
+    setStoreError(null);
+    const result = await commands.purchaseAppStoreProduct(productId);
+    setPendingAction(null);
+    if (result.status === "ok") {
+      setAccount(result.data);
+      toast.success(t("cloud.appStore.purchased"));
+    } else if (result.error !== "storekit_cancelled") {
+      setStoreError(result.error);
+      toast.error(t("cloud.appStore.error"));
+    }
+  };
+
+  const restoreAppStorePurchases = async () => {
+    setPendingAction("store-restore");
+    setStoreError(null);
+    const result = await commands.restoreAppStorePurchases();
+    setPendingAction(null);
+    if (result.status === "ok") {
+      setAccount(result.data);
+      toast.success(t("cloud.appStore.restored"));
+    } else {
+      setStoreError(result.error);
+      toast.error(t("cloud.appStore.error"));
+    }
+  };
+
   const providersAvailable =
     config?.magicLink || (config?.providers.length ?? 0) > 0;
   const currentPeriod = new Date().toISOString().slice(0, 7);
@@ -346,6 +396,71 @@ export function AccountSettings() {
               </Button>
             </div>
           </SettingsGroup>
+
+          {storeProducts.length > 0 ? (
+            <SettingsGroup title={t("cloud.appStore.title")}>
+              <div className="space-y-3 p-4">
+                <div className="flex items-start gap-3">
+                  <ShoppingBag className="mt-0.5 h-4 w-4 shrink-0 text-accent" />
+                  <p className="text-xs leading-5 text-mid-gray">
+                    {t("cloud.appStore.description")}
+                  </p>
+                </div>
+                <div className="grid gap-3 sm:grid-cols-2">
+                  {storeProducts.map((product) => (
+                    <article
+                      key={product.id}
+                      className="rounded-xl border border-mid-gray/10 bg-white p-4 shadow-sm dark:bg-white/[0.04]"
+                    >
+                      <div className="flex items-start justify-between gap-3">
+                        <div className="min-w-0">
+                          <h3 className="text-sm font-medium text-text">
+                            {product.displayName}
+                          </h3>
+                          <p className="mt-1 text-xs leading-5 text-mid-gray">
+                            {product.description}
+                          </p>
+                        </div>
+                        <strong className="shrink-0 font-mono text-sm text-text">
+                          {product.displayPrice}
+                        </strong>
+                      </div>
+                      <Button
+                        className="mt-4 w-full"
+                        size="sm"
+                        onClick={() => void purchaseAppStoreProduct(product.id)}
+                        disabled={pendingAction !== null}
+                      >
+                        {pendingAction === `store-purchase-${product.id}` ? (
+                          <LoaderCircle className="mr-1.5 h-3.5 w-3.5 animate-spin" />
+                        ) : null}
+                        {t("cloud.appStore.subscribe")}
+                      </Button>
+                    </article>
+                  ))}
+                </div>
+                <div className="flex items-center justify-between gap-3 border-t border-mid-gray/10 pt-3">
+                  <p className="text-[11px] leading-4 text-mid-gray">
+                    {t("cloud.appStore.managedByApple")}
+                  </p>
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    onClick={() => void restoreAppStorePurchases()}
+                    disabled={pendingAction !== null}
+                  >
+                    {t("cloud.appStore.restore")}
+                  </Button>
+                </div>
+                {storeError ? (
+                  <div className="rounded-lg border border-danger/20 bg-danger/5 px-3 py-2 text-xs text-danger">
+                    {t("cloud.appStore.error")}{" "}
+                    <code className="font-mono">{storeError}</code>
+                  </div>
+                ) : null}
+              </div>
+            </SettingsGroup>
+          ) : null}
 
           {account.usage ? (
             <SettingsGroup title={t("cloud.usage.title")}>

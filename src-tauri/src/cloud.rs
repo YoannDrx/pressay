@@ -139,6 +139,18 @@ pub struct CloudAccountSnapshot {
     pub usage: Option<UsageSnapshot>,
 }
 
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct RestoreAppStoreRequest<'a> {
+    signed_transaction: &'a str,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct RestoreAppStoreResponse {
+    restored: bool,
+}
+
 #[derive(Serialize, Deserialize, Debug, Clone, Copy, PartialEq, Eq, Type)]
 #[serde(rename_all = "snake_case")]
 pub enum CloudSyncStatus {
@@ -1613,6 +1625,41 @@ pub async fn account_snapshot(app: &AppHandle) -> Result<CloudAccountSnapshot, C
         }
         Err(error) => Err(error),
     }
+}
+
+pub async fn restore_app_store_transaction(
+    app: &AppHandle,
+    signed_transaction: &str,
+    transaction_id: &str,
+) -> Result<CloudAccountSnapshot, CloudFailure> {
+    if signed_transaction.len() < 64
+        || signed_transaction.len() > 250_000
+        || signed_transaction.split('.').count() != 3
+        || transaction_id.is_empty()
+        || transaction_id.len() > 32
+        || !transaction_id.bytes().all(|value| value.is_ascii_digit())
+    {
+        return Err(CloudFailure::new("storekit_transaction_invalid"));
+    }
+    let settings = get_settings(app);
+    let response: RestoreAppStoreResponse = json(
+        client()
+            .post(endpoint(&settings, "/v1/billing/restore-app-store")?)
+            .bearer_auth(access_token().await?)
+            .header(
+                "idempotency-key",
+                format!("app-store-transaction-{transaction_id}"),
+            )
+            .json(&RestoreAppStoreRequest { signed_transaction })
+            .send()
+            .await
+            .map_err(|_| CloudFailure::new("cloud_network_unavailable"))?,
+    )
+    .await?;
+    if !response.restored {
+        return Err(CloudFailure::new("storekit_restore_failed"));
+    }
+    account_snapshot(app).await
 }
 
 pub async fn sign_out(app: &AppHandle) -> Result<(), CloudFailure> {

@@ -28,6 +28,7 @@ mod selection_context;
 mod settings;
 mod shortcut;
 mod signal_handle;
+mod storekit;
 mod sync_crypto;
 mod transcription_coordinator;
 mod tray;
@@ -717,6 +718,10 @@ pub fn run(cli_args: CliArgs) {
             commands::cloud::recover_cloud_sync,
             commands::cloud::run_cloud_sync,
             commands::cloud::retry_cloud_transcription,
+            commands::cloud::get_app_store_products,
+            commands::cloud::purchase_app_store_product,
+            commands::cloud::restore_app_store_purchases,
+            commands::cloud::reconcile_app_store_purchases,
             commands::is_portable,
             commands::get_app_dir_path,
             commands::get_app_settings,
@@ -1029,6 +1034,11 @@ pub fn run(cli_args: CliArgs) {
             }
 
             initialize_core_logic(&app_handle);
+
+            // The Mac App Store channel reconciles StoreKit 2 entitlements in
+            // the background. The direct DMG build compiles this to a no-op and
+            // never exposes or invokes App Store purchasing.
+            commands::cloud::start_app_store_reconciliation(app_handle.clone());
 
             // Secure Input monitor (macOS): detects stuck secure input that
             // silently blocks keyed shortcuts, warns the user, and activates

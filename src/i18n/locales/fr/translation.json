@@ -13,6 +13,16 @@
       "free": "Offre Free",
       "pro": "Offre Pro"
     },
+    "appStore": {
+      "title": "Abonnement App Store",
+      "description": "Abonnez-vous à Pressay Pro et gérez votre abonnement en toute sécurité avec Apple.",
+      "subscribe": "S’abonner",
+      "restore": "Restaurer les achats",
+      "managedByApple": "La facturation et la résiliation sont gérées par Apple.",
+      "purchased": "Pressay Pro est maintenant actif.",
+      "restored": "Les achats App Store ont été restaurés.",
+      "error": "Impossible de terminer l’opération App Store."
+    },
     "email": {
       "label": "Email",
       "placeholder": "vous@exemple.com",

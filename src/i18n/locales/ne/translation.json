@@ -12,6 +12,16 @@
       "free": "Free plan",
       "pro": "Pro plan"
     },
+    "appStore": {
+      "title": "App Store सदस्यता",
+      "description": "Pressay Pro को सदस्यता लिनुहोस् र Apple मार्फत सुरक्षित रूपमा व्यवस्थापन गर्नुहोस्।",
+      "subscribe": "सदस्यता लिनुहोस्",
+      "restore": "खरिद पुनर्स्थापना",
+      "managedByApple": "बिलिङ र रद्द गर्ने कार्य Apple ले व्यवस्थापन गर्छ।",
+      "purchased": "Pressay Pro अहिले सक्रिय छ।",
+      "restored": "App Store खरिदहरू पुनर्स्थापित भए।",
+      "error": "App Store कार्य पूरा गर्न सकिएन।"
+    },
     "email": {
       "label": "Email",
       "placeholder": "you@example.com",

@@ -12,6 +12,16 @@
       "free": "Free plan",
       "pro": "Pro plan"
     },
+    "appStore": {
+      "title": "App Store aboneliği",
+      "description": "Pressay Pro’ya abone olun ve aboneliğinizi Apple üzerinden güvenle yönetin.",
+      "subscribe": "Abone ol",
+      "restore": "Satın alımları geri yükle",
+      "managedByApple": "Faturalandırma ve iptal Apple tarafından yönetilir.",
+      "purchased": "Pressay Pro artık etkin.",
+      "restored": "App Store satın alımları geri yüklendi.",
+      "error": "App Store işlemi tamamlanamadı."
+    },
     "email": {
       "label": "Email",
       "placeholder": "you@example.com",

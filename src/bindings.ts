@@ -632,6 +632,38 @@ async retryCloudTranscription(requestId: string) : Promise<Result<CloudTranscrip
     else return { status: "error", error: e  as any };
 }
 },
+async getAppStoreProducts() : Promise<Result<StoreKitProduct[], string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("get_app_store_products") };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+async purchaseAppStoreProduct(productId: string) : Promise<Result<CloudAccountSnapshot, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("purchase_app_store_product", { productId }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+async restoreAppStorePurchases() : Promise<Result<CloudAccountSnapshot, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("restore_app_store_purchases") };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+async reconcileAppStorePurchases() : Promise<Result<CloudAccountSnapshot, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("reconcile_app_store_purchases") };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
 async isPortable() : Promise<boolean> {
     return await TAURI_INVOKE("is_portable");
 },
@@ -1416,6 +1448,8 @@ uncovered_bindings: string[];
 recorder_blocked: boolean }
 export type ShortcutBinding = { id: string; name: string; description: string; default_binding: string; current_binding: string }
 export type SoundTheme = "marimba" | "pop" | "minimal" | "soft" | "glass" | "mechanical" | "dreamy" | "scifi" | "studio" | "zen" | "custom"
+export type StoreKitProduct = { id: string; displayName: string; description: string; displayPrice: string }
+export type StoreKitTransaction = { status: string; productId: string | null; transactionId: string | null; signedTransaction: string | null }
 /**
  * Phase of the streaming overlay card, emitted to drive its UI state.
  */
