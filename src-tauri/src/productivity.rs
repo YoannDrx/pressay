@@ -5,14 +5,27 @@ use std::collections::{HashMap, HashSet};
 use std::sync::{Mutex, OnceLock};
 use std::time::{SystemTime, UNIX_EPOCH};
 
-pub const PRODUCTIVITY_SCHEMA_VERSION: u32 = 1;
+pub const PRODUCTIVITY_SCHEMA_VERSION: u32 = 2;
 pub const PRODUCTIVITY_EXPORT_SCHEMA_VERSION: u32 = 1;
 pub const PRODUCTIVITY_EXPORT_FORMAT: &str = "pressay-productivity";
 const MAX_MODE_STEPS: usize = 8;
 const MAX_DICTIONARY_ENTRIES: usize = 5_000;
 const MAX_PORTABLE_MODES: usize = 1_000;
 const MAX_PORTABLE_PROFILES: usize = 1_000;
-const BUILTIN_MODE_IDS: [&str; 5] = ["faithful", "clean", "message", "email", "ai_prompt"];
+const BUILTIN_MODE_IDS: [&str; 12] = [
+    "faithful",
+    "clean",
+    "message",
+    "email",
+    "ai_prompt",
+    "note",
+    "meeting_notes",
+    "ticket",
+    "commit",
+    "translation",
+    "summary",
+    "tasks",
+];
 const ALLOWED_VARIABLES: [&str; 4] = ["transcript", "selected", "app_name", "custom_words"];
 const CORRECTION_SESSION_TTL_MS: u64 = 2 * 60 * 1_000;
 
@@ -592,6 +605,73 @@ pub fn builtin_modes() -> Vec<PressayMode> {
             "précis",
             "structuré",
         ),
+        remote_mode(
+            "note",
+            "Note",
+            "Organise la dictée en note claire et durable.",
+            "Turn ${transcript} into a concise, well-structured note. Preserve facts and do not add information.",
+            "neutre",
+            "moyen",
+        ),
+        remote_mode(
+            "meeting_notes",
+            "Compte rendu",
+            "Structure décisions, points clés et prochaines étapes.",
+            "Turn ${transcript} into meeting notes with sections for key points, decisions and next steps. Do not invent missing details.",
+            "professionnel",
+            "structuré",
+        ),
+        remote_mode(
+            "ticket",
+            "Ticket",
+            "Produit un ticket actionnable avec contexte et critères.",
+            "Turn ${transcript} into an actionable engineering ticket with context, expected outcome and acceptance criteria. Preserve technical names exactly.",
+            "technique",
+            "structuré",
+        ),
+        remote_mode(
+            "commit",
+            "Commit",
+            "Génère un message de commit concis et conventionnel.",
+            "Turn ${transcript} into a Conventional Commit message. Return only the commit subject and an optional concise body.",
+            "technique",
+            "court",
+        ),
+        PressayMode {
+            id: "translation".to_string(),
+            name: "Traduction".to_string(),
+            description: "Traduit fidèlement entre le français et l’anglais.".to_string(),
+            route: ProcessingRoute::Byok,
+            steps: vec![
+                step("normalize", ModeStepKind::Normalize, None),
+                step("dictionary", ModeStepKind::Dictionary, None),
+                step(
+                    "transform",
+                    ModeStepKind::Transform,
+                    Some("Translate ${transcript} into English when the source is French, and into French when the source is English. For any other source language, translate into English. Preserve meaning, names, formatting and tone. Return only the translation."),
+                ),
+            ],
+            tone: Some("fidèle".to_string()),
+            length: Some("identique".to_string()),
+            language: None,
+            is_builtin: true,
+        },
+        remote_mode(
+            "summary",
+            "Résumé",
+            "Condense la dictée sans perdre les informations importantes.",
+            "Summarize ${transcript} faithfully. Keep names, figures, decisions and important caveats. Do not add information.",
+            "neutre",
+            "court",
+        ),
+        remote_mode(
+            "tasks",
+            "Tâches",
+            "Extrait une liste d’actions claire et vérifiable.",
+            "Extract actionable tasks from ${transcript}. Use a checklist. Include an owner or due date only when explicitly stated.",
+            "actionnable",
+            "liste",
+        ),
     ]
 }
 
@@ -1015,6 +1095,7 @@ mod tests {
     #[test]
     fn builtin_modes_are_valid_and_ids_are_unique() {
         let modes = builtin_modes();
+        assert_eq!(modes.len(), 12);
         let mut ids = HashSet::new();
         for mode in modes {
             validate_mode(&mode).unwrap();

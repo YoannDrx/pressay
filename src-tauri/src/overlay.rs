@@ -40,14 +40,14 @@ tauri_panel! {
 // where the card sits — only OVERLAY_TOP_OFFSET / OVERLAY_BOTTOM_OFFSET do. Keep
 // these in sync with the CSS card geometry.
 //
-// Compact overlay (Minimal / transcribing / processing): the 40h pill animates
-// width from 172 (--ov-rest-w) to 216 (--ov-work-w) and expands from center, so
-// the window must fit the widest state plus a little slack.
-const OVERLAY_WIDTH: f64 = 256.0;
+// Compact overlay (Minimal / transcribing / processing): recovery states can
+// show two trailing actions and use 372pt (--ov-result-w). The transparent
+// direct-build panel provides a little slack around that visible pill.
+const OVERLAY_WIDTH: f64 = 392.0;
 const OVERLAY_HEIGHT: f64 = 46.0;
 
-// Actual is 394x118, just a little extra
-const OVERLAY_STREAM_WIDTH: f64 = 400.0;
+// Actual maximum is 428x118, with a little horizontal slack.
+const OVERLAY_STREAM_WIDTH: f64 = 440.0;
 const OVERLAY_STREAM_HEIGHT: f64 = 120.0;
 
 /// Overlay window size (logical) for a given UI state.

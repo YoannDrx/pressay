@@ -2,11 +2,11 @@ import { useCallback, useEffect, useState } from "react";
 import { listen } from "@tauri-apps/api/event";
 import {
   CheckCircle2,
-  Cloud,
   Copy,
   KeyRound,
   Laptop,
   LockKeyhole,
+  LoaderCircle,
   RefreshCw,
   ShieldCheck,
 } from "lucide-react";
@@ -22,11 +22,15 @@ import {
 } from "@/bindings";
 import { Button } from "@/components/ui/Button";
 import { SettingsGroup } from "@/components/ui/SettingsGroup";
+import { AppPageHeader } from "@/components/layout";
+import { useSettings } from "@/hooks/useSettings";
 
 type CloudAuthEvent = {
-  status: "connected" | "failed";
+  status: "exchanging" | "connected" | "failed";
   errorCode: string | null;
 };
+
+type AuthPhase = "idle" | "opening" | "waiting" | "exchanging" | "failed";
 
 const EMPTY_ACCOUNT: CloudAccountSnapshot = {
   connected: false,
@@ -39,6 +43,7 @@ const EMPTY_ACCOUNT: CloudAccountSnapshot = {
 
 export function AccountSettings() {
   const { t } = useTranslation();
+  const { settings } = useSettings();
   const [config, setConfig] = useState<CloudAuthConfig | null>(null);
   const [account, setAccount] = useState<CloudAccountSnapshot>(EMPTY_ACCOUNT);
   const [email, setEmail] = useState("");
@@ -49,43 +54,76 @@ export function AccountSettings() {
   >(null);
   const [loading, setLoading] = useState(true);
   const [pendingAction, setPendingAction] = useState<string | null>(null);
+  const [authConfigError, setAuthConfigError] = useState<string | null>(null);
+  const [authPhase, setAuthPhase] = useState<AuthPhase>("idle");
+  const [authErrorCode, setAuthErrorCode] = useState<string | null>(null);
+  const [lastRefresh, setLastRefresh] = useState<Date | null>(null);
+  const [syncError, setSyncError] = useState<string | null>(null);
 
-  const refresh = useCallback(async () => {
-    setLoading(true);
-    const [configResult, accountResult] = await Promise.all([
-      commands.getCloudAuthConfig(),
-      commands.getCloudAccountSnapshot(),
-    ]);
-    if (configResult.status === "ok") setConfig(configResult.data);
-    if (accountResult.status === "ok") {
-      setAccount(accountResult.data);
-      if (accountResult.data.connected) {
-        const syncResult = await commands.getCloudSyncSnapshot();
-        if (syncResult.status === "ok") setSync(syncResult.data);
-      } else {
-        setSync(null);
+  const refresh = useCallback(
+    async (silent = false) => {
+      if (!silent) setLoading(true);
+      const [configResult, accountResult] = await Promise.all([
+        commands.getCloudAuthConfig(),
+        commands.getCloudAccountSnapshot(),
+      ]);
+      if (configResult.status === "ok") {
+        setConfig(configResult.data);
+        setAuthConfigError(null);
+      } else if (!silent) {
+        setConfig(null);
+        setAuthConfigError(configResult.error);
       }
-    } else if (accountResult.error === "cloud_not_connected") {
-      setAccount(EMPTY_ACCOUNT);
-    } else {
-      toast.error(t("cloud.errors.load"));
-    }
-    setLoading(false);
-  }, [t]);
+      if (accountResult.status === "ok") {
+        setAccount(accountResult.data);
+        setLastRefresh(new Date());
+        if (accountResult.data.connected) {
+          const syncResult = await commands.getCloudSyncSnapshot();
+          if (syncResult.status === "ok") setSync(syncResult.data);
+        } else {
+          setSync(null);
+        }
+      } else if (accountResult.error === "cloud_not_connected" && !silent) {
+        setAccount(EMPTY_ACCOUNT);
+      } else if (!silent) {
+        toast.error(t("cloud.errors.load"));
+      }
+      if (!silent) setLoading(false);
+    },
+    [t],
+  );
 
   useEffect(() => {
     void refresh();
   }, [refresh]);
 
   useEffect(() => {
+    const interval = window.setInterval(() => void refresh(true), 30_000);
+    const refreshOnFocus = () => void refresh(true);
+    window.addEventListener("focus", refreshOnFocus);
+    return () => {
+      window.clearInterval(interval);
+      window.removeEventListener("focus", refreshOnFocus);
+    };
+  }, [refresh]);
+
+  useEffect(() => {
     const unlisten = listen<CloudAuthEvent>(
       "cloud-auth-state-changed",
       (event) => {
+        if (event.payload.status === "exchanging") {
+          setAuthPhase("exchanging");
+          return;
+        }
         setPendingAction(null);
         if (event.payload.status === "connected") {
+          setAuthPhase("idle");
+          setAuthErrorCode(null);
           toast.success(t("cloud.status.connected"));
           void refresh();
         } else {
+          setAuthPhase("failed");
+          setAuthErrorCode(event.payload.errorCode);
           toast.error(t("cloud.errors.auth"));
         }
       },
@@ -94,6 +132,20 @@ export function AccountSettings() {
       void unlisten.then((stop) => stop());
     };
   }, [refresh, t]);
+
+  useEffect(() => {
+    if (!["opening", "waiting", "exchanging"].includes(authPhase)) return;
+    const timeout = window.setTimeout(
+      () => {
+        setPendingAction(null);
+        setAuthPhase("failed");
+        setAuthErrorCode("cloud_auth_timeout");
+        toast.error(t("cloud.errors.auth"));
+      },
+      15 * 60 * 1000,
+    );
+    return () => window.clearTimeout(timeout);
+  }, [authPhase, t]);
 
   const requestMagicLink = async () => {
     setPendingAction("magic-link");
@@ -108,11 +160,17 @@ export function AccountSettings() {
 
   const beginSocialLogin = async (provider: CloudAuthProvider) => {
     setPendingAction(provider);
+    setAuthPhase("opening");
+    setAuthErrorCode(null);
     const result = await commands.beginCloudSocialLogin(provider);
     if (result.status === "error") {
       setPendingAction(null);
+      setAuthPhase("failed");
+      setAuthErrorCode(result.error);
       toast.error(t("cloud.errors.start"));
+      return;
     }
+    setAuthPhase("waiting");
   };
 
   const disconnect = async () => {
@@ -145,6 +203,7 @@ export function AccountSettings() {
   };
 
   const initializeSync = async () => {
+    setSyncError(null);
     setPendingAction("sync-initialize");
     const result = await commands.initializeCloudSync();
     setPendingAction(null);
@@ -152,11 +211,13 @@ export function AccountSettings() {
       setSync(result.data);
       toast.success(t("cloud.sync.updated"));
     } else {
-      toast.error(t("cloud.sync.error"));
+      setSyncError(result.error);
+      toast.error(t("cloud.sync.error"), { description: result.error });
     }
   };
 
   const approveSyncDevice = async (deviceId: string) => {
+    setSyncError(null);
     setPendingAction(`sync-approve-${deviceId}`);
     const result = await commands.approveCloudSyncDevice(deviceId);
     setPendingAction(null);
@@ -164,11 +225,13 @@ export function AccountSettings() {
       setSync(result.data);
       toast.success(t("cloud.sync.approved"));
     } else {
-      toast.error(t("cloud.sync.error"));
+      setSyncError(result.error);
+      toast.error(t("cloud.sync.error"), { description: result.error });
     }
   };
 
   const runSync = async () => {
+    setSyncError(null);
     setPendingAction("sync-run");
     const result = await commands.runCloudSync();
     setPendingAction(null);
@@ -176,7 +239,8 @@ export function AccountSettings() {
       toast.success(t("cloud.sync.updated"));
       await refresh();
     } else {
-      toast.error(t("cloud.sync.error"));
+      setSyncError(result.error);
+      toast.error(t("cloud.sync.error"), { description: result.error });
     }
   };
 
@@ -218,20 +282,39 @@ export function AccountSettings() {
 
   const providersAvailable =
     config?.magicLink || (config?.providers.length ?? 0) > 0;
+  const currentPeriod = new Date().toISOString().slice(0, 7);
+  const byokUsage = (settings?.byok_usage ?? []).filter(
+    (summary) => summary.periodStart === currentPeriod,
+  );
+  const byokRequests = byokUsage.reduce(
+    (total, summary) => total + summary.requests,
+    0,
+  );
+  const byokTokens = byokUsage.reduce(
+    (total, summary) => total + summary.inputTokens + summary.outputTokens,
+    0,
+  );
+  const byokEstimatedCost = byokUsage.reduce(
+    (total, summary) => total + (summary.estimatedCostMicrousd ?? 0),
+    0,
+  );
+  const hasByokCostEstimate = byokUsage.some(
+    (summary) => summary.estimatedCostMicrousd !== null,
+  );
 
   return (
-    <div className="max-w-3xl w-full mx-auto space-y-6">
-      <div className="px-4 space-y-2">
-        <div className="flex items-center gap-2">
-          <Cloud className="h-5 w-5 text-accent" />
-          <h1 className="text-lg font-medium text-text">{t("cloud.title")}</h1>
-        </div>
-        <p className="text-sm text-mid-gray">{t("cloud.description")}</p>
-        <div className="flex items-start gap-2 rounded-lg border border-accent/20 bg-accent/5 p-3 text-xs text-mid-gray">
-          <ShieldCheck className="mt-0.5 h-4 w-4 shrink-0 text-accent" />
-          <span>{t("cloud.privacy")}</span>
-        </div>
-      </div>
+    <div className="account-page space-y-6">
+      <AppPageHeader
+        eyebrow={t("cloud.eyebrow")}
+        title={t("cloud.title")}
+        description={t("cloud.description")}
+        aside={
+          <div className="flex items-start gap-2 rounded-lg border border-accent/20 bg-accent/5 p-3 text-xs text-mid-gray">
+            <ShieldCheck className="mt-0.5 h-4 w-4 shrink-0 text-accent" />
+            <span>{t("cloud.privacy")}</span>
+          </div>
+        }
+      />
 
       {account.connected ? (
         <>
@@ -272,8 +355,9 @@ export function AccountSettings() {
                     {t("cloud.usage.transformations")}
                   </p>
                   <p className="mt-1 font-medium text-text">
-                    {account.usage.transformations.used} /{" "}
-                    {account.usage.transformations.limit}
+                    {account.usage.transformations.used +
+                      account.usage.transformations.reserved}{" "}
+                    / {account.usage.transformations.limit}
                   </p>
                 </div>
                 <div>
@@ -283,7 +367,9 @@ export function AccountSettings() {
                   <p className="mt-1 font-medium text-text">
                     {t("cloud.usage.minutes", {
                       used: Math.ceil(
-                        account.usage.transcription.usedSeconds / 60,
+                        (account.usage.transcription.usedSeconds +
+                          account.usage.transcription.reservedSeconds) /
+                          60,
                       ),
                       limit: Math.ceil(
                         account.usage.transcription.limitSeconds / 60,
@@ -291,6 +377,18 @@ export function AccountSettings() {
                     })}
                   </p>
                 </div>
+              </div>
+              <div className="flex items-center justify-between border-t border-mid-gray/10 px-4 py-2 text-[11px] text-mid-gray">
+                <span>{account.usage.periodStart}</span>
+                {lastRefresh ? (
+                  <time dateTime={lastRefresh.toISOString()}>
+                    {lastRefresh.toLocaleTimeString([], {
+                      hour: "2-digit",
+                      minute: "2-digit",
+                      second: "2-digit",
+                    })}
+                  </time>
+                ) : null}
               </div>
             </SettingsGroup>
           ) : null}
@@ -331,6 +429,13 @@ export function AccountSettings() {
                     </Button>
                   )}
                 </div>
+
+                {syncError ? (
+                  <div className="rounded-lg border border-danger/20 bg-danger/5 px-3 py-2 text-xs text-danger">
+                    <span>{t("cloud.sync.error")}</span>{" "}
+                    <code className="font-mono">{syncError}</code>
+                  </div>
+                ) : null}
 
                 {sync?.status === "ready" && sync.devices.length > 0 ? (
                   <div className="space-y-2 border-t border-mid-gray/10 pt-3">
@@ -385,7 +490,7 @@ export function AccountSettings() {
                       autoCapitalize="none"
                       autoCorrect="off"
                       spellCheck={false}
-                      className="w-full rounded-lg border border-mid-gray/20 bg-background-ui px-3 py-2 font-mono text-xs text-text outline-none focus:border-accent"
+                      className="signal-input is-default font-mono text-xs"
                     />
                     <Button
                       size="sm"
@@ -474,6 +579,47 @@ export function AccountSettings() {
       ) : (
         <SettingsGroup title={t("cloud.status.disconnected")}>
           <div className="space-y-4 p-4">
+            {authPhase !== "idle" ? (
+              <div
+                className={`cloud-auth-progress is-${authPhase}`}
+                role="status"
+              >
+                {authPhase === "failed" ? (
+                  <ShieldCheck size={18} aria-hidden="true" />
+                ) : (
+                  <LoaderCircle
+                    className="animate-spin"
+                    size={18}
+                    aria-hidden="true"
+                  />
+                )}
+                <div>
+                  <strong>
+                    {authPhase === "failed"
+                      ? t("cloud.errors.auth")
+                      : t("cloud.actions.loading")}
+                  </strong>
+                  <p>
+                    {authPhase === "failed"
+                      ? t("cloud.errors.detail")
+                      : t("cloud.privacy")}
+                  </p>
+                  {authErrorCode ? <code>{authErrorCode}</code> : null}
+                </div>
+                {authPhase === "failed" ? (
+                  <Button
+                    size="sm"
+                    variant="secondary"
+                    onClick={() => {
+                      setAuthPhase("idle");
+                      setAuthErrorCode(null);
+                    }}
+                  >
+                    {t("cloud.actions.retry")}
+                  </Button>
+                ) : null}
+              </div>
+            ) : null}
             {loading ? (
               <p className="text-sm text-mid-gray">
                 {t("cloud.actions.loading")}
@@ -496,7 +642,7 @@ export function AccountSettings() {
                         value={email}
                         onChange={(event) => setEmail(event.target.value)}
                         placeholder={t("cloud.email.placeholder")}
-                        className="min-w-0 flex-1 rounded-lg border border-mid-gray/20 bg-background-ui px-3 py-2 text-sm text-text outline-none focus:border-accent"
+                        className="signal-input is-default min-w-0 flex-1"
                       />
                       <Button
                         onClick={() => void requestMagicLink()}
@@ -516,7 +662,9 @@ export function AccountSettings() {
                   </p>
                 ) : null}
 
-                <div className="grid grid-cols-2 gap-2">
+                <div
+                  className={`grid gap-2 ${config && config.providers.length > 1 ? "grid-cols-2" : "grid-cols-1"}`}
+                >
                   {config?.providers.includes("google") ? (
                     <Button
                       variant="secondary"
@@ -538,13 +686,109 @@ export function AccountSettings() {
                 </div>
               </>
             ) : (
-              <p className="text-sm text-mid-gray">
-                {t("cloud.providers.unavailable")}
-              </p>
+              <div className="account-unavailable">
+                <div className="account-unavailable-icon">
+                  <ShieldCheck size={18} aria-hidden="true" />
+                </div>
+                <div>
+                  <p className="text-sm font-medium text-text">
+                    {t("cloud.providers.unavailableTitle")}
+                  </p>
+                  <p className="mt-1 text-xs text-mid-gray">
+                    {t("cloud.providers.unavailable")}
+                  </p>
+                  <code>
+                    {authConfigError ?? "cloud_auth_provider_not_configured"}
+                  </code>
+                </div>
+                <Button
+                  variant="secondary"
+                  size="sm"
+                  onClick={() => void refresh()}
+                  disabled={loading}
+                >
+                  <RefreshCw
+                    className={`h-3.5 w-3.5 ${loading ? "animate-spin" : ""}`}
+                  />
+                  {t("cloud.actions.retry")}
+                </Button>
+              </div>
             )}
           </div>
         </SettingsGroup>
       )}
+
+      <SettingsGroup title={t("cloud.usage.byok.title")}>
+        <div className="space-y-4 p-4">
+          <p className="text-xs leading-5 text-mid-gray">
+            {t("cloud.usage.byok.description")}
+          </p>
+          {byokUsage.length > 0 ? (
+            <>
+              <div className="grid grid-cols-3 gap-3">
+                <div className="rounded-lg border border-mid-gray/10 bg-white/70 p-3 dark:bg-white/[0.04]">
+                  <p className="text-[11px] text-mid-gray">
+                    {t("cloud.usage.byok.requests")}
+                  </p>
+                  <strong className="mt-1 block text-sm text-text">
+                    {byokRequests.toLocaleString()}
+                  </strong>
+                </div>
+                <div className="rounded-lg border border-mid-gray/10 bg-white/70 p-3 dark:bg-white/[0.04]">
+                  <p className="text-[11px] text-mid-gray">
+                    {t("cloud.usage.byok.tokens")}
+                  </p>
+                  <strong className="mt-1 block text-sm text-text">
+                    {byokTokens.toLocaleString()}
+                  </strong>
+                </div>
+                <div className="rounded-lg border border-mid-gray/10 bg-white/70 p-3 dark:bg-white/[0.04]">
+                  <p className="text-[11px] text-mid-gray">
+                    {t("cloud.usage.byok.estimatedCost")}
+                  </p>
+                  <strong className="mt-1 block text-sm text-text">
+                    {hasByokCostEstimate
+                      ? (byokEstimatedCost / 1_000_000).toLocaleString(
+                          undefined,
+                          {
+                            style: "currency",
+                            currency: "USD",
+                            minimumFractionDigits: 2,
+                            maximumFractionDigits: 4,
+                          },
+                        )
+                      : "—"}
+                  </strong>
+                </div>
+              </div>
+              <div className="space-y-2 border-t border-mid-gray/10 pt-3">
+                {byokUsage.map((summary) => (
+                  <div
+                    key={`${summary.providerId}:${summary.model}`}
+                    className="flex items-center justify-between gap-3 text-xs"
+                  >
+                    <span className="truncate text-text">
+                      {summary.providerId} · {summary.model}
+                    </span>
+                    <span className="shrink-0 font-mono text-mid-gray">
+                      {(
+                        summary.inputTokens + summary.outputTokens
+                      ).toLocaleString()}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            </>
+          ) : (
+            <p className="rounded-lg border border-dashed border-mid-gray/15 px-3 py-4 text-center text-xs text-mid-gray">
+              {t("cloud.usage.byok.empty")}
+            </p>
+          )}
+          <p className="text-[10px] leading-4 text-mid-gray">
+            {t("cloud.usage.byok.disclaimer")}
+          </p>
+        </div>
+      </SettingsGroup>
     </div>
   );
 }

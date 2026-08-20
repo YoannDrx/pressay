@@ -3,6 +3,9 @@ const HISTORY_SERVICE: &str = "app.pressay.desktop.history";
 const HISTORY_MASTER_KEY_ACCOUNT: &str = "master-key-v1";
 const CLOUD_SERVICE: &str = "app.pressay.desktop.cloud";
 const CLOUD_BEARER_ACCOUNT: &str = "bearer-token-v1";
+const CLOUD_OAUTH_TOKEN_SET_ACCOUNT: &str = "oauth-token-set-v1";
+#[cfg_attr(test, allow(dead_code))]
+const CLOUD_PENDING_OAUTH_ACCOUNT: &str = "pending-oauth-v1";
 const CLOUD_ENTITLEMENT_ACCOUNT: &str = "entitlement-snapshot-v1";
 const CLOUD_SYNC_DEVICE_KEY_PREFIX: &str = "sync-device-private-key-v1";
 const CLOUD_SYNC_ACCOUNT_KEY_PREFIX: &str = "sync-account-key-v1";
@@ -36,6 +39,21 @@ fn validate_cloud_bearer_token(token: &str) -> Result<(), String> {
     Ok(())
 }
 
+fn validate_cloud_oauth_token_set(token_set: &str) -> Result<(), String> {
+    if !(64..=16_384).contains(&token_set.len()) || token_set.chars().any(char::is_control) {
+        return Err("The Cloud OAuth session has an invalid format".to_string());
+    }
+    Ok(())
+}
+
+#[cfg_attr(test, allow(dead_code))]
+fn validate_pending_cloud_oauth(pending: &str) -> Result<(), String> {
+    if !(96..=2048).contains(&pending.len()) || pending.chars().any(char::is_control) {
+        return Err("The pending Cloud OAuth request has an invalid format".to_string());
+    }
+    Ok(())
+}
+
 fn validate_cloud_entitlement_snapshot(token: &str) -> Result<(), String> {
     if !(64..=8192).contains(&token.len())
         || token.matches('.').count() != 2
@@ -53,8 +71,9 @@ mod platform {
     use super::{
         cloud_sync_account, validate_cloud_bearer_token, validate_cloud_entitlement_snapshot,
         validate_provider_id, BYOK_SERVICE, CLOUD_BEARER_ACCOUNT, CLOUD_ENTITLEMENT_ACCOUNT,
-        CLOUD_SERVICE, CLOUD_SYNC_ACCOUNT_KEY_PREFIX, CLOUD_SYNC_DEVICE_KEY_PREFIX,
-        HISTORY_MASTER_KEY_ACCOUNT, HISTORY_SERVICE,
+        CLOUD_OAUTH_TOKEN_SET_ACCOUNT, CLOUD_PENDING_OAUTH_ACCOUNT, CLOUD_SERVICE,
+        CLOUD_SYNC_ACCOUNT_KEY_PREFIX, CLOUD_SYNC_DEVICE_KEY_PREFIX, HISTORY_MASTER_KEY_ACCOUNT,
+        HISTORY_SERVICE,
     };
     use keyring_core::{Entry, Error};
     use std::sync::OnceLock;
@@ -107,6 +126,45 @@ mod platform {
             .map_err(|_| "Unable to save the API key in the macOS Keychain".to_string())
     }
 
+    /// Copies the OpenAI key from the former native Pressay/Whisper Keychain
+    /// services. The legacy credential is intentionally retained so an older
+    /// installed build keeps working and the migration remains reversible.
+    pub fn migrate_legacy_openai_api_key() -> Result<bool, String> {
+        if get_provider_api_key("openai")?.is_some() {
+            return Ok(false);
+        }
+        for service in ["fr.yodev.pressay", "fr.yodev.whisper", "com.hyrak.whisper"] {
+            match entry(service, "openai-api-key")?.get_password() {
+                Ok(secret) if !secret.trim().is_empty() => {
+                    set_provider_api_key("openai", &secret)?;
+                    return Ok(true);
+                }
+                Ok(_) | Err(Error::NoEntry) => {}
+                Err(_) => return Err("Unable to read the legacy API key from Keychain".to_string()),
+            }
+        }
+        Ok(false)
+    }
+
+    /// Copies the former native app OAuth token set into the current service.
+    /// The source entry is retained so downgrading remains possible.
+    pub fn migrate_legacy_cloud_oauth_token_set() -> Result<bool, String> {
+        if get_cloud_oauth_token_set()?.is_some() {
+            return Ok(false);
+        }
+        match entry("fr.yodev.pressay", "pressay-account-oauth-tokens-v1")?.get_password() {
+            Ok(token_set) => {
+                super::validate_cloud_oauth_token_set(&token_set)?;
+                set_cloud_oauth_token_set(&token_set)?;
+                Ok(true)
+            }
+            Err(Error::NoEntry) => Ok(false),
+            Err(_) => {
+                Err("Unable to read the legacy Cloud OAuth session from Keychain".to_string())
+            }
+        }
+    }
+
     pub fn get_history_master_key() -> Result<Option<[u8; 32]>, String> {
         match entry(HISTORY_SERVICE, HISTORY_MASTER_KEY_ACCOUNT)?.get_secret() {
             Ok(secret) => secret
@@ -153,6 +211,67 @@ mod platform {
         match entry(CLOUD_SERVICE, CLOUD_BEARER_ACCOUNT)?.delete_credential() {
             Ok(()) | Err(Error::NoEntry) => Ok(()),
             Err(_) => Err("Unable to delete the Cloud session from macOS Keychain".to_string()),
+        }
+    }
+
+    pub fn get_cloud_oauth_token_set() -> Result<Option<String>, String> {
+        match entry(CLOUD_SERVICE, CLOUD_OAUTH_TOKEN_SET_ACCOUNT)?.get_password() {
+            Ok(token_set) => {
+                super::validate_cloud_oauth_token_set(&token_set)?;
+                Ok(Some(token_set))
+            }
+            Err(Error::NoEntry) => Ok(None),
+            Err(_) => Err("Unable to read the Cloud OAuth session from macOS Keychain".to_string()),
+        }
+    }
+
+    pub fn set_cloud_oauth_token_set(token_set: &str) -> Result<(), String> {
+        super::validate_cloud_oauth_token_set(token_set)?;
+        entry(CLOUD_SERVICE, CLOUD_OAUTH_TOKEN_SET_ACCOUNT)?
+            .set_password(token_set)
+            .map_err(|_| "Unable to save the Cloud OAuth session in macOS Keychain".to_string())
+    }
+
+    pub fn delete_cloud_oauth_token_set() -> Result<(), String> {
+        match entry(CLOUD_SERVICE, CLOUD_OAUTH_TOKEN_SET_ACCOUNT)?.delete_credential() {
+            Ok(()) | Err(Error::NoEntry) => Ok(()),
+            Err(_) => {
+                Err("Unable to delete the Cloud OAuth session from macOS Keychain".to_string())
+            }
+        }
+    }
+
+    #[cfg_attr(test, allow(dead_code))]
+    pub fn get_pending_cloud_oauth() -> Result<Option<String>, String> {
+        match entry(CLOUD_SERVICE, CLOUD_PENDING_OAUTH_ACCOUNT)?.get_password() {
+            Ok(pending) => {
+                super::validate_pending_cloud_oauth(&pending)?;
+                Ok(Some(pending))
+            }
+            Err(Error::NoEntry) => Ok(None),
+            Err(_) => Err(
+                "Unable to read the pending Cloud OAuth request from macOS Keychain".to_string(),
+            ),
+        }
+    }
+
+    #[cfg_attr(test, allow(dead_code))]
+    pub fn set_pending_cloud_oauth(pending: &str) -> Result<(), String> {
+        super::validate_pending_cloud_oauth(pending)?;
+        entry(CLOUD_SERVICE, CLOUD_PENDING_OAUTH_ACCOUNT)?
+            .set_password(pending)
+            .map_err(|_| {
+                "Unable to save the pending Cloud OAuth request in macOS Keychain".to_string()
+            })
+    }
+
+    #[cfg_attr(test, allow(dead_code))]
+    pub fn delete_pending_cloud_oauth() -> Result<(), String> {
+        match entry(CLOUD_SERVICE, CLOUD_PENDING_OAUTH_ACCOUNT)?.delete_credential() {
+            Ok(()) | Err(Error::NoEntry) => Ok(()),
+            Err(_) => Err(
+                "Unable to delete the pending Cloud OAuth request from macOS Keychain".to_string(),
+            ),
         }
     }
 
@@ -261,6 +380,14 @@ mod platform {
         Err("Secure BYOK storage is only available in the supported macOS build".to_string())
     }
 
+    pub fn migrate_legacy_openai_api_key() -> Result<bool, String> {
+        Ok(false)
+    }
+
+    pub fn migrate_legacy_cloud_oauth_token_set() -> Result<bool, String> {
+        Ok(false)
+    }
+
     pub fn get_history_master_key() -> Result<Option<[u8; 32]>, String> {
         Err("Encrypted history is only available in the supported macOS build".to_string())
     }
@@ -284,6 +411,53 @@ mod platform {
 
     pub fn delete_cloud_bearer_token() -> Result<(), String> {
         Err("Secure Cloud sessions are only available in the supported macOS build".to_string())
+    }
+
+    pub fn get_cloud_oauth_token_set() -> Result<Option<String>, String> {
+        Err(
+            "Secure Cloud OAuth sessions are only available in the supported macOS build"
+                .to_string(),
+        )
+    }
+
+    pub fn set_cloud_oauth_token_set(token_set: &str) -> Result<(), String> {
+        super::validate_cloud_oauth_token_set(token_set)?;
+        Err(
+            "Secure Cloud OAuth sessions are only available in the supported macOS build"
+                .to_string(),
+        )
+    }
+
+    pub fn delete_cloud_oauth_token_set() -> Result<(), String> {
+        Err(
+            "Secure Cloud OAuth sessions are only available in the supported macOS build"
+                .to_string(),
+        )
+    }
+
+    #[cfg_attr(test, allow(dead_code))]
+    pub fn get_pending_cloud_oauth() -> Result<Option<String>, String> {
+        Err(
+            "Pending Cloud OAuth requests are only available in the supported macOS build"
+                .to_string(),
+        )
+    }
+
+    #[cfg_attr(test, allow(dead_code))]
+    pub fn set_pending_cloud_oauth(pending: &str) -> Result<(), String> {
+        super::validate_pending_cloud_oauth(pending)?;
+        Err(
+            "Pending Cloud OAuth requests are only available in the supported macOS build"
+                .to_string(),
+        )
+    }
+
+    #[cfg_attr(test, allow(dead_code))]
+    pub fn delete_pending_cloud_oauth() -> Result<(), String> {
+        Err(
+            "Pending Cloud OAuth requests are only available in the supported macOS build"
+                .to_string(),
+        )
     }
 
     pub fn get_cloud_entitlement_snapshot() -> Result<Option<String>, String> {
@@ -317,12 +491,14 @@ mod platform {
 }
 
 pub use platform::{
-    delete_cloud_bearer_token, delete_cloud_entitlement_snapshot, delete_cloud_sync_keys,
-    delete_history_master_key, get_cloud_bearer_token, get_cloud_entitlement_snapshot,
+    delete_cloud_bearer_token, delete_cloud_entitlement_snapshot, delete_cloud_oauth_token_set,
+    delete_cloud_sync_keys, delete_history_master_key, delete_pending_cloud_oauth,
+    get_cloud_bearer_token, get_cloud_entitlement_snapshot, get_cloud_oauth_token_set,
     get_cloud_sync_account_key, get_cloud_sync_device_key, get_history_master_key,
-    get_provider_api_key, set_cloud_bearer_token, set_cloud_entitlement_snapshot,
-    set_cloud_sync_account_key, set_cloud_sync_device_key, set_history_master_key,
-    set_provider_api_key,
+    get_pending_cloud_oauth, get_provider_api_key, migrate_legacy_cloud_oauth_token_set,
+    migrate_legacy_openai_api_key, set_cloud_bearer_token, set_cloud_entitlement_snapshot,
+    set_cloud_oauth_token_set, set_cloud_sync_account_key, set_cloud_sync_device_key,
+    set_history_master_key, set_pending_cloud_oauth, set_provider_api_key,
 };
 
 pub fn get_or_create_history_master_key() -> Result<[u8; 32], String> {

@@ -7,6 +7,10 @@ pub mod transcription;
 
 use crate::settings::{get_settings, write_settings, AppSettings, LogLevel};
 use crate::utils::cancel_current_operation;
+use serde::{Deserialize, Serialize};
+use specta::Type;
+use std::path::Path;
+use std::process::Command;
 use tauri::{AppHandle, Manager};
 use tauri_plugin_opener::OpenerExt;
 
@@ -31,6 +35,87 @@ pub fn get_app_dir_path(app: AppHandle) -> Result<String, String> {
     Ok(app_data_dir.to_string_lossy().to_string())
 }
 
+#[derive(Clone, Debug, Deserialize, PartialEq, Serialize, Type)]
+pub struct LocalReadiness {
+    pub architecture: String,
+    pub chip: Option<String>,
+    pub memory_bytes: Option<u64>,
+    pub available_storage_bytes: Option<u64>,
+    pub macos_version: Option<String>,
+    pub supported: bool,
+    pub recommended_preset: String,
+}
+
+fn command_output(program: &str, args: &[&str]) -> Option<String> {
+    let output = Command::new(program).args(args).output().ok()?;
+    output
+        .status
+        .success()
+        .then(|| String::from_utf8_lossy(&output.stdout).trim().to_string())
+        .filter(|value| !value.is_empty())
+}
+
+fn available_storage_bytes(path: &Path) -> Option<u64> {
+    let output = Command::new("df").arg("-k").arg(path).output().ok()?;
+    if !output.status.success() {
+        return None;
+    }
+    let line = String::from_utf8_lossy(&output.stdout)
+        .lines()
+        .rfind(|line| !line.trim().is_empty())?
+        .to_string();
+    line.split_whitespace()
+        .nth(3)?
+        .parse::<u64>()
+        .ok()
+        .and_then(|kilobytes| kilobytes.checked_mul(1024))
+}
+
+fn recommended_preset(memory_bytes: Option<u64>) -> &'static str {
+    match memory_bytes {
+        Some(bytes) if bytes < 12 * 1024 * 1024 * 1024 => "fast",
+        Some(bytes) if bytes < 24 * 1024 * 1024 * 1024 => "polyglot",
+        Some(_) => "precise",
+        None => "fast",
+    }
+}
+
+#[tauri::command]
+#[specta::specta]
+pub fn get_local_readiness(app: AppHandle) -> LocalReadiness {
+    let architecture = std::env::consts::ARCH.to_string();
+    let app_data_dir = crate::portable::app_data_dir(&app).ok();
+
+    #[cfg(target_os = "macos")]
+    let (chip, memory_bytes, macos_version) = (
+        command_output("/usr/sbin/sysctl", &["-n", "machdep.cpu.brand_string"]),
+        command_output("/usr/sbin/sysctl", &["-n", "hw.memsize"])
+            .and_then(|value| value.parse::<u64>().ok()),
+        command_output("/usr/bin/sw_vers", &["-productVersion"]),
+    );
+    #[cfg(not(target_os = "macos"))]
+    let (chip, memory_bytes, macos_version): (Option<String>, Option<u64>, Option<String>) =
+        (None, None, None);
+
+    let supported = cfg!(all(target_os = "macos", target_arch = "aarch64"))
+        && macos_version
+            .as_deref()
+            .and_then(|version| version.split('.').next())
+            .and_then(|major| major.parse::<u32>().ok())
+            .is_some_and(|major| major >= 14);
+    let recommended_preset = recommended_preset(memory_bytes).to_string();
+
+    LocalReadiness {
+        architecture,
+        chip,
+        memory_bytes,
+        available_storage_bytes: app_data_dir.as_deref().and_then(available_storage_bytes),
+        macos_version,
+        supported,
+        recommended_preset,
+    }
+}
+
 #[tauri::command]
 #[specta::specta]
 pub fn get_app_settings(app: AppHandle) -> Result<AppSettings, String> {
@@ -39,8 +124,35 @@ pub fn get_app_settings(app: AppHandle) -> Result<AppSettings, String> {
 
 #[tauri::command]
 #[specta::specta]
+pub fn complete_onboarding(app: AppHandle) -> Result<(), String> {
+    let mut settings = get_settings(&app);
+    if !settings.selected_model.trim().is_empty() {
+        settings.onboarding_completed = true;
+        write_settings(&app, settings);
+        Ok(())
+    } else {
+        Err("onboarding_model_required".to_string())
+    }
+}
+
+#[tauri::command]
+#[specta::specta]
 pub fn get_default_settings() -> Result<AppSettings, String> {
     Ok(crate::settings::get_default_settings())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::recommended_preset;
+
+    #[test]
+    fn readiness_recommendation_respects_launch_memory_targets() {
+        const GIB: u64 = 1024 * 1024 * 1024;
+        assert_eq!(recommended_preset(None), "fast");
+        assert_eq!(recommended_preset(Some(8 * GIB)), "fast");
+        assert_eq!(recommended_preset(Some(16 * GIB)), "polyglot");
+        assert_eq!(recommended_preset(Some(32 * GIB)), "precise");
+    }
 }
 
 #[tauri::command]
@@ -166,6 +278,22 @@ pub fn initialize_enigo(app: AppHandle) -> Result<(), String> {
 /// Marker state to track if shortcuts have been initialized.
 pub struct ShortcutsInitialized;
 
+#[cfg(target_os = "macos")]
+fn accessibility_permission_granted() -> bool {
+    #[link(name = "ApplicationServices", kind = "framework")]
+    unsafe extern "C" {
+        fn AXIsProcessTrusted() -> u8;
+    }
+
+    // SAFETY: This parameterless system query has no ownership side effects.
+    unsafe { AXIsProcessTrusted() != 0 }
+}
+
+#[cfg(not(target_os = "macos"))]
+fn accessibility_permission_granted() -> bool {
+    true
+}
+
 /// Initialize keyboard shortcuts.
 /// On macOS, this should be called after accessibility permissions are granted.
 /// This is idempotent - calling it multiple times is safe.
@@ -178,8 +306,14 @@ pub fn initialize_shortcuts(app: AppHandle) -> Result<(), String> {
         return Ok(());
     }
 
-    // Initialize shortcuts
-    crate::shortcut::init_shortcuts(&app);
+    if !accessibility_permission_granted() {
+        log::warn!("Shortcut initialization deferred until accessibility permission is granted");
+        return Err("accessibility_permission_required".to_string());
+    }
+
+    // Do not install the marker when initialization failed. This makes the
+    // command genuinely retryable after the user grants the macOS permission.
+    crate::shortcut::init_shortcuts(&app)?;
 
     // Mark as initialized before reconciling the macOS Secure Input fallback.
     app.manage(ShortcutsInitialized);

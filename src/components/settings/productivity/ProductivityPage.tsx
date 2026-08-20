@@ -1,4 +1,5 @@
 import type { ReactNode } from "react";
+import { AppPageHeader } from "@/components/layout";
 
 interface ProductivityPageProps {
   eyebrow: string;
@@ -16,14 +17,12 @@ export const ProductivityPage = ({
   children,
 }: ProductivityPageProps) => (
   <div className="product-page productivity-page">
-    <header className="productivity-header">
-      <div>
-        <p className="product-eyebrow">{eyebrow}</p>
-        <h1>{title}</h1>
-        <p>{description}</p>
-      </div>
-      {action}
-    </header>
+    <AppPageHeader
+      eyebrow={eyebrow}
+      title={title}
+      description={description}
+      action={action}
+    />
     {children}
   </div>
 );

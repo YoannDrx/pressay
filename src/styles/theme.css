@@ -4,15 +4,29 @@
   /* Palette source of truth. Each themed color is defined once as a
      light/dark pair; the active tokens below and the `data-theme` overrides
      in App.css reference these, so a hex value lives in exactly one place. */
-  --light-color-text: #111318;
-  --light-color-background: #f7f7f4;
-  --light-color-logo-primary: #5668ff;
-  --light-color-logo-stroke: #111318;
+  --light-color-text: #17191c;
+  --light-color-background: #f3f6fa;
+  --light-color-logo-primary: #2e9bff;
+  --light-color-logo-stroke: #17191c;
+  --light-color-surface: #ffffff;
+  --light-color-surface-raised: #f7f9fc;
+  --light-color-border: #dfe5ed;
+  --light-color-border-subtle: #e9edf3;
+  --light-color-border-strong: #cbd4df;
+  --light-color-muted: #5f646b;
+  --light-color-success: #168b50;
 
-  --dark-color-text: #f3f4f6;
-  --dark-color-background: #0a0b0d;
-  --dark-color-logo-primary: #5668ff;
-  --dark-color-logo-stroke: #f3f4f6;
+  --dark-color-text: #f4f5f2;
+  --dark-color-background: #0c0e11;
+  --dark-color-logo-primary: #64c7ff;
+  --dark-color-logo-stroke: #f4f5f2;
+  --dark-color-surface: #14171b;
+  --dark-color-surface-raised: #1c2025;
+  --dark-color-border: #2a2f35;
+  --dark-color-border-subtle: #22272d;
+  --dark-color-border-strong: #3b434d;
+  --dark-color-muted: #a8aeb6;
+  --dark-color-success: #55d58b;
 
   /* Semantic status colors. First used by SecureInputWarning; intended to
      replace the ad-hoc yellow-500/red-500 usages (e.g. ui/Alert.tsx) over
@@ -25,14 +39,23 @@
   /* Tokens that do not change between light and dark */
   --color-background-ui: #121419;
   --color-text-stroke: #f3f4f6;
-  --color-mid-gray: #9298a3;
-  --color-muted: #9298a3;
-  --color-accent: #5668ff;
-  --color-surface: #ffffff;
-  --color-surface-raised: #ffffff;
-  --color-border: #d9dbe1;
-  --color-success: #16865c;
-  --color-focus-ring: #5668ff;
+  --color-mid-gray: #858b93;
+  --color-muted: var(--light-color-muted);
+  --color-accent: #2e9bff;
+  --color-signal-transform: #715cff;
+  --color-signal-action: #b640ff;
+  --color-route-local: #168b50;
+  --color-route-apple: #59636f;
+  --color-route-byok: #715cff;
+  --color-route-cloud: #b06a00;
+  --color-surface: var(--light-color-surface);
+  --color-surface-raised: var(--light-color-surface-raised);
+  --color-surface-base: var(--light-color-background);
+  --color-border: var(--light-color-border);
+  --color-border-subtle: var(--light-color-border-subtle);
+  --color-border-strong: var(--light-color-border-strong);
+  --color-success: var(--light-color-success);
+  --color-focus-ring: #2e9bff;
 
   /* Active palette — defaults to light, follows the OS via the media query
      below, or is forced by `data-theme` (see the overrides below). */
@@ -52,10 +75,21 @@
     --color-logo-stroke: var(--dark-color-logo-stroke);
     --color-warning: var(--dark-color-warning);
     --color-error: var(--dark-color-error);
-    --color-surface: #121419;
-    --color-surface-raised: #181b22;
-    --color-border: #262a33;
-    --color-success: #4ac28b;
+    --color-muted: var(--dark-color-muted);
+    --color-accent: #64c7ff;
+    --color-signal-transform: #9a8cff;
+    --color-signal-action: #d37bff;
+    --color-route-local: #55d58b;
+    --color-route-apple: #c9d0d8;
+    --color-route-byok: #9a8cff;
+    --color-route-cloud: #ffc05c;
+    --color-surface: var(--dark-color-surface);
+    --color-surface-raised: var(--dark-color-surface-raised);
+    --color-surface-base: var(--dark-color-background);
+    --color-border: var(--dark-color-border);
+    --color-border-subtle: var(--dark-color-border-subtle);
+    --color-border-strong: var(--dark-color-border-strong);
+    --color-success: var(--dark-color-success);
   }
 }
 
@@ -76,10 +110,21 @@
   --color-logo-stroke: var(--light-color-logo-stroke);
   --color-warning: var(--light-color-warning);
   --color-error: var(--light-color-error);
-  --color-surface: #ffffff;
-  --color-surface-raised: #ffffff;
-  --color-border: #d9dbe1;
-  --color-success: #16865c;
+  --color-muted: var(--light-color-muted);
+  --color-accent: #2e9bff;
+  --color-signal-transform: #715cff;
+  --color-signal-action: #b640ff;
+  --color-route-local: #168b50;
+  --color-route-apple: #59636f;
+  --color-route-byok: #715cff;
+  --color-route-cloud: #b06a00;
+  --color-surface: var(--light-color-surface);
+  --color-surface-raised: var(--light-color-surface-raised);
+  --color-surface-base: var(--light-color-background);
+  --color-border: var(--light-color-border);
+  --color-border-subtle: var(--light-color-border-subtle);
+  --color-border-strong: var(--light-color-border-strong);
+  --color-success: var(--light-color-success);
 }
 
 :root[data-theme="dark"] {
@@ -89,8 +134,19 @@
   --color-logo-stroke: var(--dark-color-logo-stroke);
   --color-warning: var(--dark-color-warning);
   --color-error: var(--dark-color-error);
-  --color-surface: #121419;
-  --color-surface-raised: #181b22;
-  --color-border: #262a33;
-  --color-success: #4ac28b;
+  --color-muted: var(--dark-color-muted);
+  --color-accent: #64c7ff;
+  --color-signal-transform: #9a8cff;
+  --color-signal-action: #d37bff;
+  --color-route-local: #55d58b;
+  --color-route-apple: #c9d0d8;
+  --color-route-byok: #9a8cff;
+  --color-route-cloud: #ffc05c;
+  --color-surface: var(--dark-color-surface);
+  --color-surface-raised: var(--dark-color-surface-raised);
+  --color-surface-base: var(--dark-color-background);
+  --color-border: var(--dark-color-border);
+  --color-border-subtle: var(--dark-color-border-subtle);
+  --color-border-strong: var(--dark-color-border-strong);
+  --color-success: var(--dark-color-success);
 }

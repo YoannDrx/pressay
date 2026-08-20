@@ -1,3 +1,4 @@
+use crate::capabilities::{require_capability, ProductCapability};
 use crate::productivity::{
     is_builtin_mode_id, merge_portable_bundle, portable_productivity_bundle, validate_dictionary,
     validate_mode, validate_portable_bundle, validate_profile, AppProfile, CorrectionStatus,
@@ -183,6 +184,7 @@ pub fn get_correction_status(app: AppHandle) -> CorrectionStatus {
 #[tauri::command]
 #[specta::specta]
 pub fn arm_voice_correction(app: AppHandle) -> Result<CorrectionStatus, String> {
+    require_capability(&app, ProductCapability::VoiceCorrection)?;
     let settings = get_settings(&app);
     let provider = settings
         .active_post_process_provider()
@@ -225,6 +227,7 @@ pub fn get_productivity_config(app: AppHandle) -> ProductivityConfig {
 #[tauri::command]
 #[specta::specta]
 pub fn upsert_pressay_mode(app: AppHandle, mode: PressayMode) -> Result<(), String> {
+    require_capability(&app, ProductCapability::CustomModes)?;
     validate_mode(&mode)?;
     if mode.is_builtin || is_builtin_mode_id(&mode.id) {
         return Err("Built-in modes cannot be overwritten".to_string());
@@ -246,6 +249,7 @@ pub fn upsert_pressay_mode(app: AppHandle, mode: PressayMode) -> Result<(), Stri
 #[tauri::command]
 #[specta::specta]
 pub fn delete_pressay_mode(app: AppHandle, mode_id: String) -> Result<(), String> {
+    require_capability(&app, ProductCapability::CustomModes)?;
     if is_builtin_mode_id(&mode_id) {
         return Err("Built-in modes cannot be deleted".to_string());
     }
@@ -274,6 +278,7 @@ pub fn set_active_pressay_mode(app: AppHandle, mode_id: String) -> Result<(), St
     }
     settings.active_mode_id = mode_id;
     write_settings(&app, settings);
+    crate::tray::update_tray_menu(&app, None);
     Ok(())
 }
 
@@ -307,6 +312,7 @@ pub fn replace_dictionary_entries(
 #[tauri::command]
 #[specta::specta]
 pub fn upsert_app_profile(app: AppHandle, profile: AppProfile) -> Result<(), String> {
+    require_capability(&app, ProductCapability::AppProfiles)?;
     let mut settings = get_settings(&app);
     let mode_ids = settings
         .pressay_modes
@@ -346,6 +352,7 @@ pub fn upsert_app_profile(app: AppHandle, profile: AppProfile) -> Result<(), Str
 #[tauri::command]
 #[specta::specta]
 pub fn delete_app_profile(app: AppHandle, profile_id: String) -> Result<(), String> {
+    require_capability(&app, ProductCapability::AppProfiles)?;
     let mut settings = get_settings(&app);
     let previous_len = settings.app_profiles.len();
     settings

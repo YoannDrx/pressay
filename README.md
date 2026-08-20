@@ -27,6 +27,9 @@ Mac App Store distribution are enabled.
 
 Do not ship the current `main` branch as a commercial release. Release gates and
 the distribution split are documented in [docs/RELEASES.md](docs/RELEASES.md).
+The audited product direction, feature ledger, Signal OS design specification,
+Voice Bar contract, and prioritized implementation backlog are indexed in the
+[Voice OS local investigation](docs/voice-os/README.md).
 
 ## Development
 

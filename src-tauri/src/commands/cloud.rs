@@ -1,6 +1,7 @@
 use tauri::{AppHandle, Manager};
 use tauri_plugin_opener::OpenerExt;
 
+use crate::capabilities::{require_capability, ProductCapability};
 use crate::cloud::{
     self, CloudAccountSnapshot, CloudAuthConfig, CloudAuthProvider, CloudAuthRuntime,
     CloudSyncRecoveryCode, CloudSyncSnapshot,
@@ -39,9 +40,9 @@ pub async fn begin_cloud_social_login(
     provider: CloudAuthProvider,
 ) -> Result<(), String> {
     let runtime = app.state::<CloudAuthRuntime>();
-    let state = runtime.begin().map_err(public_error)?;
+    let (state, verifier) = runtime.begin_oauth().map_err(public_error)?;
     let authorization_url =
-        match cloud::social_login_url(&get_settings(&app), provider, &state).await {
+        match cloud::social_login_url(&get_settings(&app), provider, &state, &verifier).await {
             Ok(url) => url,
             Err(error) => {
                 runtime.clear();
@@ -62,7 +63,9 @@ pub async fn begin_cloud_social_login(
 #[tauri::command]
 #[specta::specta]
 pub async fn get_cloud_account_snapshot(app: AppHandle) -> Result<CloudAccountSnapshot, String> {
-    cloud::account_snapshot(&app).await.map_err(public_error)
+    let snapshot = cloud::account_snapshot(&app).await.map_err(public_error)?;
+    crate::tray::update_tray_menu(&app, None);
+    Ok(snapshot)
 }
 
 #[tauri::command]
@@ -86,9 +89,11 @@ pub async fn get_cloud_sync_snapshot(app: AppHandle) -> Result<CloudSyncSnapshot
 #[tauri::command]
 #[specta::specta]
 pub async fn initialize_cloud_sync(app: AppHandle) -> Result<CloudSyncSnapshot, String> {
-    cloud::initialize_cloud_sync(&app)
-        .await
-        .map_err(public_error)
+    require_capability(&app, ProductCapability::EncryptedSync)?;
+    cloud::initialize_cloud_sync(&app).await.map_err(|error| {
+        log::warn!("Cloud sync initialization failed: {}", error.code);
+        public_error(error)
+    })
 }
 
 #[tauri::command]
@@ -97,6 +102,7 @@ pub async fn approve_cloud_sync_device(
     app: AppHandle,
     target_device_id: String,
 ) -> Result<CloudSyncSnapshot, String> {
+    require_capability(&app, ProductCapability::EncryptedSync)?;
     cloud::approve_cloud_sync_device(&app, &target_device_id)
         .await
         .map_err(public_error)
@@ -107,6 +113,7 @@ pub async fn approve_cloud_sync_device(
 pub async fn create_cloud_sync_recovery_code(
     app: AppHandle,
 ) -> Result<CloudSyncRecoveryCode, String> {
+    require_capability(&app, ProductCapability::EncryptedSync)?;
     cloud::create_cloud_sync_recovery_code(&app)
         .await
         .map_err(public_error)
@@ -118,6 +125,7 @@ pub async fn recover_cloud_sync(
     app: AppHandle,
     recovery_code: String,
 ) -> Result<CloudSyncSnapshot, String> {
+    require_capability(&app, ProductCapability::EncryptedSync)?;
     cloud::recover_cloud_sync(&app, recovery_code.trim())
         .await
         .map_err(public_error)
@@ -126,6 +134,7 @@ pub async fn recover_cloud_sync(
 #[tauri::command]
 #[specta::specta]
 pub async fn run_cloud_sync(app: AppHandle) -> Result<CloudSyncRunReport, String> {
+    require_capability(&app, ProductCapability::EncryptedSync)?;
     crate::cloud_sync::run_cloud_sync(&app)
         .await
         .map_err(public_error)
@@ -137,6 +146,7 @@ pub async fn retry_cloud_transcription(
     app: AppHandle,
     request_id: String,
 ) -> Result<crate::cloud::CloudTranscriptionResponse, String> {
+    require_capability(&app, ProductCapability::PressayCloud)?;
     crate::cloud_transcription::retry_with_cloud(&app, &request_id)
         .await
         .map_err(public_error)

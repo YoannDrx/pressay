@@ -124,22 +124,22 @@ const ModelCard: React.FC<ModelCardProps> = ({
   const pressayPreset = getPressayPreset(model.id);
 
   const baseClasses =
-    "flex flex-col rounded-xl px-4 py-3 gap-2 text-left transition-all duration-200";
+    "model-card flex flex-col rounded-xl px-4 py-3 gap-2 text-left transition-all duration-200";
 
   const getVariantClasses = () => {
     if (status === "active") {
-      return "border-2 border-logo-primary/50 bg-logo-primary/10";
+      return "is-active";
     }
     if (isFeatured) {
-      return "border-2 border-logo-primary/25 bg-logo-primary/5";
+      return "is-featured";
     }
-    return "border-2 border-mid-gray/20";
+    return "";
   };
 
   const getInteractiveClasses = () => {
     if (!isClickable) return "";
     if (disabled) return "opacity-50 cursor-not-allowed";
-    return "cursor-pointer hover:border-logo-primary/50 hover:bg-logo-primary/5 hover:shadow-lg hover:scale-[1.01] active:scale-[0.99] group";
+    return "is-interactive cursor-pointer active:scale-[0.995] group";
   };
 
   const handleClick = () => {
@@ -187,8 +187,20 @@ const ModelCard: React.FC<ModelCardProps> = ({
                 {t(`modelSelector.presets.${pressayPreset}`)}
               </Badge>
             )}
-            {showRecommended && model.is_recommended && (
-              <Badge variant="primary">{t("onboarding.recommended")}</Badge>
+            {showRecommended &&
+              model.is_recommended &&
+              pressayPreset === "fast" && (
+                <Badge variant="primary">{t("onboarding.recommended")}</Badge>
+              )}
+            {pressayPreset === "polyglot" && (
+              <Badge variant="secondary">
+                {t("modelSelector.capabilities.translate")}
+              </Badge>
+            )}
+            {pressayPreset === "precise" && (
+              <Badge variant="secondary">
+                {t("onboarding.modelCard.accuracy")}
+              </Badge>
             )}
             {status === "active" && (
               <Badge variant="primary">

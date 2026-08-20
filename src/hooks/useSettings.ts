@@ -1,5 +1,6 @@
 import { useEffect } from "react";
 import { useSettingsStore } from "../stores/settingsStore";
+import type { PostProcessProviderConnection } from "../stores/settingsStore";
 import type { AppSettings as Settings, AudioDevice } from "@/bindings";
 
 interface UseSettingsReturn {
@@ -11,6 +12,7 @@ interface UseSettingsReturn {
   outputDevices: AudioDevice[];
   audioFeedbackEnabled: boolean;
   postProcessModelOptions: Record<string, string[]>;
+  postProcessProviderConnections: Record<string, PostProcessProviderConnection>;
 
   // Actions
   updateSetting: <K extends keyof Settings>(
@@ -61,6 +63,7 @@ export const useSettings = (): UseSettingsReturn => {
     outputDevices: store.outputDevices,
     audioFeedbackEnabled: store.settings?.audio_feedback || false,
     postProcessModelOptions: store.postProcessModelOptions,
+    postProcessProviderConnections: store.postProcessProviderConnections,
     updateSetting: store.updateSetting,
     resetSetting: store.resetSetting,
     refreshSettings: store.refreshSettings,

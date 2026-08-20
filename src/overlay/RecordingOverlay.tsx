@@ -8,9 +8,11 @@ import type {
   StreamPhaseEvent,
   StreamTextEvent,
   StreamWorkKind,
+  VoiceSurfaceState,
 } from "@/bindings";
 import i18n, { syncLanguageFromSettings } from "@/i18n";
 import { getLanguageDirection } from "@/lib/utils/rtl";
+import { INITIAL_VOICE_SURFACE_STATE } from "@/lib/voiceSurface";
 
 type OverlayState = "recording" | "streaming" | "transcribing" | "processing";
 
@@ -22,6 +24,9 @@ const RecordingOverlay: React.FC = () => {
   const { t } = useTranslation();
   const [isVisible, setIsVisible] = useState(false);
   const [state, setState] = useState<OverlayState>("recording");
+  const [voiceSurface, setVoiceSurface] = useState<VoiceSurfaceState>(
+    INITIAL_VOICE_SURFACE_STATE,
+  );
   // `Stream::play()` returning does not mean hardware callbacks are flowing.
   // Stay visually in an arming state until the backend processes the first
   // actual microphone sample chunk.
@@ -40,6 +45,7 @@ const RecordingOverlay: React.FC = () => {
   // Overlay placement (top vs bottom of the screen). The Live panel grows downward
   // from a top overlay (oldest line under the pill) and upward from a bottom one.
   const [position, setPosition] = useState<"top" | "bottom">("bottom");
+  const [overlayStyle, setOverlayStyle] = useState<"minimal" | "live">("live");
   // True once live text overflows the cap. A top overlay fades its top edge only
   // while overflowing, so the resting first line stays crisp flush under the pill.
   const [overflowing, setOverflowing] = useState(false);
@@ -51,8 +57,16 @@ const RecordingOverlay: React.FC = () => {
   const capRef = useRef<HTMLDivElement>(null);
   const pinnedRef = useRef(true);
   const direction = getLanguageDirection(i18n.language);
+  const routeLabel =
+    voiceSurface.route === "byok" && voiceSurface.provider_id
+      ? voiceSurface.provider_id
+      : t(`signalOs.overlay.routes.${voiceSurface.route}`);
 
   useEffect(() => {
+    void commands
+      .getVoiceSurfaceState()
+      .then(setVoiceSurface)
+      .catch(() => undefined);
     const setupEventListeners = async () => {
       const unlistenShow = await listen("show-overlay", async (event) => {
         const overlayState = event.payload as OverlayState;
@@ -74,6 +88,9 @@ const RecordingOverlay: React.FC = () => {
           if (settings.status === "ok") {
             setPosition(
               settings.data.overlay_position === "top" ? "top" : "bottom",
+            );
+            setOverlayStyle(
+              settings.data.overlay_style === "minimal" ? "minimal" : "live",
             );
           }
         } catch {
@@ -121,6 +138,32 @@ const RecordingOverlay: React.FC = () => {
         if (payload.kind) setWorkKind(payload.kind);
       });
 
+      const unlistenVoiceSurface = await events.voiceSurfaceState.listen(
+        (event) => {
+          const surface = event.payload;
+          setVoiceSurface(surface);
+          if (surface.phase === "hidden") {
+            setIsVisible(false);
+            setCaptureReady(false);
+            return;
+          }
+          if (surface.phase === "listening") setCaptureReady(true);
+          if (surface.phase === "transcribing") {
+            setPhase("working");
+            setWorkKind("transcribing");
+            setState((current) =>
+              current === "streaming" ? current : "transcribing",
+            );
+          } else if (surface.phase === "transforming") {
+            setPhase("working");
+            setWorkKind("polishing");
+            setState((current) =>
+              current === "streaming" ? current : "processing",
+            );
+          }
+        },
+      );
+
       return () => {
         unlistenShow();
         unlistenHide();
@@ -128,6 +171,7 @@ const RecordingOverlay: React.FC = () => {
         unlistenLevel();
         unlistenStream();
         unlistenPhase();
+        unlistenVoiceSurface();
       };
     };
 
@@ -186,8 +230,25 @@ const RecordingOverlay: React.FC = () => {
   const cancelBtn = (
     <button
       className="sx"
-      aria-label="cancel"
+      aria-label={t("tray.cancel")}
       onClick={() => commands.cancelOperation()}
+    >
+      <svg viewBox="0 0 16 16" aria-hidden="true">
+        <path
+          d="M4 4 L12 12 M12 4 L4 12"
+          stroke="currentColor"
+          strokeWidth="1.6"
+          strokeLinecap="round"
+        />
+      </svg>
+    </button>
+  );
+
+  const dismissBtn = (
+    <button
+      className="sx"
+      aria-label={t("common.close")}
+      onClick={() => commands.dismissVoiceSurface()}
     >
       <svg viewBox="0 0 16 16" aria-hidden="true">
         <path
@@ -202,10 +263,19 @@ const RecordingOverlay: React.FC = () => {
 
   // dot (left) | waveform (center) | timer + cancel (right) — same structure for
   // pill & panel, so the Live morph is a pure width change.
-  const listeningRow = (showTimer: boolean, showCancel: boolean) => (
+  const listeningRow = (
+    showDetails: boolean,
+    showTimer: boolean,
+    showCancel: boolean,
+  ) => (
     <div className="sbase">
       <div className="sbase-l">
         <span className={`sdot ${captureReady ? "ready" : "arming"}`} />
+        {showDetails && (
+          <span className={`sroute route-${voiceSurface.route}`}>
+            {routeLabel}
+          </span>
+        )}
       </div>
       {waveform}
       <div className="sbase-r">
@@ -222,10 +292,98 @@ const RecordingOverlay: React.FC = () => {
       <div className="sbase-l">
         <span className="sspinner" />
       </div>
-      <span className="swork-label">{label}</span>
+      <span className="swork-label">
+        {label}
+        <small className={`sroute route-${voiceSurface.route}`}>
+          {routeLabel}
+        </small>
+      </span>
       <div className="sbase-r">{showCancel && cancelBtn}</div>
     </div>
   );
+
+  if (["success", "cancelled", "failed"].includes(voiceSurface.phase)) {
+    const errorCode = voiceSurface.error?.code;
+    const knownErrors = [
+      "no_audio",
+      "silent_input",
+      "microphone_permission_denied",
+      "paste_failed",
+      "transform_timeout",
+    ];
+    const errorLabel =
+      errorCode && knownErrors.includes(errorCode)
+        ? t(`signalOs.overlay.errors.${errorCode}`)
+        : t("signalOs.overlay.errors.fallback");
+    const canOpenMicrophone = voiceSurface.available_actions.includes(
+      "open_microphone_settings",
+    );
+    const canOpenSettings = voiceSurface.available_actions.some((action) =>
+      [
+        "open_accessibility_settings",
+        "open_model_settings",
+        "open_provider_settings",
+      ].includes(action),
+    );
+    const handleRecovery = async () => {
+      if (canOpenMicrophone) {
+        await commands.openMicrophonePrivacySettings();
+      } else if (canOpenSettings) {
+        await commands.showMainWindowCommand();
+      }
+      await commands.dismissVoiceSurface();
+    };
+    const label =
+      voiceSurface.phase === "success"
+        ? t("signalOs.overlay.success")
+        : voiceSurface.phase === "cancelled"
+          ? t("signalOs.overlay.cancelled")
+          : errorLabel;
+
+    return (
+      <div dir={direction} className={`ov-stage ${position} ov-fade show`}>
+        <div className={`scard compact voice-result is-${voiceSurface.phase}`}>
+          <div className="sbase">
+            <div className="sbase-l">
+              <span className="result-glyph" aria-hidden="true" />
+            </div>
+            <span className="swork-label">
+              {label}
+              <small className={`sroute route-${voiceSurface.route}`}>
+                {routeLabel}
+              </small>
+            </span>
+            <div className="sbase-r">
+              {voiceSurface.phase === "failed" ? (
+                <button
+                  type="button"
+                  className="recovery-action"
+                  aria-label={
+                    canOpenMicrophone || canOpenSettings
+                      ? t("signalOs.overlay.settings")
+                      : t("signalOs.overlay.retry")
+                  }
+                  onClick={handleRecovery}
+                >
+                  <svg viewBox="0 0 16 16" aria-hidden="true">
+                    <path
+                      d="M13 5V2.5M13 2.5h-2.5M13 2.5A6 6 0 1 0 14 9"
+                      fill="none"
+                      stroke="currentColor"
+                      strokeWidth="1.4"
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                    />
+                  </svg>
+                </button>
+              ) : null}
+              {dismissBtn}
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   // ---- Live overlay: a pill that sculpts open into a panel ----
   if (state === "streaming") {
@@ -273,7 +431,7 @@ const RecordingOverlay: React.FC = () => {
                   : t("overlay.transcribing"),
                 true,
               )
-            : listeningRow(open, true)}
+            : listeningRow(true, open, true)}
         </div>
       </div>
     );
@@ -282,11 +440,16 @@ const RecordingOverlay: React.FC = () => {
   // ---- Minimal overlay: exactly one row at a time — waveform (recording), or a
   // spinner + label (transcribing / processing). Never both. The pill animates its
   // width between them; the cancel button is in both rows so it stays put.
-  const working = state === "transcribing" || state === "processing";
+  const working =
+    state === "transcribing" ||
+    state === "processing" ||
+    ["transcribing", "transforming", "inserting"].includes(voiceSurface.phase);
   const workLabel =
-    state === "processing"
+    state === "processing" || voiceSurface.phase === "transforming"
       ? t("overlay.processing")
-      : t("overlay.transcribing");
+      : voiceSurface.phase === "inserting"
+        ? t("signalOs.overlay.inserting")
+        : t("overlay.transcribing");
 
   return (
     <div
@@ -296,7 +459,9 @@ const RecordingOverlay: React.FC = () => {
       <div
         className={`scard compact ${working && isVisible ? "cworking" : ""}`}
       >
-        {working ? workingRow(workLabel, true) : listeningRow(false, true)}
+        {working
+          ? workingRow(workLabel, true)
+          : listeningRow(overlayStyle === "live", false, true)}
       </div>
     </div>
   );

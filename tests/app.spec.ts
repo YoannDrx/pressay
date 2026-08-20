@@ -31,12 +31,13 @@ test.describe("Pressay App", () => {
 
     const navigation = page.getByRole("navigation", { name: "Primary" });
     await expect(navigation).toBeVisible();
-    await expect(navigation.getByRole("button")).toHaveCount(7);
+    await expect(navigation.getByRole("button")).toHaveCount(10);
     await expect(
       navigation.getByRole("button", { name: "Home" }),
     ).toHaveAttribute("aria-current", "page");
-    await expect(page.getByText("Local", { exact: true })).toHaveCount(2);
+    await expect(page.getByText("Local", { exact: true })).toHaveCount(3);
     await expect(page.getByText("Private by default")).toBeVisible();
+    await expect(page.getByText("Beta · Pro preview")).toBeVisible();
   });
 
   test("exposes explicit modes and application profiles", async ({ page }) => {
@@ -48,6 +49,16 @@ test.describe("Pressay App", () => {
       page.getByText("Nothing leaves this Mac").first(),
     ).toBeVisible();
     await expect(page.getByText("Application profiles")).toBeVisible();
+    await expect(
+      page.getByRole("heading", { name: "Translation" }),
+    ).toBeVisible();
+    const translationCard = page
+      .getByRole("article")
+      .filter({ has: page.getByRole("heading", { name: "Translation" }) });
+    await expect(
+      translationCard.getByRole("button", { name: "Set up" }),
+    ).toBeVisible();
+    await expect(page.locator(".mode-card")).toHaveCount(12);
     await expect(page.getByRole("button", { name: "Import" })).toBeVisible();
     await expect(page.getByRole("button", { name: "Export" })).toBeVisible();
 
@@ -68,6 +79,11 @@ test.describe("Pressay App", () => {
     await page.getByRole("button", { name: "New mode" }).click();
     await expect(page.getByLabel("Custom mode editor")).toBeVisible();
     await expect(page.getByText("Transformation instruction")).toHaveCount(0);
+
+    await translationCard.getByRole("button", { name: "Set up" }).click();
+    await expect(
+      page.getByRole("button", { name: /Providers/ }),
+    ).toHaveAttribute("aria-current", "page");
   });
 
   test("shows controlled exact and fuzzy dictionary entries", async ({
@@ -97,12 +113,60 @@ test.describe("Pressay App", () => {
     await expect(
       page.getByRole("heading", { name: "Your voice, without the trade-off." }),
     ).toBeVisible();
-    await expect(page.getByText("Free · Offline · No account")).toBeVisible();
+    await expect(page.getByText("Offline", { exact: true })).toBeVisible();
+    await expect(page.getByText("No account · No network")).toBeVisible();
     await expect(
       page.getByRole("button", { name: "Continue locally" }),
     ).toBeVisible();
     await expect(
       page.getByRole("list", { name: "Onboarding progress" }),
     ).toBeVisible();
+    await expect(
+      page
+        .getByRole("list", { name: "Onboarding progress" })
+        .getByRole("listitem"),
+    ).toHaveCount(3);
+  });
+
+  test("loads French on demand without bundling every catalogue at startup", async ({
+    page,
+  }) => {
+    await page.goto("/?screen=welcome&lang=fr");
+
+    await expect(page.locator("html")).toHaveAttribute("lang", "fr");
+    await expect(
+      page.getByRole("heading", { name: "Votre voix, sans compromis." }),
+    ).toBeVisible();
+    await expect(
+      page.getByRole("list", { name: "Progression de l’onboarding" }),
+    ).toBeVisible();
+  });
+
+  test("keeps onboarding readable in RTL and reduced-motion environments", async ({
+    page,
+  }) => {
+    await page.emulateMedia({ reducedMotion: "reduce" });
+    await page.goto("/?screen=welcome&lang=ar");
+
+    await expect(page.locator("html")).toHaveAttribute("dir", "rtl");
+    await expect(page.locator("html")).toHaveAttribute("lang", "ar");
+    await expect(page.locator(".onboarding-trust-card")).toBeVisible();
+    const overflow = await page.evaluate(
+      () =>
+        document.documentElement.scrollWidth >
+        document.documentElement.clientWidth,
+    );
+    expect(overflow).toBe(false);
+    const motion = await page
+      .locator(".onboarding-panel")
+      .evaluate((element) => {
+        const style = getComputedStyle(element);
+        return {
+          animation: style.animationDuration,
+          transition: style.transitionDuration,
+        };
+      });
+    expect(motion.animation).toBe("1e-05s");
+    expect(motion.transition).toBe("1e-05s");
   });
 });

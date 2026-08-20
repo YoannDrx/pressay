@@ -4,6 +4,7 @@ import { Dropdown } from "../ui/Dropdown";
 import { SettingContainer } from "../ui/SettingContainer";
 import {
   SUPPORTED_LANGUAGES,
+  changeAppLanguage,
   getSupportedLanguage,
   type SupportedLanguageCode,
 } from "../../i18n";
@@ -27,9 +28,9 @@ export const AppLanguageSelector: React.FC<AppLanguageSelectorProps> =
       label: `${lang.nativeName} (${lang.name})`,
     }));
 
-    const handleLanguageChange = (langCode: string) => {
-      i18n.changeLanguage(langCode);
-      updateSetting("app_language", langCode);
+    const handleLanguageChange = async (langCode: string) => {
+      await changeAppLanguage(langCode);
+      await updateSetting("app_language", langCode);
     };
 
     return (

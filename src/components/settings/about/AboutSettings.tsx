@@ -5,11 +5,10 @@ import { openUrl } from "@tauri-apps/plugin-opener";
 import { SettingsGroup } from "../../ui/SettingsGroup";
 import { SettingContainer } from "../../ui/SettingContainer";
 import { Button } from "../../ui/Button";
-import { AppDataDirectory } from "../AppDataDirectory";
-import { AppLanguageSelector } from "../AppLanguageSelector";
 import { ShowWhatsNewOnUpdate } from "../ShowWhatsNewOnUpdate";
-import { ThemeSelector } from "../ThemeSelector";
-import { LogDirectory } from "../debug";
+import { UpdateChecksToggle } from "../UpdateChecksToggle";
+import { AppPageHeader } from "@/components/layout";
+import PressayMark from "@/components/icons/PressayMark";
 
 export const AboutSettings: React.FC = () => {
   const { t } = useTranslation();
@@ -38,10 +37,27 @@ export const AboutSettings: React.FC = () => {
   };
 
   return (
-    <div className="max-w-3xl w-full mx-auto space-y-6">
+    <div className="settings-page signal-settings-page space-y-6">
+      <AppPageHeader
+        eyebrow={t("sidebar.about")}
+        title={t("settings.about.title")}
+        description={t("settings.about.supportDevelopment.description")}
+      />
+      <section className="about-identity-card">
+        <div className="about-identity-mark">
+          <PressayMark size={44} />
+        </div>
+        <div>
+          {/* Pressay and YoDev are product names, not translatable copy. */}
+          {/* eslint-disable-next-line i18next/no-literal-string */}
+          <h2>Pressay</h2>
+          <p>{t("settings.about.developer")}</p>
+        </div>
+        {/* eslint-disable-next-line i18next/no-literal-string */}
+        <span className="about-version-pill">v{version}</span>
+      </section>
+
       <SettingsGroup title={t("settings.about.title")}>
-        <AppLanguageSelector descriptionMode="tooltip" grouped={true} />
-        <ThemeSelector descriptionMode="tooltip" grouped={true} />
         <SettingContainer
           title={t("settings.about.version.title")}
           description={t("settings.about.version.description")}
@@ -52,6 +68,7 @@ export const AboutSettings: React.FC = () => {
         </SettingContainer>
 
         <ShowWhatsNewOnUpdate descriptionMode="tooltip" grouped={true} />
+        <UpdateChecksToggle descriptionMode="tooltip" grouped={true} />
 
         <SettingContainer
           title={t("settings.about.supportDevelopment.title")}
@@ -61,44 +78,6 @@ export const AboutSettings: React.FC = () => {
           <Button variant="primary" size="md" onClick={handleDonateClick}>
             {t("settings.about.supportDevelopment.button")}
           </Button>
-        </SettingContainer>
-
-        <SettingContainer
-          title={t("settings.about.sourceCode.title")}
-          description={t("settings.about.sourceCode.description")}
-          grouped={true}
-          layout="stacked"
-          descriptionMode="inline"
-        >
-          <span className="text-sm font-mono text-mid-gray">
-            {t("settings.about.sourceCode.license")}
-          </span>
-        </SettingContainer>
-
-        <AppDataDirectory descriptionMode="tooltip" grouped={true} />
-        <LogDirectory grouped={true} />
-      </SettingsGroup>
-
-      <SettingsGroup title={t("settings.about.acknowledgments.title")}>
-        <SettingContainer
-          title={t("settings.about.acknowledgments.models.title")}
-          description={t("settings.about.acknowledgments.models.description")}
-          grouped={true}
-          layout="stacked"
-        >
-          <div className="text-sm text-mid-gray">
-            {t("settings.about.acknowledgments.models.details")}
-          </div>
-        </SettingContainer>
-        <SettingContainer
-          title={t("settings.about.acknowledgments.ggml.title")}
-          description={t("settings.about.acknowledgments.ggml.description")}
-          grouped={true}
-          layout="stacked"
-        >
-          <div className="text-sm text-mid-gray">
-            {t("settings.about.acknowledgments.ggml.details")}
-          </div>
         </SettingContainer>
       </SettingsGroup>
     </div>

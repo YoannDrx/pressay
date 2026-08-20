@@ -522,6 +522,8 @@ pub fn unregister_shortcut(app: &AppHandle, binding: ShortcutBinding) -> Result<
 #[tauri::command]
 #[specta::specta]
 pub fn start_handy_keys_recording(app: AppHandle, binding_id: String) -> Result<(), String> {
+    crate::commands::initialize_shortcuts(app.clone())?;
+
     let settings = get_settings(&app);
     if settings.keyboard_implementation != settings::KeyboardImplementation::HandyKeys {
         return Err("handy-keys is not the active keyboard implementation".into());

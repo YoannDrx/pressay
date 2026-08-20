@@ -12,6 +12,10 @@ default = []
 direct = ["tauri/macos-private-api", "dep:tauri-nspanel"]
 updater = ["direct", "dep:tauri-plugin-updater"]
 mas = []
+# Opt-in only after the payment and recovery release gates pass. Keeping this a
+# compile-time choice prevents an environment variable from silently paywalling
+# a shipped binary.
+commercial-entitlements = []
 
 [profile.dev]
 incremental = true # Compile your binary in smaller steps.
@@ -36,7 +40,7 @@ serde = { version = "1", features = ["derive"] }
 
 [dependencies]
 once_cell = "1"
-tauri = { version = "2.11.5", features = ["protocol-asset",
+tauri = { version = "2.11.5", features = [ "protocol-asset",
   "tray-icon",
   'image-png',
 ] }
@@ -79,6 +83,7 @@ regex = "1"
 whatlang = "0.16"
 isolang = "2"
 chrono = "0.4"
+plist = "1.10"
 rusqlite = { version = "0.37", features = ["bundled"] }
 tar = "0.4.44"
 flate2 = "1.0"

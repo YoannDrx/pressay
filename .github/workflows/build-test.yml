@@ -21,7 +21,7 @@ jobs:
           key: pressay-manual-arm64
       - run: bun install --frozen-lockfile
       - name: Build unsigned Apple Silicon app
-        run: bun tauri build --target aarch64-apple-darwin --bundles app
+        run: bun tauri build --target aarch64-apple-darwin --bundles app --no-sign
       - uses: actions/upload-artifact@v7
         with:
           name: pressay-manual-arm64

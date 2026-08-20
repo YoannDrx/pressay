@@ -15,19 +15,14 @@ import { toast } from "sonner";
 import {
   commands,
   events,
+  type Capabilities,
   type CorrectionStatus,
   type PipelineState,
 } from "@/bindings";
 import { useSettings } from "@/hooks/useSettings";
 import { useModelStore } from "@/stores/modelStore";
 import { Button } from "@/components/ui/Button";
-
-const INITIAL_PIPELINE_STATE: PipelineState = {
-  phase: "idle",
-  operation_id: 0,
-  binding_id: null,
-  failure: null,
-};
+import { INITIAL_PIPELINE_STATE } from "@/lib/voiceSurface";
 
 const INITIAL_CORRECTION_STATUS: CorrectionStatus = {
   available: false,
@@ -36,84 +31,28 @@ const INITIAL_CORRECTION_STATUS: CorrectionStatus = {
   expires_in_seconds: 0,
 };
 
-const COPY = {
-  en: {
-    eyebrow: "LOCAL DICTATION",
-    title: "Ready when you are.",
-    subtitle: "Your voice is transcribed on this Mac by default.",
-    local: "Local",
-    private: "Private by default",
-    status: {
-      idle: "Ready",
-      recording: "Listening",
-      transcribing: "Transcribing",
-      transforming: "Transforming",
-      pasting: "Inserting",
-      cancelled: "Cancelled",
-      failed: "Action needed",
-    },
-    model: "Model",
-    microphone: "Microphone",
-    shortcut: "Shortcut",
-    defaultMicrophone: "System default",
-    noModel: "Choose a model",
-    privacyTitle: "Nothing leaves your Mac",
-    privacyBody:
-      "Local dictation works offline and without an account. Cloud processing is never selected silently.",
-    mode: "Mode",
-    faithful: "Faithful",
-    route: "Processing route",
-    correctionTitle: "Correct the last result",
-    correctionBody:
-      "Arm correction, return to the original app, then dictate only the change you want.",
-    correctionDisclosure:
-      "Your configured text provider processes the original and instruction. If it is remote, both leave this Mac.",
-    correctionAction: "Correct with voice",
-    correctionArmed: "Waiting for your correction",
-    correctionArmedBody: "Return to {{app}} and use your dictation shortcut.",
-    correctionCancel: "Cancel",
-  },
-  fr: {
-    eyebrow: "DICTÉE LOCALE",
-    title: "Prêt quand vous l’êtes.",
-    subtitle: "Votre voix est transcrite sur ce Mac par défaut.",
-    local: "Local",
-    private: "Privé par défaut",
-    status: {
-      idle: "Prêt",
-      recording: "Écoute en cours",
-      transcribing: "Transcription",
-      transforming: "Transformation",
-      pasting: "Insertion",
-      cancelled: "Annulé",
-      failed: "Action requise",
-    },
-    model: "Modèle",
-    microphone: "Microphone",
-    shortcut: "Raccourci",
-    defaultMicrophone: "Réglage système",
-    noModel: "Choisir un modèle",
-    privacyTitle: "Rien ne quitte votre Mac",
-    privacyBody:
-      "La dictée locale fonctionne hors ligne et sans compte. Le Cloud n’est jamais choisi silencieusement.",
-    mode: "Mode",
-    faithful: "Fidèle",
-    route: "Route de traitement",
-    correctionTitle: "Corriger le dernier résultat",
-    correctionBody:
-      "Armez la correction, revenez dans l’application d’origine, puis dictez uniquement la modification souhaitée.",
-    correctionDisclosure:
-      "Votre fournisseur de texte traite l’original et l’instruction. S’il est distant, les deux quittent ce Mac.",
-    correctionAction: "Corriger à la voix",
-    correctionArmed: "En attente de votre correction",
-    correctionArmedBody:
-      "Revenez dans {{app}} et utilisez votre raccourci de dictée.",
-    correctionCancel: "Annuler",
-  },
-} as const;
+const INITIAL_CAPABILITIES: Capabilities = {
+  entitlementsEnforced: false,
+  tier: "free",
+  entitlementSource: "none",
+  entitlementState: "local_free",
+  entitlementError: null,
+  localDictation: "enabled",
+  localHistory: "enabled",
+  basicDictionary: "enabled",
+  deterministicVoiceCommands: "enabled",
+  customModes: "upgrade_required",
+  appProfiles: "upgrade_required",
+  voiceCorrection: "upgrade_required",
+  byok: "upgrade_required",
+  appleIntelligence: "upgrade_required",
+  encryptedSync: "upgrade_required",
+  pressayCloud: "upgrade_required",
+  directCheckout: "release_gate",
+  appStorePurchase: "release_gate",
+};
 
 export const HomeDashboard = () => {
-  const { i18n } = useTranslation();
   const { settings } = useSettings();
   const { currentModel, models } = useModelStore();
   const [pipeline, setPipeline] = useState<PipelineState>(
@@ -122,6 +61,8 @@ export const HomeDashboard = () => {
   const [correction, setCorrection] = useState<CorrectionStatus>(
     INITIAL_CORRECTION_STATUS,
   );
+  const [capabilities, setCapabilities] =
+    useState<Capabilities>(INITIAL_CAPABILITIES);
 
   useEffect(() => {
     let mounted = true;
@@ -137,6 +78,17 @@ export const HomeDashboard = () => {
     return () => {
       mounted = false;
       unlisten.then((dispose) => dispose());
+    };
+  }, []);
+
+  useEffect(() => {
+    let mounted = true;
+    commands
+      .getCapabilities()
+      .then((value) => mounted && setCapabilities(value))
+      .catch(() => undefined);
+    return () => {
+      mounted = false;
     };
   }, []);
 
@@ -182,15 +134,21 @@ export const HomeDashboard = () => {
   );
   const shortcut = settings?.bindings?.transcribe?.current_binding;
   const microphone = settings?.selected_microphone;
+  const activeModeId = settings?.active_mode_id ?? "faithful";
+  const activeModeName = settings?.pressay_modes?.find(
+    (mode) => mode.id === activeModeId,
+  )?.name;
 
   return (
     <HomeDashboardView
-      language={i18n.resolvedLanguage}
       pipeline={pipeline}
       modelName={currentModelName}
+      modeId={activeModeId}
+      modeName={activeModeName}
       shortcut={shortcut}
       microphone={microphone}
       correction={correction}
+      capabilities={capabilities}
       onArmCorrection={armCorrection}
       onCancelCorrection={cancelCorrection}
     />
@@ -198,78 +156,124 @@ export const HomeDashboard = () => {
 };
 
 interface HomeDashboardViewProps {
-  language?: string;
   pipeline: PipelineState;
   modelName?: string;
+  modeId?: string;
+  modeName?: string;
   shortcut?: string;
   microphone?: string | null;
   correction?: CorrectionStatus;
+  capabilities?: Capabilities;
   onArmCorrection?: () => void;
   onCancelCorrection?: () => void;
 }
 
 export const HomeDashboardView = ({
-  language,
   pipeline,
   modelName,
+  modeId = "faithful",
+  modeName,
   shortcut,
   microphone,
   correction = INITIAL_CORRECTION_STATUS,
+  capabilities = INITIAL_CAPABILITIES,
   onArmCorrection,
   onCancelCorrection,
 }: HomeDashboardViewProps) => {
-  const copy = COPY[language?.startsWith("fr") ? "fr" : "en"];
-  const isActive = !["idle", "cancelled", "failed"].includes(pipeline.phase);
+  const { t } = useTranslation();
+  const voice = pipeline.voice;
+  const isActive = !["hidden", "cancelled", "failed"].includes(voice.phase);
+  const routeIsLocal = voice.route === "local_stt";
+  const commandSamples = [1, 2, 3].map((sample) =>
+    t(`signalOs.dashboard.voiceCommandSamples.${sample}`),
+  );
+  const activeModeLabel = t(`pressay.modes.builtins.${modeId}.name`, {
+    defaultValue: modeName ?? t("signalOs.dashboard.faithful"),
+  });
 
   return (
     <div className="product-page">
       <section className="hero-card" aria-live="polite">
         <div className="flex items-start justify-between gap-6">
           <div>
-            <p className="product-eyebrow">{copy.eyebrow}</p>
-            <h1 className="product-title">{copy.title}</h1>
-            <p className="product-subtitle">{copy.subtitle}</p>
+            <p className="product-eyebrow">{t("signalOs.dashboard.eyebrow")}</p>
+            <h1 className="product-title">{t("signalOs.dashboard.title")}</h1>
+            <p className="product-subtitle">
+              {t("signalOs.dashboard.subtitle")}
+            </p>
           </div>
           <div className={`pipeline-indicator ${isActive ? "is-active" : ""}`}>
             <span className="pipeline-dot" aria-hidden="true" />
-            <span>{copy.status[pipeline.phase]}</span>
+            <span>{t(`signalOs.dashboard.status.${voice.phase}`)}</span>
           </div>
         </div>
 
         <div className="hero-meta">
-          <span className="route-badge">
-            <CloudOff size={14} />
-            {copy.local}
+          <span className={`route-badge route-${voice.route}`}>
+            {routeIsLocal ? <CloudOff size={14} /> : <Sparkles size={14} />}
+            {t(`signalOs.dashboard.routes.${voice.route}`)}
           </span>
           <span className="privacy-badge">
             <ShieldCheck size={14} />
-            {copy.private}
+            {t("signalOs.dashboard.private")}
+          </span>
+          <span className="entitlement-badge">
+            {capabilities.tier === "pro"
+              ? t("signalOs.dashboard.proPlan")
+              : capabilities.entitlementsEnforced
+                ? t("signalOs.dashboard.freePlan")
+                : t("signalOs.dashboard.previewPlan")}
           </span>
         </div>
       </section>
 
-      <section className="status-grid" aria-label="Pressay status">
+      <section
+        className="status-grid"
+        aria-label={t("signalOs.dashboard.statusLabel")}
+      >
         <StatusCard
           icon={<Sparkles size={18} />}
-          label={copy.mode}
-          value={copy.faithful}
+          label={t("signalOs.dashboard.mode")}
+          value={activeModeLabel}
         />
         <StatusCard
           icon={<Command size={18} />}
-          label={copy.shortcut}
+          label={t("signalOs.dashboard.shortcut")}
           value={shortcut || "⌥ Space"}
           mono
         />
         <StatusCard
           icon={<Mic2 size={18} />}
-          label={copy.microphone}
-          value={microphone || copy.defaultMicrophone}
+          label={t("signalOs.dashboard.microphone")}
+          value={microphone || t("signalOs.dashboard.defaultMicrophone")}
         />
         <StatusCard
           icon={<CheckCircle2 size={18} />}
-          label={copy.model}
-          value={modelName || copy.noModel}
+          label={t("signalOs.dashboard.model")}
+          value={modelName || t("signalOs.dashboard.noModel")}
         />
+      </section>
+
+      <section className="voice-command-card">
+        <div className="voice-command-card-heading">
+          <div className="voice-command-card-icon" aria-hidden="true">
+            <Command size={18} />
+          </div>
+          <div>
+            <h2>{t("signalOs.dashboard.voiceCommandsTitle")}</h2>
+            <p>{t("signalOs.dashboard.voiceCommandsBody")}</p>
+          </div>
+          <span className="route-badge route-local_stt">
+            {t("signalOs.dashboard.local")}
+          </span>
+        </div>
+        <div className="voice-command-examples">
+          {commandSamples.map((sample) => (
+            <code key={sample}>
+              {t("signalOs.dashboard.voiceCommandsWake")}, {sample}
+            </code>
+          ))}
+        </div>
       </section>
 
       {correction.available ? (
@@ -281,29 +285,32 @@ export const HomeDashboardView = ({
           </div>
           <div>
             <h2>
-              {correction.armed ? copy.correctionArmed : copy.correctionTitle}
+              {correction.armed
+                ? t("signalOs.dashboard.correctionArmed")
+                : t("signalOs.dashboard.correctionTitle")}
             </h2>
             <p>
               {correction.armed
-                ? copy.correctionArmedBody.replace(
-                    "{{app}}",
-                    correction.target_app_name || "the original app",
-                  )
-                : copy.correctionBody}
+                ? t("signalOs.dashboard.correctionArmedBody", {
+                    app:
+                      correction.target_app_name ||
+                      t("signalOs.dashboard.originalApp"),
+                  })
+                : t("signalOs.dashboard.correctionBody")}
             </p>
             {!correction.armed ? (
-              <small>{copy.correctionDisclosure}</small>
+              <small>{t("signalOs.dashboard.correctionDisclosure")}</small>
             ) : null}
           </div>
           {correction.armed ? (
             <Button variant="secondary" onClick={onCancelCorrection}>
               <X size={14} />
-              {copy.correctionCancel}
+              {t("signalOs.dashboard.correctionCancel")}
             </Button>
           ) : (
             <Button onClick={onArmCorrection} disabled={isActive}>
               <Mic2 size={14} />
-              {copy.correctionAction}
+              {t("signalOs.dashboard.correctionAction")}
             </Button>
           )}
         </section>
@@ -314,12 +321,12 @@ export const HomeDashboardView = ({
           <ShieldCheck size={20} />
         </div>
         <div>
-          <h2>{copy.privacyTitle}</h2>
-          <p>{copy.privacyBody}</p>
+          <h2>{t("signalOs.dashboard.privacyTitle")}</h2>
+          <p>{t("signalOs.dashboard.privacyBody")}</p>
         </div>
         <div className="route-summary">
-          <span>{copy.route}</span>
-          <strong>{copy.local}</strong>
+          <span>{t("signalOs.dashboard.route")}</span>
+          <strong>{t("signalOs.dashboard.local")}</strong>
         </div>
       </section>
     </div>

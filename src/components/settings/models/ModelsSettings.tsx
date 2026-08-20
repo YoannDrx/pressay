@@ -19,6 +19,9 @@ import {
   supportsLanguageCode,
 } from "@/lib/constants/languages.ts";
 import type { ModelInfo } from "@/bindings";
+import { AppPageHeader } from "@/components/layout";
+import { Button } from "@/components/ui/Button";
+import { Input } from "@/components/ui/Input";
 
 // check if model supports a language based on its supported_languages list
 const modelSupportsLanguage = (model: ModelInfo, langCode: string): boolean => {
@@ -243,7 +246,7 @@ export const ModelsSettings: React.FC = () => {
 
   if (loading) {
     return (
-      <div className="max-w-3xl w-full mx-auto">
+      <div className="settings-page signal-settings-page">
         <div className="flex items-center justify-center py-16">
           <div className="w-8 h-8 border-2 border-logo-primary border-t-transparent rounded-full animate-spin" />
         </div>
@@ -252,52 +255,43 @@ export const ModelsSettings: React.FC = () => {
   }
 
   return (
-    <div className="max-w-3xl w-full mx-auto space-y-4">
-      <div className="mb-4">
-        <div className="flex items-center justify-between gap-4 mb-2">
-          <h1 className="text-xl font-semibold">
-            {t("settings.models.title")}
-          </h1>
-          <button
-            type="button"
+    <div className="settings-page signal-settings-page space-y-5">
+      <AppPageHeader
+        eyebrow={t("pressay.routes.local.label")}
+        title={t("settings.models.title")}
+        description={t("settings.models.description")}
+        action={
+          <Button
+            variant={showAdvanced ? "primary-soft" : "secondary"}
+            size="sm"
             onClick={() => setShowAdvanced((visible) => !visible)}
             aria-expanded={showAdvanced}
-            className={`inline-flex items-center gap-2 px-3 py-2 rounded-lg text-sm font-medium border transition-colors ${
-              showAdvanced
-                ? "border-logo-primary/40 bg-logo-primary/10 text-logo-primary"
-                : "border-mid-gray/30 bg-mid-gray/10 text-text/60 hover:text-text"
-            }`}
+            className="inline-flex items-center gap-2"
           >
             <SlidersHorizontal className="w-4 h-4" />
             {t("sidebar.advanced")}
-          </button>
-        </div>
-        <p className="text-sm text-text/60">
-          {t("settings.models.description")}
-        </p>
-      </div>
+          </Button>
+        }
+      />
 
       {/* Search bar — filter the catalog by name or description */}
       {showAdvanced && (
-        <div className="relative">
-          <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-text/40 pointer-events-none" />
-          <input
+        <div className="models-search relative">
+          <Search className="models-search-icon" aria-hidden="true" />
+          <Input
             type="text"
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
             placeholder={t("settings.models.searchPlaceholder")}
-            className="w-full pl-9 pr-3 py-2 text-sm bg-mid-gray/10 border border-mid-gray/40 rounded-lg focus:outline-none focus:ring-1 focus:ring-logo-primary placeholder:text-text/40"
           />
         </div>
       )}
 
       <div className="space-y-6">
         {/* Downloaded Models Section — header always visible so filter stays accessible */}
-        <div className="space-y-3">
-          <div className="flex items-center justify-between">
-            <h2 className="text-sm font-medium text-text/60">
-              {t("settings.models.yourModels")}
-            </h2>
+        <section className="models-section space-y-3">
+          <div className="models-section-heading flex items-center justify-between">
+            <h2>{t("settings.models.yourModels")}</h2>
             <div
               className={`items-center gap-2 ${showAdvanced ? "flex" : "hidden"}`}
               aria-hidden={!showAdvanced}
@@ -309,7 +303,7 @@ export const ModelsSettings: React.FC = () => {
                 disabled={isRescanning}
                 title={t("settings.models.rescan.tooltip")}
                 aria-label={t("settings.models.rescan.tooltip")}
-                className="flex items-center justify-center w-8 h-8 text-sm font-medium rounded-lg bg-mid-gray/10 text-text/60 hover:bg-mid-gray/20 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                className="model-filter-button"
               >
                 <RefreshCw
                   className={`w-3.5 h-3.5 ${isRescanning ? "animate-spin" : ""}`}
@@ -317,18 +311,14 @@ export const ModelsSettings: React.FC = () => {
               </button>
 
               {/* Vertical divider separating action from filters */}
-              <div className="h-4 w-px bg-mid-gray/30 mx-0.5" />
+              <div className="h-4 w-px bg-[var(--color-border)] mx-0.5" />
               <button
                 type="button"
                 onClick={() => setFilterStreaming((enabled) => !enabled)}
                 title={t("settings.models.filters.streaming")}
                 aria-label={t("settings.models.filters.streaming")}
                 aria-pressed={filterStreaming}
-                className={`flex items-center justify-center w-8 h-8 text-sm font-medium rounded-lg transition-colors ${
-                  filterStreaming
-                    ? "bg-logo-primary/20 text-logo-primary hover:bg-logo-primary/30"
-                    : "bg-mid-gray/10 text-text/60 hover:bg-mid-gray/20"
-                }`}
+                className={`model-filter-button ${filterStreaming ? "is-active" : ""}`}
               >
                 <AudioLines className="w-3.5 h-3.5" />
               </button>
@@ -338,11 +328,7 @@ export const ModelsSettings: React.FC = () => {
                 title={t("settings.models.filters.translation")}
                 aria-label={t("settings.models.filters.translation")}
                 aria-pressed={filterTranslation}
-                className={`flex items-center justify-center w-8 h-8 text-sm font-medium rounded-lg transition-colors ${
-                  filterTranslation
-                    ? "bg-logo-primary/20 text-logo-primary hover:bg-logo-primary/30"
-                    : "bg-mid-gray/10 text-text/60 hover:bg-mid-gray/20"
-                }`}
+                className={`model-filter-button ${filterTranslation ? "is-active" : ""}`}
               >
                 <Languages className="w-3.5 h-3.5" />
               </button>
@@ -351,11 +337,7 @@ export const ModelsSettings: React.FC = () => {
                 <button
                   type="button"
                   onClick={() => setLanguageDropdownOpen(!languageDropdownOpen)}
-                  className={`flex items-center gap-1.5 h-8 px-3 text-sm font-medium rounded-lg transition-colors ${
-                    languageFilter !== "all"
-                      ? "bg-logo-primary/20 text-logo-primary"
-                      : "bg-mid-gray/10 text-text/60 hover:bg-mid-gray/20"
-                  }`}
+                  className={`model-filter-button is-wide ${languageFilter !== "all" ? "is-active" : ""}`}
                 >
                   <Globe className="w-3.5 h-3.5" />
                   <span className="max-w-[120px] truncate">
@@ -369,8 +351,8 @@ export const ModelsSettings: React.FC = () => {
                 </button>
 
                 {languageDropdownOpen && (
-                  <div className="absolute top-full right-0 mt-1 w-56 bg-background border border-mid-gray/80 rounded-lg shadow-lg z-50 overflow-hidden">
-                    <div className="p-2 border-b border-mid-gray/40">
+                  <div className="signal-dropdown-menu model-language-menu w-56 overflow-hidden">
+                    <div className="p-2 border-b border-[var(--color-border)]">
                       <input
                         ref={languageSearchInputRef}
                         type="text"
@@ -392,7 +374,7 @@ export const ModelsSettings: React.FC = () => {
                         placeholder={t(
                           "settings.general.language.searchPlaceholder",
                         )}
-                        className="w-full px-2 py-1 text-sm bg-mid-gray/10 border border-mid-gray/40 rounded-md focus:outline-none focus:ring-1 focus:ring-logo-primary"
+                        className="signal-input is-compact"
                       />
                     </div>
                     <div className="max-h-48 overflow-y-auto">
@@ -403,11 +385,7 @@ export const ModelsSettings: React.FC = () => {
                           setLanguageDropdownOpen(false);
                           setLanguageSearch("");
                         }}
-                        className={`w-full px-3 py-1.5 text-sm text-left transition-colors ${
-                          languageFilter === "all"
-                            ? "bg-logo-primary/20 text-logo-primary font-semibold"
-                            : "hover:bg-mid-gray/10"
-                        }`}
+                        className={`signal-dropdown-option ${languageFilter === "all" ? "is-selected" : ""}`}
                       >
                         {t("settings.models.filters.allLanguages")}
                       </button>
@@ -420,11 +398,7 @@ export const ModelsSettings: React.FC = () => {
                             setLanguageDropdownOpen(false);
                             setLanguageSearch("");
                           }}
-                          className={`w-full px-3 py-1.5 text-sm text-left transition-colors ${
-                            languageFilter === lang.value
-                              ? "bg-logo-primary/20 text-logo-primary font-semibold"
-                              : "hover:bg-mid-gray/10"
-                          }`}
+                          className={`signal-dropdown-option ${languageFilter === lang.value ? "is-selected" : ""}`}
                         >
                           {lang.label}
                         </button>
@@ -454,12 +428,12 @@ export const ModelsSettings: React.FC = () => {
               showRecommended={false}
             />
           ))}
-        </div>
+        </section>
 
         {/* Available Models Section */}
         {availableModels.length > 0 && (
-          <div className="space-y-3">
-            <h2 className="text-sm font-medium text-text/60">
+          <section className="models-section space-y-3">
+            <h2 className="models-section-heading">
               {t("settings.models.availableModels")}
             </h2>
             {availableModels.map((model: ModelInfo) => (
@@ -476,7 +450,7 @@ export const ModelsSettings: React.FC = () => {
                 showRecommended={true}
               />
             ))}
-          </div>
+          </section>
         )}
         {filteredModels.length === 0 && (
           <div className="text-center py-8 text-text/50">

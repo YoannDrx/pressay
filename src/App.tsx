@@ -1,12 +1,14 @@
-import { useEffect, useState, useRef, type ReactNode } from "react";
+import {
+  useCallback,
+  useEffect,
+  useState,
+  useRef,
+  type ReactNode,
+} from "react";
 import { toast, Toaster } from "sonner";
 import { useTranslation } from "react-i18next";
 import { listen } from "@tauri-apps/api/event";
 import { platform } from "@tauri-apps/plugin-os";
-import {
-  checkAccessibilityPermission,
-  checkMicrophonePermission,
-} from "tauri-plugin-macos-permissions-api";
 import { ModelStateEvent, RecordingErrorEvent } from "./lib/types/events";
 import "./App.css";
 import AccessibilityPermissions from "./components/AccessibilityPermissions";
@@ -14,8 +16,8 @@ import SecureInputWarning from "./components/SecureInputWarning";
 import Footer from "./components/footer";
 import Onboarding, {
   AccessibilityOnboarding,
+  FirstDictationOnboarding,
   OnboardingProgress,
-  ShortcutOnboarding,
   WelcomeOnboarding,
 } from "./components/onboarding";
 import { ErrorBoundary } from "./components/ErrorBoundary";
@@ -25,9 +27,11 @@ import { useSettings } from "./hooks/useSettings";
 import { useSettingsStore } from "./stores/settingsStore";
 import { commands } from "@/bindings";
 import { getLanguageDirection, initializeRTL } from "@/lib/utils/rtl";
+import { PageAtmosphere } from "@/components/layout";
+import { APP_NAVIGATE_EVENT } from "@/lib/appNavigation";
 
 type OnboardingStep =
-  "welcome" | "accessibility" | "shortcut" | "model" | "done";
+  "welcome" | "accessibility" | "model" | "sandbox" | "done";
 
 const renderSettingsContent = (section: SidebarSection) => {
   const ActiveComponent =
@@ -54,8 +58,43 @@ function App() {
   );
   const hasCompletedPostOnboardingInit = useRef(false);
 
+  const initializeNativeInput = useCallback(async (): Promise<boolean> => {
+    if (hasCompletedPostOnboardingInit.current) return true;
+
+    const [enigoResult, shortcutsResult] = await Promise.all([
+      commands.initializeEnigo(),
+      commands.initializeShortcuts(),
+    ]);
+    const errors = [enigoResult, shortcutsResult]
+      .filter((result) => result.status === "error")
+      .map((result) => (result.status === "error" ? result.error : null));
+
+    if (errors.length > 0) {
+      console.warn("Failed to initialize native input:", errors);
+      return false;
+    }
+
+    hasCompletedPostOnboardingInit.current = true;
+    return true;
+  }, []);
+
   useEffect(() => {
     checkOnboardingStatus();
+  }, []);
+
+  useEffect(() => {
+    const navigate = (event: Event) => {
+      const section = (event as CustomEvent<unknown>).detail;
+      if (
+        typeof section === "string" &&
+        Object.prototype.hasOwnProperty.call(SECTIONS_CONFIG, section)
+      ) {
+        setCurrentSection(section as SidebarSection);
+      }
+    };
+
+    window.addEventListener(APP_NAVIGATE_EVENT, navigate);
+    return () => window.removeEventListener(APP_NAVIGATE_EVENT, navigate);
   }, []);
 
   // Initialize RTL direction when language changes
@@ -66,17 +105,18 @@ function App() {
   // Initialize Enigo, shortcuts, and refresh audio devices when main app loads
   useEffect(() => {
     if (onboardingStep === "done" && !hasCompletedPostOnboardingInit.current) {
-      hasCompletedPostOnboardingInit.current = true;
-      Promise.all([
-        commands.initializeEnigo(),
-        commands.initializeShortcuts(),
-      ]).catch((e) => {
-        console.warn("Failed to initialize:", e);
+      void initializeNativeInput().catch((error) => {
+        console.warn("Failed to initialize native input:", error);
       });
       refreshAudioDevices();
       refreshOutputDevices();
     }
-  }, [onboardingStep, refreshAudioDevices, refreshOutputDevices]);
+  }, [
+    initializeNativeInput,
+    onboardingStep,
+    refreshAudioDevices,
+    refreshOutputDevices,
+  ]);
 
   // Developer-only keyboard shortcut for the inherited debug panel. Production
   // builds expose only the redacted diagnostic export from Help.
@@ -309,66 +349,30 @@ function App() {
     };
   }, [t]);
 
-  const revealMainWindowForPermissions = async () => {
-    try {
-      await commands.showMainWindowCommand();
-    } catch (e) {
-      console.warn("Failed to show main window for permission onboarding:", e);
-    }
-  };
-
   const checkOnboardingStatus = async () => {
     try {
       const settingsResult = await commands.getAppSettings();
       const hasCompletedOnboarding =
         settingsResult.status === "ok" &&
         settingsResult.data.onboarding_completed === true;
-      const currentPlatform = platform();
-
       if (hasCompletedOnboarding) {
-        // Returning user - check if they need to grant permissions first
+        // Returning users must always retain access to settings, history and
+        // provider configuration. Missing macOS permissions are presented by
+        // AccessibilityPermissions inside the main shell instead of trapping
+        // an existing user in the first-run flow after an app update.
         setIsReturningUser(true);
-
-        if (currentPlatform === "macos") {
-          try {
-            const [hasAccessibility, hasMicrophone] = await Promise.all([
-              checkAccessibilityPermission(),
-              checkMicrophonePermission(),
-            ]);
-            if (!hasAccessibility || !hasMicrophone) {
-              await revealMainWindowForPermissions();
-              setOnboardingStep("accessibility");
-              return;
-            }
-          } catch (e) {
-            console.warn("Failed to check macOS permissions:", e);
-            // If we can't check, proceed to main app and let them fix it there
-          }
-        }
-
-        if (currentPlatform === "windows") {
-          try {
-            const microphoneStatus =
-              await commands.getWindowsMicrophonePermissionStatus();
-            if (
-              microphoneStatus.supported &&
-              microphoneStatus.overall_access === "denied"
-            ) {
-              await revealMainWindowForPermissions();
-              setOnboardingStep("accessibility");
-              return;
-            }
-          } catch (e) {
-            console.warn("Failed to check Windows microphone permissions:", e);
-            // If we can't check, proceed to main app and let them fix it there
-          }
-        }
-
         setOnboardingStep("done");
       } else {
-        // New user - start full onboarding
+        // Resume after the expensive model step when possible. Permission
+        // grants and downloads are independently persistent, so earlier steps
+        // remain safe to replay after an interrupted first run.
         setIsReturningUser(false);
-        setOnboardingStep("welcome");
+        setOnboardingStep(
+          settingsResult.status === "ok" &&
+            (settingsResult.data.selected_model?.trim().length ?? 0) > 0
+            ? "sandbox"
+            : "welcome",
+        );
       }
     } catch (error) {
       console.error("Failed to check onboarding status:", error);
@@ -379,18 +383,31 @@ function App() {
   const handleAccessibilityComplete = () => {
     // Returning users already have models, skip to main app
     // New users need to select a model
-    setOnboardingStep(isReturningUser ? "done" : "shortcut");
+    setOnboardingStep(isReturningUser ? "done" : "model");
   };
 
   const onboardingProgress = {
     welcome: 1,
     accessibility: 2,
-    shortcut: 3,
-    model: 4,
+    model: 2,
+    sandbox: 3,
   } as const;
 
   const handleModelSelected = () => {
-    // Transition to main app - user has started a download
+    setOnboardingStep("sandbox");
+  };
+
+  const handleOnboardingComplete = async () => {
+    const result = await commands.completeOnboarding();
+    if (result.status === "error") {
+      toast.error(
+        result.error === "onboarding_model_required"
+          ? t("onboarding.errors.selectModel")
+          : result.error,
+      );
+      setOnboardingStep("model");
+      return;
+    }
     setOnboardingStep("done");
   };
 
@@ -435,12 +452,15 @@ function App() {
     content = (
       <AccessibilityOnboarding onComplete={handleAccessibilityComplete} />
     );
-  } else if (onboardingStep === "shortcut") {
-    content = (
-      <ShortcutOnboarding onComplete={() => setOnboardingStep("model")} />
-    );
   } else if (onboardingStep === "model") {
     content = <Onboarding onModelSelected={handleModelSelected} />;
+  } else if (onboardingStep === "sandbox") {
+    content = (
+      <FirstDictationOnboarding
+        onComplete={handleOnboardingComplete}
+        onSkip={handleOnboardingComplete}
+      />
+    );
   } else {
     content = (
       <div dir={direction} className="product-shell select-none cursor-default">
@@ -455,9 +475,12 @@ function App() {
           />
           {/* Scrollable content area */}
           <main className="product-content">
+            <PageAtmosphere section={currentSection} />
             <div className="product-scroll-region">
               <div className="product-content-inner">
-                <AccessibilityPermissions />
+                <AccessibilityPermissions
+                  onPermissionGranted={initializeNativeInput}
+                />
                 <SecureInputWarning />
                 {renderSettingsContent(currentSection)}
               </div>
@@ -473,8 +496,11 @@ function App() {
   return (
     <>
       {toaster}
-      {onboardingStep !== "done" ? (
-        <OnboardingProgress current={onboardingProgress[onboardingStep]} />
+      {onboardingStep !== "done" && !isReturningUser ? (
+        <OnboardingProgress
+          current={onboardingProgress[onboardingStep]}
+          total={3}
+        />
       ) : null}
       {content}
     </>

@@ -5,7 +5,9 @@ use crate::settings;
 use crate::tray_i18n::get_tray_translations;
 use log::{debug, error, info, warn};
 use std::path::PathBuf;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
+use std::time::Duration;
 use tauri::image::Image;
 use tauri::menu::{CheckMenuItem, Menu, MenuItem, PredefinedMenuItem, Submenu};
 use tauri::tray::TrayIcon;
@@ -15,24 +17,100 @@ use tauri_plugin_clipboard_manager::ClipboardExt;
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum TrayIconState {
     Idle,
-    Recording,
+    Arming,
+    Listening,
     Transcribing,
+    Transforming,
+    Inserting,
+    Success,
+    Error,
 }
 
+impl TrayIconState {
+    pub fn from_voice_phase(phase: crate::transcription_coordinator::VoiceSurfacePhase) -> Self {
+        use crate::transcription_coordinator::VoiceSurfacePhase;
+
+        match phase {
+            VoiceSurfacePhase::Hidden | VoiceSurfacePhase::Cancelled => Self::Idle,
+            VoiceSurfacePhase::Arming => Self::Arming,
+            VoiceSurfacePhase::Listening => Self::Listening,
+            VoiceSurfacePhase::Captured | VoiceSurfacePhase::Transcribing => Self::Transcribing,
+            VoiceSurfacePhase::Transforming => Self::Transforming,
+            VoiceSurfacePhase::Inserting => Self::Inserting,
+            VoiceSurfacePhase::Success => Self::Success,
+            VoiceSurfacePhase::Failed => Self::Error,
+        }
+    }
+
+    fn is_busy(self) -> bool {
+        matches!(
+            self,
+            Self::Arming
+                | Self::Listening
+                | Self::Transcribing
+                | Self::Transforming
+                | Self::Inserting
+        )
+    }
+}
+
+const LISTENING_FRAME_INTERVAL: Duration = Duration::from_millis(120);
+
 /// Tauri managed state holding the last icon state set via `change_tray_icon`.
-pub struct CurrentTrayIconState(pub Mutex<TrayIconState>);
+/// The revision prevents an animation frame from overwriting a newer state.
+pub struct CurrentTrayIconState {
+    state: Mutex<TrayIconState>,
+    revision: AtomicU64,
+}
+
+/// Session-only transcript cache used by the menu bar. Disabling history still
+/// means no transcript is written to disk; the current process can nevertheless
+/// provide a preview and copy action.
+pub struct CurrentLastTranscript(Mutex<Option<String>>);
+
+impl CurrentLastTranscript {
+    pub fn new() -> Self {
+        Self(Mutex::new(None))
+    }
+
+    fn get(&self) -> Option<String> {
+        self.0.lock().ok().and_then(|value| value.clone())
+    }
+
+    fn set(&self, text: String) {
+        if let Ok(mut value) = self.0.lock() {
+            *value = Some(text);
+        }
+    }
+}
+
+pub fn remember_last_transcript(app: &AppHandle, text: &str) {
+    let trimmed = text.trim();
+    if !trimmed.is_empty() {
+        app.state::<CurrentLastTranscript>()
+            .set(trimmed.to_string());
+    }
+}
 
 impl CurrentTrayIconState {
     pub fn new() -> Self {
-        Self(Mutex::new(TrayIconState::Idle))
+        Self {
+            state: Mutex::new(TrayIconState::Idle),
+            revision: AtomicU64::new(0),
+        }
     }
 
     pub fn get(&self) -> TrayIconState {
-        *self.0.lock().unwrap()
+        *self.state.lock().unwrap()
     }
 
-    fn set(&self, state: TrayIconState) {
-        *self.0.lock().unwrap() = state;
+    fn set(&self, state: TrayIconState) -> u64 {
+        *self.state.lock().unwrap() = state;
+        self.revision.fetch_add(1, Ordering::SeqCst) + 1
+    }
+
+    fn is_current(&self, state: TrayIconState, revision: u64) -> bool {
+        self.get() == state && self.revision.load(Ordering::SeqCst) == revision
     }
 }
 
@@ -96,32 +174,107 @@ fn windows_taskbar_theme() -> Option<AppTheme> {
 /// Gets the appropriate icon path for the given theme and state.
 ///
 /// `warning` overlays a badge on the idle icon while keyboard shortcuts are
-/// blocked (macOS Secure Input); recording/transcribing states keep their
+/// blocked (macOS Secure Input); active states keep their
 /// normal icons so in-flight activity stays recognizable.
 pub fn get_icon_path(theme: AppTheme, state: TrayIconState, warning: bool) -> &'static str {
     if warning && state == TrayIconState::Idle {
         return match theme {
-            AppTheme::Dark => "resources/tray_idle_warning.png",
-            AppTheme::Light => "resources/tray_idle_warning_dark.png",
-            // Linux never sets the warning flag (Secure Input is macOS-only),
-            // but fall back to the normal icon just in case.
-            AppTheme::Colored => "resources/handy.png",
+            AppTheme::Dark => "resources/tray_signal-warning_light.png",
+            AppTheme::Light | AppTheme::Colored => "resources/tray_signal-warning.png",
         };
     }
-    match (theme, state) {
-        // Dark theme uses light icons
-        (AppTheme::Dark, TrayIconState::Idle) => "resources/tray_idle.png",
-        (AppTheme::Dark, TrayIconState::Recording) => "resources/tray_recording.png",
-        (AppTheme::Dark, TrayIconState::Transcribing) => "resources/tray_transcribing.png",
-        // Light theme uses dark icons
-        (AppTheme::Light, TrayIconState::Idle) => "resources/tray_idle_dark.png",
-        (AppTheme::Light, TrayIconState::Recording) => "resources/tray_recording_dark.png",
-        (AppTheme::Light, TrayIconState::Transcribing) => "resources/tray_transcribing_dark.png",
-        // Colored theme uses pink icons (for Linux)
-        (AppTheme::Colored, TrayIconState::Idle) => "resources/handy.png",
-        (AppTheme::Colored, TrayIconState::Recording) => "resources/recording.png",
-        (AppTheme::Colored, TrayIconState::Transcribing) => "resources/transcribing.png",
+    match theme {
+        AppTheme::Dark => match state {
+            TrayIconState::Idle => "resources/tray_signal-idle_light.png",
+            TrayIconState::Arming => "resources/tray_signal-arming_light.png",
+            TrayIconState::Listening => "resources/tray_signal-listening_light.png",
+            TrayIconState::Transcribing => "resources/tray_signal-transcribing_light.png",
+            TrayIconState::Transforming => "resources/tray_signal-transforming_light.png",
+            TrayIconState::Inserting => "resources/tray_signal-inserting_light.png",
+            TrayIconState::Success => "resources/tray_signal-success_light.png",
+            TrayIconState::Error => "resources/tray_signal-error_light.png",
+        },
+        AppTheme::Light => match state {
+            TrayIconState::Idle => "resources/tray_signal-idle.png",
+            TrayIconState::Arming => "resources/tray_signal-arming.png",
+            TrayIconState::Listening => "resources/tray_signal-listening.png",
+            TrayIconState::Transcribing => "resources/tray_signal-transcribing.png",
+            TrayIconState::Transforming => "resources/tray_signal-transforming.png",
+            TrayIconState::Inserting => "resources/tray_signal-inserting.png",
+            TrayIconState::Success => "resources/tray_signal-success.png",
+            TrayIconState::Error => "resources/tray_signal-error.png",
+        },
+        AppTheme::Colored => match state {
+            TrayIconState::Idle => "resources/tray_signal-idle.png",
+            TrayIconState::Arming => "resources/tray_signal-arming.png",
+            TrayIconState::Listening => "resources/tray_signal-listening.png",
+            TrayIconState::Transcribing => "resources/tray_signal-transcribing.png",
+            TrayIconState::Transforming => "resources/tray_signal-transforming.png",
+            TrayIconState::Inserting => "resources/tray_signal-inserting.png",
+            TrayIconState::Success => "resources/tray_signal-success.png",
+            TrayIconState::Error => "resources/tray_signal-error.png",
+        },
     }
+}
+
+fn get_listening_frame_path(theme: AppTheme, frame: usize) -> &'static str {
+    const DARK: [&str; 4] = [
+        "resources/tray_signal-listening_light.png",
+        "resources/tray_signal-listening-1_light.png",
+        "resources/tray_signal-listening-2_light.png",
+        "resources/tray_signal-listening-3_light.png",
+    ];
+    const LIGHT: [&str; 4] = [
+        "resources/tray_signal-listening.png",
+        "resources/tray_signal-listening-1.png",
+        "resources/tray_signal-listening-2.png",
+        "resources/tray_signal-listening-3.png",
+    ];
+    match theme {
+        AppTheme::Dark => DARK[frame % DARK.len()],
+        AppTheme::Light | AppTheme::Colored => LIGHT[frame % LIGHT.len()],
+    }
+}
+
+fn resolved_tray_image(app: &AppHandle, icon_path: &str) -> tauri::Result<Image<'static>> {
+    load_tray_icon(
+        app.path()
+            .resolve(icon_path, tauri::path::BaseDirectory::Resource),
+    )
+}
+
+fn start_listening_animation(app: AppHandle, revision: u64) {
+    let _ = std::thread::Builder::new()
+        .name("pressay-tray-signal".to_string())
+        .spawn(move || {
+            let mut frame = 1;
+            loop {
+                std::thread::sleep(LISTENING_FRAME_INTERVAL);
+                let state = app.state::<CurrentTrayIconState>();
+                if !state.is_current(TrayIconState::Listening, revision) {
+                    break;
+                }
+                let icon_path = get_listening_frame_path(get_current_theme(&app), frame);
+                let image = match resolved_tray_image(&app, icon_path) {
+                    Ok(image) => image,
+                    Err(err) => {
+                        error!("Failed to load animated tray icon '{icon_path}': {err}");
+                        break;
+                    }
+                };
+                if !state.is_current(TrayIconState::Listening, revision) {
+                    break;
+                }
+                if let Err(err) = app
+                    .state::<TrayIcon>()
+                    .set_icon_with_as_template(Some(image), true)
+                {
+                    error!("Failed to animate tray icon '{icon_path}': {err}");
+                    break;
+                }
+                frame = (frame + 1) % 4;
+            }
+        });
 }
 
 pub fn change_tray_icon(app: &AppHandle, icon: TrayIconState) {
@@ -129,21 +282,22 @@ pub fn change_tray_icon(app: &AppHandle, icon: TrayIconState) {
     let theme = get_current_theme(app);
 
     // Store current state
-    app.state::<CurrentTrayIconState>().set(icon);
+    let revision = app.state::<CurrentTrayIconState>().set(icon);
 
     let warning = crate::secure_input::tray_warning_active(app);
     let icon_path = get_icon_path(theme, icon, warning);
 
     let icon_started = std::time::Instant::now();
-    if let Err(err) = load_tray_icon(
-        app.path()
-            .resolve(icon_path, tauri::path::BaseDirectory::Resource),
-    )
-    .and_then(|image| tray.set_icon_with_as_template(Some(image), true))
+    if let Err(err) = resolved_tray_image(app, icon_path)
+        .and_then(|image| tray.set_icon_with_as_template(Some(image), true))
     {
         error!("Failed to update tray icon '{icon_path}': {err}");
     }
     let icon_elapsed = icon_started.elapsed();
+
+    if icon == TrayIconState::Listening {
+        start_listening_animation(app.clone(), revision);
+    }
 
     // Update menu based on state
     let menu_started = std::time::Instant::now();
@@ -181,6 +335,44 @@ fn version_label() -> String {
     }
 }
 
+fn state_label(state: TrayIconState) -> &'static str {
+    match state {
+        TrayIconState::Idle => "●  Signal · Ready",
+        TrayIconState::Arming => "🔵  Signal · Arming",
+        TrayIconState::Listening => "🔵  Signal · Listening",
+        TrayIconState::Transcribing => "🔵  Signal · Transcribing",
+        TrayIconState::Transforming => "🟣  Signal · Transforming",
+        TrayIconState::Inserting => "🔵  Signal · Inserting",
+        TrayIconState::Success => "🟢  Signal · Complete",
+        TrayIconState::Error => "🔴  Signal · Attention",
+    }
+}
+
+fn transcript_preview(text: &str) -> String {
+    const MAX_CHARS: usize = 54;
+    let normalized = text.split_whitespace().collect::<Vec<_>>().join(" ");
+    let mut chars = normalized.chars();
+    let preview: String = chars.by_ref().take(MAX_CHARS).collect();
+    if chars.next().is_some() {
+        format!("{preview}…")
+    } else {
+        preview
+    }
+}
+
+fn latest_transcript(app: &AppHandle) -> Option<String> {
+    if let Some(text) = app.state::<CurrentLastTranscript>().get() {
+        return Some(text);
+    }
+    let history_manager = app.state::<Arc<HistoryManager>>();
+    history_manager
+        .get_latest_completed_entry()
+        .ok()
+        .flatten()
+        .map(|entry| last_transcript_text(&entry).to_string())
+        .filter(|text| !text.trim().is_empty())
+}
+
 pub fn update_tray_menu(app: &AppHandle, locale: Option<&str>) {
     let state = app.state::<CurrentTrayIconState>().get();
     let settings = settings::get_settings(app);
@@ -212,6 +404,8 @@ pub fn update_tray_menu(app: &AppHandle, locale: Option<&str>) {
     let version_label = version_label();
     let version_i = MenuItem::with_id(app, "version", &version_label, false, None::<&str>)
         .expect("failed to create version item");
+    let state_i = MenuItem::with_id(app, "voice_state", state_label(state), false, None::<&str>)
+        .expect("failed to create voice state item");
     let settings_i = MenuItem::with_id(
         app,
         "settings",
@@ -228,14 +422,27 @@ pub fn update_tray_menu(app: &AppHandle, locale: Option<&str>) {
         None::<&str>,
     )
     .expect("failed to create check updates item");
+    let last_transcript = latest_transcript(app);
     let copy_last_transcript_i = MenuItem::with_id(
         app,
         "copy_last_transcript",
         &strings.copy_last_transcript,
-        true,
+        last_transcript.is_some(),
         None::<&str>,
     )
     .expect("failed to create copy last transcript item");
+    let last_transcript_i = MenuItem::with_id(
+        app,
+        "last_transcript_preview",
+        last_transcript
+            .as_deref()
+            .map(transcript_preview)
+            .map(|text| format!("↳ {text}"))
+            .unwrap_or_else(|| "↳ —".to_string()),
+        false,
+        None::<&str>,
+    )
+    .expect("failed to create last transcript preview item");
     let model_loaded = app.state::<Arc<TranscriptionManager>>().is_model_loaded();
     let quit_i = MenuItem::with_id(app, "quit", &strings.quit, true, quit_accelerator)
         .expect("failed to create quit item");
@@ -249,11 +456,12 @@ pub fn update_tray_menu(app: &AppHandle, locale: Option<&str>) {
     let mut downloaded: Vec<_> = models.into_iter().filter(|m| m.is_downloaded).collect();
     downloaded.sort_by(|a, b| a.name.cmp(&b.name));
 
-    let submenu_label = downloaded
+    let active_model_name = downloaded
         .iter()
         .find(|m| m.id == *current_model_id)
         .map(|m| m.name.clone())
         .unwrap_or_else(|| strings.model.clone());
+    let submenu_label = format!("{} · {}", strings.model, active_model_name);
 
     let model_submenu = {
         let submenu = Submenu::with_id(app, "model_submenu", &submenu_label, true)
@@ -280,35 +488,139 @@ pub fn update_tray_menu(app: &AppHandle, locale: Option<&str>) {
     )
     .expect("failed to create unload model item");
 
-    let menu = match state {
-        TrayIconState::Recording | TrayIconState::Transcribing => {
-            let cancel_i = MenuItem::with_id(app, "cancel", &strings.cancel, true, None::<&str>)
-                .expect("failed to create cancel item");
-            Menu::with_items(
+    let active_mode_name = settings
+        .pressay_modes
+        .iter()
+        .find(|mode| mode.id == settings.active_mode_id)
+        .map(|mode| mode.name.as_str())
+        .unwrap_or("Faithful");
+    let mode_submenu = {
+        let submenu = Submenu::with_id(
+            app,
+            "mode_submenu",
+            format!("Mode · {active_mode_name}"),
+            true,
+        )
+        .expect("failed to create mode submenu");
+        for mode in &settings.pressay_modes {
+            let item = CheckMenuItem::with_id(
                 app,
-                &[
-                    &version_i,
-                    &separator(),
-                    &cancel_i,
-                    &separator(),
-                    &copy_last_transcript_i,
-                    &separator(),
-                    &settings_i,
-                    &check_updates_i,
-                    &separator(),
-                    &quit_i,
-                ],
+                format!("mode_select:{}", mode.id),
+                &mode.name,
+                true,
+                mode.id == settings.active_mode_id,
+                None::<&str>,
             )
-            .expect("failed to create menu")
+            .expect("failed to create mode item");
+            let _ = submenu.append(&item);
         }
-        TrayIconState::Idle => Menu::with_items(
+        submenu
+    };
+
+    let active_provider = settings
+        .post_process_providers
+        .iter()
+        .find(|provider| provider.id == settings.post_process_provider_id);
+    let provider_ready = settings
+        .post_process_api_keys_configured
+        .get(&settings.post_process_provider_id)
+        .copied()
+        .unwrap_or(false)
+        || settings.post_process_provider_id == "apple_intelligence";
+    let provider_label = active_provider
+        .map(|provider| provider.label.as_str())
+        .unwrap_or("Not configured");
+    let route_i = MenuItem::with_id(
+        app,
+        "processing_route",
+        if provider_ready {
+            format!("BYOK · {provider_label}")
+        } else {
+            "BYOK · Not configured".to_string()
+        },
+        false,
+        None::<&str>,
+    )
+    .expect("failed to create processing route item");
+
+    let account = crate::cloud::cached_account_snapshot(&settings).ok();
+    let account_label = account
+        .as_ref()
+        .and_then(|snapshot| snapshot.email.as_deref())
+        .map(|email| format!("🟢  {email}"))
+        .unwrap_or_else(|| "●  Pressay Cloud · Offline".to_string());
+    let account_i = MenuItem::with_id(app, "account_state", account_label, false, None::<&str>)
+        .expect("failed to create account state item");
+    let plan_i = MenuItem::with_id(
+        app,
+        "account_plan",
+        account
+            .and_then(|snapshot| snapshot.entitlement)
+            .map(|entitlement| format!("    Plan · {:?}", entitlement.tier))
+            .unwrap_or_else(|| "    Plan · —".to_string()),
+        false,
+        None::<&str>,
+    )
+    .expect("failed to create account plan item");
+
+    let shortcut_label = settings
+        .bindings
+        .get("transcribe")
+        .map(|binding| binding.current_binding.as_str())
+        .unwrap_or("—");
+    let shortcut_i = MenuItem::with_id(
+        app,
+        "shortcut_state",
+        format!("Shortcut · {shortcut_label}"),
+        false,
+        None::<&str>,
+    )
+    .expect("failed to create shortcut state item");
+
+    let menu = if state.is_busy() {
+        let cancel_i = MenuItem::with_id(app, "cancel", &strings.cancel, true, None::<&str>)
+            .expect("failed to create cancel item");
+        Menu::with_items(
             app,
             &[
                 &version_i,
+                &state_i,
+                &separator(),
+                &cancel_i,
+                &separator(),
+                &mode_submenu,
+                &model_submenu,
+                &route_i,
+                &account_i,
+                &plan_i,
+                &shortcut_i,
                 &separator(),
                 &copy_last_transcript_i,
+                &last_transcript_i,
                 &separator(),
+                &settings_i,
+                &check_updates_i,
+                &separator(),
+                &quit_i,
+            ],
+        )
+        .expect("failed to create menu")
+    } else {
+        Menu::with_items(
+            app,
+            &[
+                &version_i,
+                &state_i,
+                &separator(),
+                &copy_last_transcript_i,
+                &last_transcript_i,
+                &separator(),
+                &mode_submenu,
                 &model_submenu,
+                &route_i,
+                &account_i,
+                &plan_i,
+                &shortcut_i,
                 &unload_model_i,
                 &separator(),
                 &settings_i,
@@ -317,15 +629,15 @@ pub fn update_tray_menu(app: &AppHandle, locale: Option<&str>) {
                 &quit_i,
             ],
         )
-        .expect("failed to create menu"),
+        .expect("failed to create menu")
     };
 
-    // Both layouts start with [version, separator, ...]; slot the warning in
+    // Both layouts start with [version, state, separator, ...]; slot the warning in
     // right below the version line so it's the first actionable thing seen.
     let mut tooltip = version_label;
     if let Some(warning_item) = secure_input_warning {
-        let _ = menu.insert(&warning_item, 2);
-        let _ = menu.insert(&separator(), 3);
+        let _ = menu.insert(&warning_item, 3);
+        let _ = menu.insert(&separator(), 4);
         tooltip = format!("{} — {}", tooltip, warning_item.text().unwrap_or_default());
     }
 
@@ -351,23 +663,10 @@ pub fn set_tray_visibility(app: &AppHandle, visible: bool) {
 }
 
 pub fn copy_last_transcript(app: &AppHandle) {
-    let history_manager = app.state::<Arc<HistoryManager>>();
-    let entry = match history_manager.get_latest_completed_entry() {
-        Ok(Some(entry)) => entry,
-        Ok(None) => {
-            warn!("No completed transcription history entries available for tray copy.");
-            return;
-        }
-        Err(err) => {
-            error!(
-                "Failed to fetch last completed transcription entry: {}",
-                err
-            );
-            return;
-        }
+    let Some(text) = latest_transcript(app) else {
+        warn!("No completed transcription is available for tray copy.");
+        return;
     };
-
-    let text = last_transcript_text(&entry);
     if text.trim().is_empty() {
         warn!("Last completed transcription is empty; skipping tray copy.");
         return;
@@ -383,8 +682,12 @@ pub fn copy_last_transcript(app: &AppHandle) {
 
 #[cfg(test)]
 mod tests {
-    use super::{last_transcript_text, load_tray_icon};
+    use super::{
+        get_icon_path, get_listening_frame_path, last_transcript_text, load_tray_icon, AppTheme,
+        TrayIconState,
+    };
     use crate::managers::history::HistoryEntry;
+    use std::collections::HashSet;
 
     fn build_entry(transcription: &str, post_processed: Option<&str>) -> HistoryEntry {
         HistoryEntry {
@@ -399,6 +702,7 @@ mod tests {
             post_process_requested: false,
             audio_available: true,
             audio_saved: false,
+            metadata: Default::default(),
         }
     }
 
@@ -424,5 +728,44 @@ mod tests {
         let dir = tempfile::tempdir().expect("failed to create tempdir");
         let missing = dir.path().join("does_not_exist.png");
         assert!(load_tray_icon(Ok(missing)).is_err());
+    }
+
+    #[test]
+    fn signal_os_has_a_distinct_template_for_every_canonical_state() {
+        let states = [
+            TrayIconState::Idle,
+            TrayIconState::Arming,
+            TrayIconState::Listening,
+            TrayIconState::Transcribing,
+            TrayIconState::Transforming,
+            TrayIconState::Inserting,
+            TrayIconState::Success,
+            TrayIconState::Error,
+        ];
+        let light_paths: HashSet<_> = states
+            .iter()
+            .map(|state| get_icon_path(AppTheme::Light, *state, false))
+            .collect();
+        let dark_paths: HashSet<_> = states
+            .iter()
+            .map(|state| get_icon_path(AppTheme::Dark, *state, false))
+            .collect();
+
+        assert_eq!(light_paths.len(), states.len());
+        assert_eq!(dark_paths.len(), states.len());
+        assert_eq!(
+            get_icon_path(AppTheme::Light, TrayIconState::Idle, true),
+            "resources/tray_signal-warning.png"
+        );
+    }
+
+    #[test]
+    fn listening_animation_has_four_distinct_circle_frames_per_theme() {
+        for theme in [AppTheme::Light, AppTheme::Dark] {
+            let paths: HashSet<_> = (0..4)
+                .map(|frame| get_listening_frame_path(theme.clone(), frame))
+                .collect();
+            assert_eq!(paths.len(), 4);
+        }
     }
 }

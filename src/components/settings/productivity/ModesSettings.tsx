@@ -24,32 +24,52 @@ import { useProductivityStore } from "@/stores/productivityStore";
 import { useModelStore } from "@/stores/modelStore";
 import { useSettingsStore } from "@/stores/settingsStore";
 import { SELECTABLE_LANGUAGES } from "@/lib/constants/languages";
+import { navigateToAppSection } from "@/lib/appNavigation";
 import { Button } from "@/components/ui/Button";
 import { Input } from "@/components/ui/Input";
 import { Select } from "@/components/ui/Select";
 import { Textarea } from "@/components/ui/Textarea";
 import { ProductivityPage } from "./ProductivityPage";
 
-const routeMeta: Record<
-  ProcessingRoute,
-  { label: string; detail: string; icon: typeof Laptop }
-> = {
+const routeIcons: Record<ProcessingRoute, typeof Laptop> = {
+  local: Laptop,
+  byok: KeyRound,
+  pressay_cloud: Cloud,
+};
+
+interface RouteAvailability {
+  ready: boolean;
+  detail: string;
+}
+
+const routeMeta = (
+  t: ReturnType<typeof useTranslation>["t"],
+): Record<ProcessingRoute, { label: string; detail: string }> => ({
   local: {
-    label: "Local",
-    detail: "Nothing leaves this Mac",
-    icon: Laptop,
+    label: t("pressay.routes.local.label"),
+    detail: t("pressay.routes.local.detail"),
   },
   byok: {
-    label: "BYOK",
-    detail: "Directly through your provider",
-    icon: KeyRound,
+    label: t("pressay.routes.byok.label"),
+    detail: t("pressay.routes.byok.detail"),
   },
   pressay_cloud: {
-    label: "Pressay Cloud",
-    detail: "Requires an explicit account connection",
-    icon: Cloud,
+    label: t("pressay.routes.pressay_cloud.label"),
+    detail: t("pressay.routes.pressay_cloud.detail"),
   },
-};
+});
+
+const builtinCopy = (
+  mode: PressayMode,
+  t: ReturnType<typeof useTranslation>["t"],
+): PressayMode =>
+  mode.is_builtin
+    ? {
+        ...mode,
+        name: t(`pressay.modes.builtins.${mode.id}.name`),
+        description: t(`pressay.modes.builtins.${mode.id}.description`),
+      }
+    : mode;
 
 const blankMode = (): PressayMode => ({
   id: `mode_${Date.now()}`,
@@ -90,8 +110,10 @@ interface ModesSettingsViewProps {
   onDeleteProfile: (profileId: string) => Promise<unknown> | unknown;
   onExport?: () => Promise<unknown> | unknown;
   onImport?: () => Promise<unknown> | unknown;
+  onConfigureRoute?: (route: ProcessingRoute) => void;
   modelOptions?: Array<{ value: string; label: string }>;
   microphoneOptions?: Array<{ value: string; label: string }>;
+  routeAvailability?: Record<ProcessingRoute, RouteAvailability>;
 }
 
 export const ModesSettingsView = ({
@@ -106,10 +128,17 @@ export const ModesSettingsView = ({
   onDeleteProfile,
   onExport,
   onImport,
+  onConfigureRoute,
   modelOptions = [],
   microphoneOptions = [],
+  routeAvailability = {
+    local: { ready: true, detail: "" },
+    byok: { ready: false, detail: "" },
+    pressay_cloud: { ready: false, detail: "" },
+  },
 }: ModesSettingsViewProps) => {
   const { t } = useTranslation();
+  const routes = routeMeta(t);
   const [showModeForm, setShowModeForm] = useState(false);
   const [modeDraft, setModeDraft] = useState<PressayMode>(blankMode);
   const [showProfileForm, setShowProfileForm] = useState(false);
@@ -118,8 +147,12 @@ export const ModesSettingsView = ({
   );
 
   const modeOptions = useMemo(
-    () => config.modes.map((mode) => ({ value: mode.id, label: mode.name })),
-    [config.modes],
+    () =>
+      config.modes.map((mode) => ({
+        value: mode.id,
+        label: builtinCopy(mode, t).name,
+      })),
+    [config.modes, t],
   );
 
   const changeRoute = (route: ProcessingRoute) => {
@@ -167,24 +200,21 @@ export const ModesSettingsView = ({
 
   return (
     <ProductivityPage
-      eyebrow={t("pressay.modes.eyebrow", { defaultValue: "WORKFLOW" })}
-      title={t("pressay.modes.title", { defaultValue: "Modes" })}
-      description={t("pressay.modes.description", {
-        defaultValue:
-          "Choose what Pressay does after transcription. A remote route is never selected silently.",
-      })}
+      eyebrow={t("pressay.modes.eyebrow")}
+      title={t("pressay.modes.title")}
+      description={t("pressay.modes.description")}
       action={
         <div className="productivity-header-actions">
           {onImport ? (
             <Button variant="ghost" disabled={saving} onClick={onImport}>
               <Upload size={14} aria-hidden="true" />
-              {t("common.import", { defaultValue: "Import" })}
+              {t("common.import")}
             </Button>
           ) : null}
           {onExport ? (
             <Button variant="ghost" disabled={saving} onClick={onExport}>
               <Download size={14} aria-hidden="true" />
-              {t("common.export", { defaultValue: "Export" })}
+              {t("common.export")}
             </Button>
           ) : null}
           <Button
@@ -192,7 +222,7 @@ export const ModesSettingsView = ({
             onClick={() => setShowModeForm((visible) => !visible)}
           >
             <Plus size={14} aria-hidden="true" />
-            {t("pressay.modes.new", { defaultValue: "New mode" })}
+            {t("pressay.modes.new")}
           </Button>
         </div>
       }
@@ -202,15 +232,15 @@ export const ModesSettingsView = ({
       {showModeForm ? (
         <section
           className="productivity-editor"
-          aria-label="Custom mode editor"
+          aria-label={t("pressay.modes.editorLabel")}
         >
           <div className="productivity-editor-grid">
             <label>
-              <span>{t("common.name", { defaultValue: "Name" })}</span>
+              <span>{t("common.name")}</span>
               <Input
                 value={modeDraft.name}
                 maxLength={80}
-                placeholder="Stand-up update"
+                placeholder={t("pressay.modes.namePlaceholder")}
                 onChange={(event) =>
                   setModeDraft((current) => ({
                     ...current,
@@ -220,12 +250,12 @@ export const ModesSettingsView = ({
               />
             </label>
             <label>
-              <span>{t("pressay.modes.route", { defaultValue: "Route" })}</span>
+              <span>{t("pressay.modes.route")}</span>
               <Select
-                ariaLabel={t("pressay.modes.route", { defaultValue: "Route" })}
+                ariaLabel={t("pressay.modes.route")}
                 value={modeDraft.route}
                 isClearable={false}
-                options={Object.entries(routeMeta).map(([value, meta]) => ({
+                options={Object.entries(routes).map(([value, meta]) => ({
                   value,
                   label: meta.label,
                 }))}
@@ -234,13 +264,11 @@ export const ModesSettingsView = ({
             </label>
           </div>
           <label>
-            <span>
-              {t("common.description", { defaultValue: "Description" })}
-            </span>
+            <span>{t("common.description")}</span>
             <Input
               value={modeDraft.description}
               maxLength={280}
-              placeholder="What this mode produces"
+              placeholder={t("pressay.modes.descriptionPlaceholder")}
               onChange={(event) =>
                 setModeDraft((current) => ({
                   ...current,
@@ -251,11 +279,7 @@ export const ModesSettingsView = ({
           </label>
           {modeDraft.route !== "local" ? (
             <label>
-              <span>
-                {t("pressay.modes.instruction", {
-                  defaultValue: "Transformation instruction",
-                })}
-              </span>
+              <span>{t("pressay.modes.instruction")}</span>
               <Textarea
                 value={
                   modeDraft.steps.find((step) => step.kind === "transform")
@@ -272,17 +296,12 @@ export const ModesSettingsView = ({
                   }))
                 }
               />
-              <small>
-                {t("pressay.modes.variables", {
-                  defaultValue:
-                    "Variables: ${transcript}, ${selected}, ${app_name}, ${custom_words}",
-                })}
-              </small>
+              <small>{t("pressay.modes.variables")}</small>
             </label>
           ) : null}
           <div className="productivity-editor-actions">
             <Button variant="ghost" onClick={() => setShowModeForm(false)}>
-              {t("common.cancel", { defaultValue: "Cancel" })}
+              {t("common.cancel")}
             </Button>
             <Button
               disabled={
@@ -292,16 +311,18 @@ export const ModesSettingsView = ({
               }
               onClick={submitMode}
             >
-              {t("pressay.modes.save", { defaultValue: "Save mode" })}
+              {t("pressay.modes.save")}
             </Button>
           </div>
         </section>
       ) : null}
 
-      <section className="mode-grid" aria-label="Available modes">
+      <section className="mode-grid" aria-label={t("pressay.modes.available")}>
         {config.modes.map((mode) => {
-          const route = routeMeta[mode.route];
-          const RouteIcon = route.icon;
+          const displayMode = builtinCopy(mode, t);
+          const route = routes[mode.route];
+          const RouteIcon = routeIcons[mode.route];
+          const availability = routeAvailability[mode.route];
           const active = mode.id === config.active_mode_id;
           return (
             <article
@@ -316,41 +337,64 @@ export const ModesSettingsView = ({
                 {active ? (
                   <span className="mode-active-label">
                     <Check size={13} aria-hidden="true" />
-                    {t("pressay.modes.active", { defaultValue: "Active" })}
+                    {t("pressay.modes.active")}
                   </span>
                 ) : null}
               </div>
-              <h2>{mode.name}</h2>
-              <p>{mode.description}</p>
+              <h2>{displayMode.name}</h2>
+              <p>{displayMode.description}</p>
               <div className="mode-card-footer">
-                <span>{route.detail}</span>
+                <span
+                  className={`mode-readiness ${availability.ready ? "is-ready" : "is-blocked"}`}
+                >
+                  {availability.ready
+                    ? route.detail
+                    : availability.detail || t("pressay.routes.setupRequired")}
+                </span>
                 <div>
                   {!mode.is_builtin ? (
                     <button
                       type="button"
                       className="icon-action is-danger"
-                      aria-label={`Delete ${mode.name}`}
+                      aria-label={t("pressay.modes.deleteLabel", {
+                        name: displayMode.name,
+                      })}
                       onClick={() => onDeleteMode(mode.id)}
                     >
                       <Trash2 size={14} />
                     </button>
                   ) : null}
-                  <Button
-                    size="sm"
-                    variant="ghost"
-                    disabled={saving}
-                    onClick={() => onUseOnce(mode.id)}
-                  >
-                    {t("pressay.modes.useOnce", { defaultValue: "Once" })}
-                  </Button>
-                  <Button
-                    size="sm"
-                    variant={active ? "primary-soft" : "secondary"}
-                    disabled={active || saving}
-                    onClick={() => onActivate(mode.id)}
-                  >
-                    {active ? "Selected" : "Use mode"}
-                  </Button>
+                  {!availability.ready && onConfigureRoute ? (
+                    <Button
+                      size="sm"
+                      variant="secondary"
+                      disabled={saving}
+                      onClick={() => onConfigureRoute(mode.route)}
+                    >
+                      {t("cloud.sync.enable")}
+                    </Button>
+                  ) : (
+                    <>
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        disabled={saving}
+                        onClick={() => onUseOnce(mode.id)}
+                      >
+                        {t("pressay.modes.useOnce")}
+                      </Button>
+                      <Button
+                        size="sm"
+                        variant={active ? "primary-soft" : "secondary"}
+                        disabled={active || saving}
+                        onClick={() => onActivate(mode.id)}
+                      >
+                        {active
+                          ? t("pressay.modes.selected")
+                          : t("pressay.modes.useMode")}
+                      </Button>
+                    </>
+                  )}
                 </div>
               </div>
             </article>
@@ -361,18 +405,9 @@ export const ModesSettingsView = ({
       <section className="productivity-section">
         <div className="productivity-section-heading">
           <div>
-            <p className="product-eyebrow">CONTEXT</p>
-            <h2>
-              {t("pressay.profiles.title", {
-                defaultValue: "Application profiles",
-              })}
-            </h2>
-            <p>
-              {t("pressay.profiles.description", {
-                defaultValue:
-                  "Apply a mode and output behavior when a specific macOS bundle ID is active.",
-              })}
-            </p>
+            <p className="product-eyebrow">{t("pressay.profiles.eyebrow")}</p>
+            <h2>{t("pressay.profiles.title")}</h2>
+            <p>{t("pressay.profiles.description")}</p>
           </div>
           <Button
             size="sm"
@@ -380,15 +415,15 @@ export const ModesSettingsView = ({
             onClick={() => setShowProfileForm((visible) => !visible)}
           >
             <Plus size={14} />
-            {t("pressay.profiles.add", { defaultValue: "Add profile" })}
+            {t("pressay.profiles.add")}
           </Button>
         </div>
 
         {showProfileForm ? (
           <div className="profile-editor">
             <Input
-              aria-label="Application name"
-              placeholder="Notion"
+              aria-label={t("pressay.profiles.appName")}
+              placeholder={t("pressay.profiles.appPlaceholder")}
               value={profileDraft.app_name}
               onChange={(event) =>
                 setProfileDraft((current) => ({
@@ -398,8 +433,8 @@ export const ModesSettingsView = ({
               }
             />
             <Input
-              aria-label="Bundle ID"
-              placeholder="notion.id"
+              aria-label={t("pressay.profiles.bundleId")}
+              placeholder={t("pressay.profiles.bundlePlaceholder")}
               value={profileDraft.bundle_id}
               onChange={(event) =>
                 setProfileDraft((current) => ({
@@ -409,7 +444,7 @@ export const ModesSettingsView = ({
               }
             />
             <Select
-              ariaLabel="Profile mode"
+              ariaLabel={t("pressay.profiles.mode")}
               value={profileDraft.mode_id}
               isClearable={false}
               options={modeOptions}
@@ -421,13 +456,13 @@ export const ModesSettingsView = ({
               }
             />
             <Select
-              ariaLabel="Profile output"
+              ariaLabel={t("pressay.profiles.output")}
               value={profileDraft.output ?? "paste"}
               isClearable={false}
               options={[
-                { value: "paste", label: "Paste" },
-                { value: "copy", label: "Copy" },
-                { value: "type", label: "Type" },
+                { value: "paste", label: t("pressay.profiles.outputs.paste") },
+                { value: "copy", label: t("pressay.profiles.outputs.copy") },
+                { value: "type", label: t("pressay.profiles.outputs.type") },
               ]}
               onChange={(value) =>
                 setProfileDraft((current) => ({
@@ -437,11 +472,14 @@ export const ModesSettingsView = ({
               }
             />
             <Select
-              ariaLabel="Profile language"
+              ariaLabel={t("pressay.profiles.language")}
               value={profileDraft.language ?? "__default__"}
               isClearable={false}
               options={[
-                { value: "__default__", label: "Default language" },
+                {
+                  value: "__default__",
+                  label: t("pressay.profiles.defaultLanguage"),
+                },
                 ...SELECTABLE_LANGUAGES,
               ]}
               onChange={(value) =>
@@ -452,11 +490,14 @@ export const ModesSettingsView = ({
               }
             />
             <Select
-              ariaLabel="Profile model"
+              ariaLabel={t("pressay.profiles.model")}
               value={profileDraft.model ?? "__default__"}
               isClearable={false}
               options={[
-                { value: "__default__", label: "Default model" },
+                {
+                  value: "__default__",
+                  label: t("pressay.profiles.defaultModel"),
+                },
                 ...modelOptions,
               ]}
               onChange={(value) =>
@@ -467,11 +508,14 @@ export const ModesSettingsView = ({
               }
             />
             <Select
-              ariaLabel="Profile microphone"
+              ariaLabel={t("pressay.profiles.microphone")}
               value={profileDraft.microphone ?? "__default__"}
               isClearable={false}
               options={[
-                { value: "__default__", label: "Default microphone" },
+                {
+                  value: "__default__",
+                  label: t("pressay.profiles.defaultMicrophone"),
+                },
                 ...microphoneOptions,
               ]}
               onChange={(value) =>
@@ -489,7 +533,7 @@ export const ModesSettingsView = ({
               }
               onClick={submitProfile}
             >
-              {t("common.save", { defaultValue: "Save" })}
+              {t("common.save")}
             </Button>
           </div>
         ) : null}
@@ -498,11 +542,7 @@ export const ModesSettingsView = ({
           {config.profiles.length === 0 ? (
             <div className="productivity-empty">
               <AppWindow size={18} />
-              <p>
-                {t("pressay.profiles.empty", {
-                  defaultValue: "No application profile yet.",
-                })}
-              </p>
+              <p>{t("pressay.profiles.empty")}</p>
             </div>
           ) : (
             config.profiles.map((profile) => (
@@ -527,7 +567,9 @@ export const ModesSettingsView = ({
                 <button
                   type="button"
                   className="icon-action is-danger"
-                  aria-label={`Delete ${profile.app_name} profile`}
+                  aria-label={t("pressay.profiles.deleteLabel", {
+                    name: profile.app_name,
+                  })}
                   onClick={() => onDeleteProfile(profile.id)}
                 >
                   <Trash2 size={14} />
@@ -542,7 +584,7 @@ export const ModesSettingsView = ({
 };
 
 export const ModesSettings = () => {
-  const { i18n } = useTranslation();
+  const { t } = useTranslation();
   const config = useProductivityStore((state) => state.config);
   const loading = useProductivityStore((state) => state.loading);
   const saving = useProductivityStore((state) => state.saving);
@@ -558,6 +600,10 @@ export const ModesSettings = () => {
   const models = useModelStore((state) => state.models);
   const initializeModels = useModelStore((state) => state.initialize);
   const audioDevices = useSettingsStore((state) => state.audioDevices);
+  const settings = useSettingsStore((state) => state.settings);
+  const providerConnections = useSettingsStore(
+    (state) => state.postProcessProviderConnections,
+  );
   const refreshAudioDevices = useSettingsStore(
     (state) => state.refreshAudioDevices,
   );
@@ -571,10 +617,48 @@ export const ModesSettings = () => {
   if (!config) {
     return (
       <div className="productivity-loading">
-        {loading ? "Loading modes…" : (error ?? "Modes are unavailable.")}
+        {loading
+          ? t("pressay.modes.loading")
+          : (error ?? t("pressay.modes.unavailable"))}
       </div>
     );
   }
+
+  const selectedProvider = settings?.post_process_providers?.find(
+    (provider) => provider.id === settings.post_process_provider_id,
+  );
+  const selectedProviderId = selectedProvider?.id ?? "";
+  const selectedModel =
+    settings?.post_process_models?.[selectedProviderId]?.trim() ?? "";
+  const hasProviderSecret =
+    settings?.post_process_api_keys_configured?.[selectedProviderId] ?? false;
+  const providerConnectionVerified =
+    selectedProviderId === "apple_intelligence" ||
+    providerConnections[selectedProviderId]?.status === "valid";
+  const byokReady =
+    providerConnectionVerified &&
+    (selectedProviderId === "apple_intelligence" ||
+      (selectedProviderId === "custom"
+        ? Boolean(selectedProvider?.base_url?.trim() && selectedModel)
+        : Boolean(selectedProviderId && hasProviderSecret && selectedModel)));
+  const cloudReady = Boolean(
+    settings?.pressay_cloud_account_id && settings.pressay_cloud_device_id,
+  );
+  const routeAvailability: Record<ProcessingRoute, RouteAvailability> = {
+    local: { ready: true, detail: t("pressay.routes.local.detail") },
+    byok: {
+      ready: byokReady,
+      detail: byokReady
+        ? t("pressay.routes.byok.detail")
+        : t("pressay.routes.byok.notConfigured"),
+    },
+    pressay_cloud: {
+      ready: cloudReady,
+      detail: cloudReady
+        ? t("pressay.routes.pressay_cloud.detail")
+        : t("pressay.routes.pressay_cloud.notConnected"),
+    },
+  };
 
   const exportConfig = async () => {
     try {
@@ -582,11 +666,7 @@ export const ModesSettings = () => {
       if (result.status === "error") {
         toast.error(result.error);
       } else if (!result.data.cancelled) {
-        toast.success(
-          i18n.resolvedLanguage?.startsWith("fr")
-            ? "Configuration exportée"
-            : "Configuration exported",
-        );
+        toast.success(t("pressay.transfer.exported"));
       }
     } catch (error) {
       toast.error(error instanceof Error ? error.message : String(error));
@@ -603,19 +683,17 @@ export const ModesSettings = () => {
       if (result.data.cancelled) return;
       await refreshProductivity();
       const report = result.data;
-      const isFrench = i18n.resolvedLanguage?.startsWith("fr");
-      const summary = isFrench
-        ? `${report.modes_added} modes · ${report.profiles_added} profils · ${report.dictionary_added} termes`
-        : `${report.modes_added} modes · ${report.profiles_added} profiles · ${report.dictionary_added} terms`;
-      toast.success(
-        isFrench ? "Configuration importée" : "Configuration imported",
-        {
-          description:
-            report.conflicts_preserved > 0
-              ? `${summary} · ${report.conflicts_preserved} ${isFrench ? "conflits préservés" : "conflicts preserved"}`
-              : summary,
-        },
-      );
+      const summary = t("pressay.transfer.summary", {
+        modes: report.modes_added,
+        profiles: report.profiles_added,
+        terms: report.dictionary_added,
+      });
+      toast.success(t("pressay.transfer.imported"), {
+        description:
+          report.conflicts_preserved > 0
+            ? `${summary} · ${t("pressay.transfer.conflicts", { count: report.conflicts_preserved })}`
+            : summary,
+      });
     } catch (error) {
       toast.error(error instanceof Error ? error.message : String(error));
     }
@@ -634,6 +712,10 @@ export const ModesSettings = () => {
       onDeleteProfile={deleteProfile}
       onExport={exportConfig}
       onImport={importConfig}
+      onConfigureRoute={(route) =>
+        navigateToAppSection(route === "byok" ? "postprocessing" : "account")
+      }
+      routeAvailability={routeAvailability}
       modelOptions={models
         .filter((model) => model.is_downloaded)
         .map((model) => ({ value: model.id, label: model.name }))}

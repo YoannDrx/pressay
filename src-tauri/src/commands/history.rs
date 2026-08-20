@@ -1,8 +1,11 @@
 use crate::actions::process_transcription_output;
 use crate::managers::{
-    history::{HistoryManager, PaginatedHistory},
+    history::{
+        HistoryEntry, HistoryEntryStatus, HistoryManager, HistoryMetadata, PaginatedHistory,
+    },
     transcription::TranscriptionManager,
 };
+use crate::productivity::{ModeSelectionSource, OutputBehavior, ProcessingRoute, ResolvedMode};
 use std::sync::Arc;
 use tauri::{AppHandle, State};
 
@@ -31,6 +34,88 @@ pub async fn toggle_history_entry_saved(
         .toggle_saved_status(id)
         .await
         .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+#[specta::specta]
+pub async fn update_history_entry_tags(
+    history_manager: State<'_, Arc<HistoryManager>>,
+    id: i64,
+    tags: Vec<String>,
+) -> Result<HistoryEntry, String> {
+    history_manager
+        .update_tags(id, tags)
+        .await
+        .map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+#[specta::specta]
+pub async fn reprocess_history_entry(
+    app: AppHandle,
+    history_manager: State<'_, Arc<HistoryManager>>,
+    id: i64,
+    mode_id: String,
+) -> Result<HistoryEntry, String> {
+    let source = history_manager
+        .get_entry_by_id(id)
+        .await
+        .map_err(|error| error.to_string())?
+        .ok_or_else(|| format!("History entry {} not found", id))?;
+    if source.transcription_text.trim().is_empty() {
+        return Err("History entry has no transcription to reprocess".to_string());
+    }
+
+    let settings = crate::settings::get_settings(&app);
+    let mode = settings
+        .pressay_modes
+        .iter()
+        .find(|mode| mode.id == mode_id)
+        .cloned()
+        .ok_or_else(|| "Unknown Pressay mode".to_string())?;
+    let route = match mode.route {
+        ProcessingRoute::Local => "local_stt",
+        ProcessingRoute::Byok => "byok",
+        ProcessingRoute::PressayCloud => "pressay_cloud",
+    };
+    let resolved = ResolvedMode {
+        mode: mode.clone(),
+        source: ModeSelectionSource::Temporary,
+        profile_id: None,
+        profile: None,
+        output: OutputBehavior::Copy,
+        target: None,
+    };
+    let processed = process_transcription_output(
+        &app,
+        &source.transcription_text,
+        false,
+        Some(&resolved),
+        None,
+        None,
+    )
+    .await
+    .map_err(|failure| format!("History transformation failed: {}", failure.code))?;
+
+    history_manager
+        .save_entry_with_metadata(
+            String::new(),
+            source.transcription_text,
+            true,
+            processed.post_processed_text,
+            processed.post_process_prompt,
+            false,
+            HistoryMetadata {
+                tags: source.metadata.tags,
+                mode_id: Some(mode.id),
+                processing_route: Some(route.to_string()),
+                application_name: source.metadata.application_name,
+                application_bundle_id: source.metadata.application_bundle_id,
+                parent_entry_id: Some(source.id),
+                status: HistoryEntryStatus::Completed,
+            },
+        )
+        .map_err(|error| error.to_string())
 }
 
 #[tauri::command]
