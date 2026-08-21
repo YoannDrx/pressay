@@ -4,7 +4,7 @@
 
 Signal OS rend visible le passage `pression → signal → sens → action`. L'identité doit évoquer un instrument macOS précis, calme et fiable, pas un tableau de bord SaaS ni une copie des concurrents.
 
-La couleur n'est pas un décor : elle matérialise une énergie active, une route ou une transition. Au repos, PresSay est essentiellement neutre. Pendant l'écoute et le traitement, le signal apparaît puis se résorbe.
+La couleur n'est pas un décor : elle matérialise une énergie active, une route ou une transition. Au repos, Pressay est essentiellement neutre. Pendant l'écoute et le traitement, le signal apparaît puis se résorbe.
 
 ## Deux explorations
 
@@ -14,7 +14,7 @@ La couleur n'est pas un décor : elle matérialise une énergie active, une rout
 
 Piste native, lumineuse et pédagogique. Elle est adaptée à l'onboarding, aux réglages et aux états où la compréhension prime. À retenir : espace, lisibilité, diagnostic en ligne, progression Hold/Speak/Release et route Local explicite.
 
-À corriger avant production : le modèle « Local 7B » est fictif et ne correspond pas au catalogue PresSay ; la densité de cartes est trop SaaS ; la couleur verte ne doit pas devenir l'identité principale ; toute copie devra passer par l'i18n. Cette image est une exploration d'atmosphère, pas une spécification d'écran.
+À corriger avant production : le modèle « Local 7B » est fictif et ne correspond pas au catalogue Pressay ; la densité de cartes est trop SaaS ; la couleur verte ne doit pas devenir l'identité principale ; toute copie devra passer par l'i18n. Cette image est une exploration d'atmosphère, pas une spécification d'écran.
 
 ### B — Obsidian Instrument
 
@@ -50,7 +50,7 @@ Les valeurs sont un point de départ à valider en contraste et sur écrans P3/s
 | `route.local`      | `#168B50`               | `#55D58B`            | Local STT.                                       |
 | `route.apple`      | `#59636F`               | `#C9D0D8`            | Apple Intelligence.                              |
 | `route.byok`       | `#715CFF`               | `#9A8CFF`            | Fournisseur personnel.                           |
-| `route.cloud`      | `#B06A00`               | `#FFC05C`            | PresSay Cloud, volontairement distinct du local. |
+| `route.cloud`      | `#B06A00`               | `#FFC05C`            | Pressay Cloud, volontairement distinct du local. |
 
 Règles : ratio WCAG AA minimum ; motifs/labels en plus de la couleur ; gamut sRGB garanti ; contraste renforcé désactive transparence et gradients.
 

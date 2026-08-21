@@ -442,7 +442,7 @@ pub fn frontmost_application() -> Option<TargetApplication> {
     if bundle_id.trim().is_empty()
         || matches!(
             bundle_id.as_str(),
-            "app.pressay.desktop" | "app.pressay.desktop.mas"
+            "app.pressay.desktop" | "fr.yodev.pressay"
         )
     {
         return None;

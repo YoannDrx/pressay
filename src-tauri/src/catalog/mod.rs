@@ -135,7 +135,25 @@ pub static CATALOG: Lazy<Vec<ModelDescriptor>> = Lazy::new(|| {
     ROOT.models
         .iter()
         .filter(|model| is_commercially_audited_license(&model.license))
-        .map(|model| model.to_descriptor(mirror))
+        .map(|model| {
+            let mut descriptor = model.to_descriptor(mirror);
+            let default_file = default_quant_file(&model.files, model.default_quant.as_deref());
+            if let Some(file) = default_file {
+                if let (Some(url), Some(sha256)) = (
+                    audited_public_fallback(&model.id, &file.filename),
+                    file.sha256.clone(),
+                ) {
+                    // The branded CDN may be temporarily unavailable. The
+                    // public repository is safe as a primary source because
+                    // every byte is still checked against the signed catalogue.
+                    descriptor.source = ModelSource::Url {
+                        url,
+                        sha256: Some(sha256),
+                    };
+                }
+            }
+            descriptor
+        })
         .collect()
 });
 
@@ -158,9 +176,9 @@ pub struct MirrorFile {
     pub size_bytes: u64,
 }
 
-/// Public, immutable copies of the three launch artifacts. These are an
-/// availability fallback for fresh installs while Pressay's own CDN remains
-/// the preferred source. The URL is not trusted: callers still verify the
+/// Public, immutable copies of the three launch artifacts. These are the
+/// release-safe primary source while Pressay's branded CDN is unavailable.
+/// The URL is not trusted: callers still verify the
 /// downloaded bytes against the size and SHA-256 from the signed catalogue.
 fn audited_public_fallback(model_id: &str, filename: &str) -> Option<String> {
     let repository = match model_id {
@@ -355,6 +373,21 @@ mod tests {
             );
             assert_eq!(fallback.sha256.len(), 64);
             assert!(fallback.size_bytes > 0);
+        }
+    }
+
+    #[test]
+    fn launch_models_use_the_hash_verified_public_source() {
+        for descriptor in CATALOG.iter() {
+            let ModelSource::Url { url, sha256 } = &descriptor.source else {
+                panic!("{}: launch model is not downloadable", descriptor.id);
+            };
+            assert!(
+                url.starts_with("https://huggingface.co/memoravox/"),
+                "{}: unexpected primary source {url}",
+                descriptor.id
+            );
+            assert_eq!(sha256.as_deref().map(str::len), Some(64));
         }
     }
 

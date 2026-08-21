@@ -490,6 +490,7 @@ mod platform {
     }
 }
 
+#[cfg_attr(test, allow(unused_imports))]
 pub use platform::{
     delete_cloud_bearer_token, delete_cloud_entitlement_snapshot, delete_cloud_oauth_token_set,
     delete_cloud_sync_keys, delete_history_master_key, delete_pending_cloud_oauth,

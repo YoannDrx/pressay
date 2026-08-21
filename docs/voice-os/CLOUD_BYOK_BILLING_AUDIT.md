@@ -33,7 +33,7 @@ La production ne doit pas être réassignée au nouveau backend pour contourner 
 - bearer token stocké dans Keychain ;
 - déconnexion et suppression de compte exposées ;
 - état Free/Pro, usage et quotas ;
-- allowlist d'hôtes PresSay Cloud et distinction staging/production.
+- allowlist d'hôtes Pressay Cloud et distinction staging/production.
 
 ### Matrice staging obligatoire
 
@@ -171,9 +171,9 @@ Gate : tous les scénarios produisent l'entitlement attendu, sans bloquer le Fre
 
 Le binaire MAS ne contient aucun lien, CTA ou appel Stripe. Il utilise des produits StoreKit propres au bundle MAS, avec achat, restauration et validation serveur.
 
-Matrice : StoreKit Configuration locale, Sandbox puis TestFlight ; achat mensuel/annuel ; Ask to Buy si pertinent ; interruption/annulation ; restauration sur nouvel appareil ; expiration ; billing retry/grace ; remboursement/révocation ; changement d'Apple ID ; compte PresSay absent/différent ; transaction dupliquée ; validation serveur indisponible.
+Matrice : StoreKit Configuration locale, Sandbox puis TestFlight ; achat mensuel/annuel ; Ask to Buy si pertinent ; interruption/annulation ; restauration sur nouvel appareil ; expiration ; billing retry/grace ; remboursement/révocation ; changement d'Apple ID ; compte Pressay absent/différent ; transaction dupliquée ; validation serveur indisponible.
 
-Le rapprochement Apple transaction ↔ compte PresSay doit éviter qu'un achat disparaisse tout en empêchant son attribution silencieuse au mauvais compte. Prévoir une UX de liaison/récupération et un support auditable.
+Le rapprochement Apple transaction ↔ compte Pressay doit éviter qu'un achat disparaisse tout en empêchant son attribution silencieuse au mauvais compte. Prévoir une UX de liaison/récupération et un support auditable.
 
 Gate : aucune mention « MAS ready » avant le passage de [`docs/MAC_APP_STORE_SPIKE.md`](../MAC_APP_STORE_SPIKE.md), de la Sandbox et de TestFlight sur build signé.
 

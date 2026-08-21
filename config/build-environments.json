@@ -1,0 +1,57 @@
+{
+  "$schema": "./build-environments.schema.json",
+  "version": 1,
+  "environments": [
+    {
+      "id": "development-local",
+      "channel": "development",
+      "distribution": "direct",
+      "cloudApi": "http://localhost:3000",
+      "oauthIssuer": "https://press-say.app",
+      "oauthAudience": "https://api.press-say.app",
+      "authRedirect": "pressay://oauth/callback",
+      "paymentEnvironment": "disabled",
+      "stripePriceEnvironment": null,
+      "storeKitProducts": []
+    },
+    {
+      "id": "staging-direct",
+      "channel": "beta",
+      "distribution": "direct",
+      "cloudApi": "https://pressay-cloud-staging.vercel.app",
+      "oauthIssuer": "https://press-say.app",
+      "oauthAudience": "https://api.press-say.app",
+      "authRedirect": "pressay://oauth/callback",
+      "paymentEnvironment": "stripe_test",
+      "stripePriceEnvironment": "staging",
+      "storeKitProducts": []
+    },
+    {
+      "id": "production-direct",
+      "channel": "stable",
+      "distribution": "direct",
+      "cloudApi": "https://api.press-say.app",
+      "oauthIssuer": "https://press-say.app",
+      "oauthAudience": "https://api.press-say.app",
+      "authRedirect": "pressay://oauth/callback",
+      "paymentEnvironment": "stripe_live",
+      "stripePriceEnvironment": "production",
+      "storeKitProducts": []
+    },
+    {
+      "id": "production-mac-app-store",
+      "channel": "stable",
+      "distribution": "mac_app_store",
+      "cloudApi": "https://api.press-say.app",
+      "oauthIssuer": "https://press-say.app",
+      "oauthAudience": "https://api.press-say.app",
+      "authRedirect": "pressay://oauth/callback",
+      "paymentEnvironment": "storekit_production",
+      "stripePriceEnvironment": null,
+      "storeKitProducts": [
+        "app.pressay.desktop.mas.pro.monthly",
+        "app.pressay.desktop.mas.pro.annual"
+      ]
+    }
+  ]
+}

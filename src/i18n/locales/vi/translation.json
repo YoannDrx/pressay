@@ -12,6 +12,16 @@
       "free": "Free plan",
       "pro": "Pro plan"
     },
+    "appStore": {
+      "title": "Gói đăng ký App Store",
+      "description": "Đăng ký Pressay Pro và quản lý an toàn qua Apple.",
+      "subscribe": "Đăng ký",
+      "restore": "Khôi phục giao dịch",
+      "managedByApple": "Thanh toán và hủy gói do Apple quản lý.",
+      "purchased": "Pressay Pro hiện đã hoạt động.",
+      "restored": "Đã khôi phục các giao dịch App Store.",
+      "error": "Không thể hoàn tất thao tác App Store."
+    },
     "email": {
       "label": "Email",
       "placeholder": "you@example.com",

@@ -16,9 +16,23 @@ import { INITIAL_VOICE_SURFACE_STATE } from "@/lib/voiceSurface";
 
 type OverlayState = "recording" | "streaming" | "transcribing" | "processing";
 
-// Number of reactive bars in the waveform (the simple, smoothed style shared by
-// every overlay form). Mic levels arrive as 16 FFT buckets; we take the first N.
-const WAVE_BARS = 9;
+// A slightly denser waveform gives the signal enough visual weight without
+// turning the HUD into a spectrum analyser. Levels are sampled across the full
+// 16-bucket range instead of discarding the high-frequency half.
+const WAVE_BARS = 13;
+
+const resampleLevels = (values: number[], count: number): number[] => {
+  if (values.length === 0) return Array(count).fill(0);
+  if (count === 1) return [values[0] ?? 0];
+
+  return Array.from({ length: count }, (_, index) => {
+    const position = (index * (values.length - 1)) / (count - 1);
+    const left = Math.floor(position);
+    const right = Math.min(values.length - 1, Math.ceil(position));
+    const ratio = position - left;
+    return (values[left] ?? 0) * (1 - ratio) + (values[right] ?? 0) * ratio;
+  });
+};
 
 const RecordingOverlay: React.FC = () => {
   const { t } = useTranslation();
@@ -45,7 +59,6 @@ const RecordingOverlay: React.FC = () => {
   // Overlay placement (top vs bottom of the screen). The Live panel grows downward
   // from a top overlay (oldest line under the pill) and upward from a bottom one.
   const [position, setPosition] = useState<"top" | "bottom">("bottom");
-  const [overlayStyle, setOverlayStyle] = useState<"minimal" | "live">("live");
   // True once live text overflows the cap. A top overlay fades its top edge only
   // while overflowing, so the resting first line stays crisp flush under the pill.
   const [overflowing, setOverflowing] = useState(false);
@@ -89,9 +102,6 @@ const RecordingOverlay: React.FC = () => {
             setPosition(
               settings.data.overlay_position === "top" ? "top" : "bottom",
             );
-            setOverlayStyle(
-              settings.data.overlay_style === "minimal" ? "minimal" : "live",
-            );
           }
         } catch {
           // Keep the previous/default placement if settings can't be read.
@@ -118,14 +128,14 @@ const RecordingOverlay: React.FC = () => {
 
       const unlistenLevel = await listen<number[]>("mic-level", (event) => {
         const newLevels = event.payload as number[];
-        // Exponential smoothing across the 16 buckets, then take the first N
-        // bars for the shared waveform.
+        // Exponential smoothing across the 16 buckets, then resample the whole
+        // spectrum into the denser shared waveform.
         const smoothed = smoothedLevelsRef.current.map((prev, i) => {
           const target = newLevels[i] || 0;
           return prev * 0.7 + target * 0.3;
         });
         smoothedLevelsRef.current = smoothed;
-        setLevels(smoothed.slice(0, WAVE_BARS));
+        setLevels(resampleLevels(smoothed, WAVE_BARS));
       });
 
       const unlistenStream = await events.streamTextEvent.listen((event) => {
@@ -215,7 +225,10 @@ const RecordingOverlay: React.FC = () => {
 
   // ---- Shared building blocks (one visual language for every overlay form) ----
   const waveform = (
-    <div className={`swave ${captureReady ? "ready" : "arming"}`}>
+    <div
+      className={`swave ${captureReady ? "ready" : "arming"}`}
+      aria-hidden="true"
+    >
       {levels.map((v, i) => (
         <i
           key={i}
@@ -342,7 +355,11 @@ const RecordingOverlay: React.FC = () => {
 
     return (
       <div dir={direction} className={`ov-stage ${position} ov-fade show`}>
-        <div className={`scard compact voice-result is-${voiceSurface.phase}`}>
+        <div
+          className={`scard compact voice-result is-${voiceSurface.phase}`}
+          role="status"
+          aria-live="polite"
+        >
           <div className="sbase">
             <div className="sbase-l">
               <span className="result-glyph" aria-hidden="true" />
@@ -411,6 +428,8 @@ const RecordingOverlay: React.FC = () => {
                 className={`stext-cap ${overflowing ? "overflowing" : ""}`}
                 ref={capRef}
                 onScroll={handleStreamScroll}
+                aria-live="polite"
+                aria-atomic="false"
               >
                 <p>
                   <span className="committed">
@@ -461,7 +480,7 @@ const RecordingOverlay: React.FC = () => {
       >
         {working
           ? workingRow(workLabel, true)
-          : listeningRow(overlayStyle === "live", false, true)}
+          : listeningRow(true, false, true)}
       </div>
     </div>
   );

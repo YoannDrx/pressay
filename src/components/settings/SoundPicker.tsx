@@ -5,6 +5,24 @@ import { PlayIcon } from "lucide-react";
 import { SettingContainer } from "../ui/SettingContainer";
 import { useSettingsStore } from "../../stores/settingsStore";
 import { useSettings } from "../../hooks/useSettings";
+import { useTranslation } from "react-i18next";
+import type { SoundTheme } from "../../bindings";
+
+const BUNDLED_SOUND_THEME_LABELS: Record<
+  Exclude<SoundTheme, "custom">,
+  string
+> = {
+  marimba: "Marimba",
+  pop: "Pop",
+  minimal: "Minimal",
+  soft: "Soft",
+  glass: "Glass",
+  mechanical: "Mechanical",
+  dreamy: "Dreamy",
+  scifi: "Sci-Fi",
+  studio: "Studio",
+  zen: "Zen",
+};
 
 interface SoundPickerProps {
   label: string;
@@ -16,23 +34,17 @@ export const SoundPicker: React.FC<SoundPickerProps> = ({
   description,
 }) => {
   const { getSetting, updateSetting } = useSettings();
+  const { t } = useTranslation();
   const playTestSound = useSettingsStore((state) => state.playTestSound);
   const customSounds = useSettingsStore((state) => state.customSounds);
 
   const selectedTheme = getSetting("sound_theme") ?? "marimba";
 
-  const options: DropdownOption[] = [
-    { value: "marimba", label: "Marimba" },
-    { value: "pop", label: "Pop" },
-    { value: "minimal", label: "Minimal" },
-    { value: "soft", label: "Soft" },
-    { value: "glass", label: "Glass" },
-    { value: "mechanical", label: "Mechanical" },
-    { value: "dreamy", label: "Dreamy" },
-    { value: "scifi", label: "Sci-Fi" },
-    { value: "studio", label: "Studio" },
-    { value: "zen", label: "Zen" },
-  ];
+  // `SoundTheme` is generated from the Rust enum. The exhaustive Record makes
+  // adding a backend theme a compile error here until the UI supplies its label.
+  const options: DropdownOption[] = Object.entries(
+    BUNDLED_SOUND_THEME_LABELS,
+  ).map(([value, optionLabel]) => ({ value, label: optionLabel }));
 
   // Only add Custom option if both custom sound files exist
   if (customSounds.start && customSounds.stop) {
@@ -41,6 +53,7 @@ export const SoundPicker: React.FC<SoundPickerProps> = ({
 
   const handlePlayBothSounds = async () => {
     await playTestSound("start");
+    await new Promise((resolve) => window.setTimeout(resolve, 240));
     await playTestSound("stop");
   };
 
@@ -55,21 +68,7 @@ export const SoundPicker: React.FC<SoundPickerProps> = ({
         <Dropdown
           selectedValue={selectedTheme}
           onSelect={(value) =>
-            updateSetting(
-              "sound_theme",
-              value as
-                | "marimba"
-                | "pop"
-                | "minimal"
-                | "soft"
-                | "glass"
-                | "mechanical"
-                | "dreamy"
-                | "scifi"
-                | "studio"
-                | "zen"
-                | "custom",
-            )
+            updateSetting("sound_theme", value as SoundTheme)
           }
           options={options}
         />
@@ -77,7 +76,8 @@ export const SoundPicker: React.FC<SoundPickerProps> = ({
           variant="ghost"
           size="sm"
           onClick={handlePlayBothSounds}
-          title="Preview sound theme (plays start then stop)"
+          title={t("settings.soundTheme.description")}
+          aria-label={t("settings.soundTheme.description")}
         >
           <PlayIcon className="h-4 w-4" />
         </Button>

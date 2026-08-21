@@ -38,8 +38,18 @@ jobs:
         run: |
           app=$(find src-tauri/target/aarch64-apple-darwin/release/bundle/macos -name '*.app' -type d -print -quit)
           test -n "$app"
+          # The feasibility job intentionally has no distribution certificate. Ad-hoc
+          # signing preserves the sandbox entitlements so CI can inspect the bundle;
+          # the archive workflow uses the real Apple Distribution identity.
+          codesign --force --deep --sign - \
+            --entitlements src-tauri/Entitlements.AppStore.plist "$app"
           codesign -d --entitlements :- "$app" > entitlements.plist 2>/dev/null
           /usr/libexec/PlistBuddy -c 'Print :com.apple.security.app-sandbox' entitlements.plist | grep -qx true
+          /usr/libexec/PlistBuddy -c 'Print :com.apple.security.device.audio-input' entitlements.plist | grep -qx true
+          if /usr/libexec/PlistBuddy -c 'Print :com.apple.security.device.microphone' entitlements.plist >/dev/null 2>&1; then
+            echo "Unknown microphone entitlement found; MAS uses audio-input" >&2
+            exit 1
+          fi
           if grep -R "macos-private-api" "$app/Contents"; then
             echo "Private API marker found in App Store bundle" >&2
             exit 1

@@ -2,9 +2,9 @@
 
 ## Rôle
 
-La Voice Bar est la surface transversale de PresSay. Elle répond à cinq questions sans ouvrir l'app :
+La Voice Bar est la surface transversale de Pressay. Elle répond à cinq questions sans ouvrir l'app :
 
-1. PresSay a-t-il reconnu ma touche ?
+1. Pressay a-t-il reconnu ma touche ?
 2. M'écoute-t-il encore ?
 3. Que fait-il de ma voix ou de mon texte ?
 4. Où le traitement s'effectue-t-il ?

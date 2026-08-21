@@ -632,6 +632,38 @@ async retryCloudTranscription(requestId: string) : Promise<Result<CloudTranscrip
     else return { status: "error", error: e  as any };
 }
 },
+async getAppStoreProducts() : Promise<Result<StoreKitProduct[], string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("get_app_store_products") };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+async purchaseAppStoreProduct(productId: string) : Promise<Result<CloudAccountSnapshot, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("purchase_app_store_product", { productId }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+async restoreAppStorePurchases() : Promise<Result<CloudAccountSnapshot, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("restore_app_store_purchases") };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+async reconcileAppStorePurchases() : Promise<Result<CloudAccountSnapshot, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("reconcile_app_store_purchases") };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
 async isPortable() : Promise<boolean> {
     return await TAURI_INVOKE("is_portable");
 },
@@ -1270,7 +1302,12 @@ export type AudioDevice = { index: string; name: string; is_default: boolean }
 export type AutoSubmitKey = "enter" | "ctrl_enter" | "cmd_enter"
 export type AvailableAccelerators = { transcribe: string[]; ort: string[]; gpu_devices: GpuDeviceOption[] }
 export type BindingResponse = { success: boolean; binding: ShortcutBinding | null; error: string | null }
-export type ByokUsageSummary = { periodStart: string; providerId: string; model: string; requests: number; inputTokens: number; cachedInputTokens: number; outputTokens: number; estimatedCostMicrousd: number | null; pricingVersion: string | null }
+export type ByokUsageSummary = { periodStart: string; providerId: string; model: string; requests: number; inputTokens: number; cachedInputTokens: number; outputTokens: number;
+/**
+ * Estimated cost captured at request time using a versioned public price
+ * table. None means the provider/model did not expose a reliable rate.
+ */
+estimatedCostMicrousd: number | null; pricingVersion: string | null }
 /**
  * The single product matrix consumed by UI and backend gates. It deliberately
  * distinguishes commercial release gates from an ordinary Free entitlement:
@@ -1416,6 +1453,7 @@ uncovered_bindings: string[];
 recorder_blocked: boolean }
 export type ShortcutBinding = { id: string; name: string; description: string; default_binding: string; current_binding: string }
 export type SoundTheme = "marimba" | "pop" | "minimal" | "soft" | "glass" | "mechanical" | "dreamy" | "scifi" | "studio" | "zen" | "custom"
+export type StoreKitProduct = { id: string; displayName: string; description: string; displayPrice: string }
 /**
  * Phase of the streaming overlay card, emitted to drive its UI state.
  */

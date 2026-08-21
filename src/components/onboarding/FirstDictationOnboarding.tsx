@@ -49,7 +49,20 @@ export const FirstDictationOnboarding = ({
         }, 0);
       }
     });
+
+    // Native insertion can update a WebKit textarea without dispatching the
+    // React synthetic change event. Polling the DOM value while this one-shot
+    // exercise is mounted makes the success button resilient even if the final
+    // pipeline event arrives before the event listener is attached.
+    const valueProbe = window.setInterval(() => {
+      const insertedText = inputRef.current?.value.trim() ?? "";
+      if (!insertedText) return;
+      setText(inputRef.current?.value ?? "");
+      setSucceeded(true);
+    }, 120);
+
     return () => {
+      window.clearInterval(valueProbe);
       unlisten.then((dispose) => dispose());
     };
   }, []);

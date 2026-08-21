@@ -50,15 +50,14 @@
      the card's max footprint (--ov-work-w for compact, --ov-open-w for Live),
      since the card is anchored flush to the screen edge in CSS. Keep overlay.rs
      in sync when these change. */
-  --ov-rest-w: 220px; /* resting compact pill (minimal, recording) -- roomy enough
-                         for the English working label before the grow starts */
-  --ov-pill-w: 220px; /* base width / Live pill before it opens or collapses */
-  --ov-work-w: 304px; /* working pill (transcribing / polishing) -- wide enough to
+  --ov-rest-w: 276px; /* route badge + full-width waveform + cancel */
+  --ov-pill-w: 276px; /* base width / Live pill before it opens or collapses */
+  --ov-work-w: 320px; /* working pill (transcribing / polishing) -- wide enough to
                          center longer labels; shared by Live (collapsed) + minimal */
-  --ov-result-w: 372px; /* recovery states can contain two trailing actions */
-  --ov-open-w: 428px; /* Live panel, expanded */
-  --ov-base-h: 40px; /* control-row height (.sbase) */
-  --ov-cap-max-h: 64px; /* max height of the scrolling live-text region */
+  --ov-result-w: 388px; /* recovery states can contain two trailing actions */
+  --ov-open-w: 448px; /* Live panel, expanded */
+  --ov-base-h: 42px; /* control-row height (.sbase) */
+  --ov-cap-max-h: 72px; /* max height of the scrolling live-text region */
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -72,6 +71,17 @@
   .sspinner {
     animation: none !important;
     transition-duration: 0.01ms !important;
+  }
+}
+
+@media (prefers-reduced-transparency: reduce) {
+  :root {
+    --s-surface: var(--color-background);
+  }
+
+  .scard {
+    -webkit-backdrop-filter: none;
+    backdrop-filter: none;
   }
 }
 @media (prefers-color-scheme: dark) {
@@ -310,18 +320,18 @@
    Same structure for pill & panel; the dot stays anchored left in both. */
 .sbase {
   height: var(--ov-base-h);
-  padding: 0 10px;
+  column-gap: 12px;
+  padding: 0 10px 0 12px;
   display: grid;
   /* Equal side columns (min 22px to hold the cancel button) keep the center item
      — waveform or label — centered whether the pill is at min width or content-
      sized. */
-  grid-template-columns: minmax(28px, auto) minmax(0, 1fr) minmax(28px, auto);
+  grid-template-columns: minmax(28px, auto) minmax(72px, 1fr) minmax(28px, auto);
   align-items: center;
 }
 .sbase-l {
   display: flex;
-  gap: 6px;
-  padding-left: 5px;
+  gap: 7px;
   align-items: center;
   justify-self: start;
 }
@@ -378,13 +388,16 @@
 .swave {
   display: flex;
   align-items: center;
-  gap: 3px;
-  padding-right: 8px;
+  width: 100%;
+  min-width: 0;
+  justify-content: space-between;
+  gap: 2px;
   height: 18px;
-  flex: none;
+  overflow: hidden;
 }
 .swave i {
-  width: 4px;
+  width: 3px;
+  flex: 0 0 3px;
   min-height: 3px;
   max-height: 18px;
   border-radius: 2px;
@@ -401,19 +414,27 @@
   animation: swave-arming 900ms ease-in-out infinite;
 }
 .swave.arming i:nth-child(2),
-.swave.arming i:nth-child(8) {
+.swave.arming i:nth-child(12) {
   animation-delay: 75ms;
 }
 .swave.arming i:nth-child(3),
-.swave.arming i:nth-child(7) {
+.swave.arming i:nth-child(11) {
   animation-delay: 150ms;
 }
 .swave.arming i:nth-child(4),
-.swave.arming i:nth-child(6) {
+.swave.arming i:nth-child(10) {
   animation-delay: 225ms;
 }
-.swave.arming i:nth-child(5) {
+.swave.arming i:nth-child(5),
+.swave.arming i:nth-child(9) {
   animation-delay: 300ms;
+}
+.swave.arming i:nth-child(6),
+.swave.arming i:nth-child(8) {
+  animation-delay: 375ms;
+}
+.swave.arming i:nth-child(7) {
+  animation-delay: 450ms;
 }
 @keyframes swave-arming {
   0%,
@@ -497,6 +518,11 @@
   overflow: hidden;
   color: var(--s-faint);
   font-family: ui-monospace, "SFMono-Regular", Menlo, monospace;
+  max-width: 76px;
+  padding: 3px 6px;
+  border: 1px solid color-mix(in srgb, currentColor 22%, transparent);
+  border-radius: 999px;
+  background: color-mix(in srgb, currentColor 8%, transparent);
   font-size: 8px;
   font-weight: 650;
   letter-spacing: 0.035em;
@@ -504,6 +530,14 @@
   text-overflow: ellipsis;
   text-transform: uppercase;
   white-space: nowrap;
+}
+
+.swork-label .sroute {
+  max-width: 132px;
+  margin-top: 2px;
+  padding: 0;
+  border: 0;
+  background: transparent;
 }
 
 .sroute.route-local_stt {

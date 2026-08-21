@@ -264,7 +264,20 @@ pub enum SoundTheme {
 }
 
 impl SoundTheme {
-    fn as_str(&self) -> &'static str {
+    pub const BUNDLED: [SoundTheme; 10] = [
+        SoundTheme::Marimba,
+        SoundTheme::Pop,
+        SoundTheme::Minimal,
+        SoundTheme::Soft,
+        SoundTheme::Glass,
+        SoundTheme::Mechanical,
+        SoundTheme::Dreamy,
+        SoundTheme::Scifi,
+        SoundTheme::Studio,
+        SoundTheme::Zen,
+    ];
+
+    pub fn as_str(&self) -> &'static str {
         match self {
             SoundTheme::Marimba => "marimba",
             SoundTheme::Pop => "pop",
@@ -286,6 +299,27 @@ impl SoundTheme {
 
     pub fn to_stop_path(self) -> String {
         format!("resources/{}_stop.wav", self.as_str())
+    }
+}
+
+impl TryFrom<&str> for SoundTheme {
+    type Error = String;
+
+    fn try_from(value: &str) -> Result<Self, Self::Error> {
+        match value {
+            "marimba" => Ok(SoundTheme::Marimba),
+            "pop" => Ok(SoundTheme::Pop),
+            "minimal" => Ok(SoundTheme::Minimal),
+            "soft" => Ok(SoundTheme::Soft),
+            "glass" => Ok(SoundTheme::Glass),
+            "mechanical" => Ok(SoundTheme::Mechanical),
+            "dreamy" => Ok(SoundTheme::Dreamy),
+            "scifi" => Ok(SoundTheme::Scifi),
+            "studio" => Ok(SoundTheme::Studio),
+            "zen" => Ok(SoundTheme::Zen),
+            "custom" => Ok(SoundTheme::Custom),
+            _ => Err(format!("Unsupported sound theme: {value}")),
+        }
     }
 }
 
@@ -555,6 +589,15 @@ fn default_pressay_cloud_api_url() -> String {
     }
 }
 
+fn is_pressay_managed_cloud_url(value: &str) -> bool {
+    matches!(
+        value.trim_end_matches('/'),
+        "https://pressay-cloud-staging.vercel.app"
+            | "https://api-staging.press-say.app"
+            | "https://api.press-say.app"
+    )
+}
+
 fn default_push_to_talk() -> bool {
     true
 }
@@ -619,7 +662,7 @@ fn default_debug_mode() -> bool {
 }
 
 fn default_log_level() -> LogLevel {
-    LogLevel::Debug
+    LogLevel::Info
 }
 
 fn default_word_correction_threshold() -> f64 {
@@ -1739,15 +1782,16 @@ fn apply_settings_migrations(
         updated = true;
     }
 
-    // Pre-release builds use the isolated Cloud control plane. Some beta
-    // installs persisted the production API URL before the staging endpoint
-    // existed; keeping it would send the modern desktop contract to the legacy
-    // commercial API and make OAuth fail after a successful provider callback.
-    if stored_schema_version < 8
-        && env!("CARGO_PKG_VERSION").contains('-')
-        && settings.pressay_cloud_api_url == "https://api.press-say.app"
+    // Pressay-owned endpoints belong to the signed build channel, not to the
+    // mutable user store. This runs on every load so a beta upgraded from an
+    // older schema cannot remain pinned to production (and a stable build can
+    // never remain pinned to staging). Explicit development endpoints compiled
+    // with PRESSAY_CLOUD_API_URL remain authoritative through the default.
+    let build_cloud_api_url = default_pressay_cloud_api_url();
+    if is_pressay_managed_cloud_url(&settings.pressay_cloud_api_url)
+        && settings.pressay_cloud_api_url.trim_end_matches('/') != build_cloud_api_url
     {
-        settings.pressay_cloud_api_url = default_pressay_cloud_api_url();
+        settings.pressay_cloud_api_url = build_cloud_api_url;
         updated = true;
     }
 
@@ -1832,12 +1876,9 @@ pub fn get_bindings(app: &AppHandle) -> HashMap<String, ShortcutBinding> {
     settings.bindings
 }
 
-pub fn get_stored_binding(app: &AppHandle, id: &str) -> ShortcutBinding {
+pub fn get_stored_binding(app: &AppHandle, id: &str) -> Option<ShortcutBinding> {
     let bindings = get_bindings(app);
-
-    let binding = bindings.get(id).unwrap().clone();
-
-    binding
+    bindings.get(id).cloned()
 }
 
 pub fn get_history_enabled(app: &AppHandle) -> bool {
@@ -1984,6 +2025,8 @@ mod tests {
 
         assert_eq!(settings.selected_model, "whisper-large-v3-turbo");
         assert_eq!(settings.bindings["transcribe"].current_binding, "f13");
+        // A persisted, explicit legacy value remains user-owned. Only stores
+        // without a log-level preference receive the quieter Info default.
         assert_eq!(settings.log_level, LogLevel::Debug);
         assert_eq!(settings.sound_theme, SoundTheme::Pop);
         assert!(!settings.filler_word_removal_enabled);
@@ -2021,9 +2064,9 @@ mod tests {
     }
 
     #[test]
-    fn beta_migration_moves_legacy_production_cloud_url_to_staging() {
+    fn build_channel_replaces_managed_cloud_url_even_after_schema_migrations() {
         let mut stored = default_settings_json();
-        stored["settings_schema_version"] = serde_json::json!(7);
+        stored["settings_schema_version"] = serde_json::json!(CURRENT_SETTINGS_SCHEMA_VERSION);
         stored["pressay_cloud_api_url"] = serde_json::json!("https://api.press-say.app");
         let mut settings: AppSettings = serde_json::from_value(stored.clone()).unwrap();
 
@@ -2032,7 +2075,20 @@ mod tests {
             settings.pressay_cloud_api_url,
             default_pressay_cloud_api_url()
         );
-        assert_eq!(settings.settings_schema_version, 8);
+        assert_eq!(
+            settings.settings_schema_version,
+            CURRENT_SETTINGS_SCHEMA_VERSION
+        );
+    }
+
+    #[test]
+    fn build_channel_does_not_overwrite_explicit_development_endpoint() {
+        let mut stored = default_settings_json();
+        stored["pressay_cloud_api_url"] = serde_json::json!("https://cloud.dev.example");
+        let mut settings: AppSettings = serde_json::from_value(stored.clone()).unwrap();
+
+        apply_settings_migrations(&mut settings, &stored);
+        assert_eq!(settings.pressay_cloud_api_url, "https://cloud.dev.example");
     }
 
     #[test]
@@ -2053,23 +2109,35 @@ mod tests {
 
     #[test]
     fn bundled_sound_themes_resolve_to_resource_pairs() {
-        let themes = [
-            SoundTheme::Marimba,
-            SoundTheme::Pop,
-            SoundTheme::Minimal,
-            SoundTheme::Soft,
-            SoundTheme::Glass,
-            SoundTheme::Mechanical,
-            SoundTheme::Dreamy,
-            SoundTheme::Scifi,
-            SoundTheme::Studio,
-            SoundTheme::Zen,
-        ];
-        for theme in themes {
+        let resource_dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("resources");
+
+        for theme in SoundTheme::BUNDLED {
             assert!(theme.to_start_path().starts_with("resources/"));
             assert!(theme.to_start_path().ends_with("_start.wav"));
             assert!(theme.to_stop_path().ends_with("_stop.wav"));
+            assert_eq!(SoundTheme::try_from(theme.as_str()), Ok(theme));
+
+            for path in [theme.to_start_path(), theme.to_stop_path()] {
+                let file_name = std::path::Path::new(&path)
+                    .file_name()
+                    .expect("sound path must contain a file name");
+                let bytes = std::fs::read(resource_dir.join(file_name))
+                    .unwrap_or_else(|error| panic!("missing {path}: {error}"));
+
+                assert!(bytes.len() > 44, "{path} must contain WAV audio data");
+                assert_eq!(&bytes[0..4], b"RIFF", "{path} must have a RIFF header");
+                assert_eq!(&bytes[8..12], b"WAVE", "{path} must be a WAV asset");
+            }
         }
+    }
+
+    #[test]
+    fn sound_theme_parser_rejects_unknown_values_without_fallback() {
+        assert_eq!(
+            SoundTheme::try_from("theremin"),
+            Err("Unsupported sound theme: theremin".to_string())
+        );
+        assert_eq!(SoundTheme::try_from("custom"), Ok(SoundTheme::Custom));
     }
 
     #[test]

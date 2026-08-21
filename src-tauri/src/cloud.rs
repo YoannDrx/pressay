@@ -139,6 +139,18 @@ pub struct CloudAccountSnapshot {
     pub usage: Option<UsageSnapshot>,
 }
 
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct RestoreAppStoreRequest<'a> {
+    signed_transaction: &'a str,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct RestoreAppStoreResponse {
+    restored: bool,
+}
+
 #[derive(Serialize, Deserialize, Debug, Clone, Copy, PartialEq, Eq, Type)]
 #[serde(rename_all = "snake_case")]
 pub enum CloudSyncStatus {
@@ -248,6 +260,7 @@ pub struct CloudAuthEvent {
 #[serde(rename_all = "snake_case")]
 pub enum CloudAuthEventStatus {
     Exchanging,
+    Bootstrapping,
     Connected,
     Failed,
 }
@@ -442,6 +455,20 @@ struct MagicLinkRequest<'a> {
     email: &'a str,
     callback_url: &'a str,
     error_callback_url: &'a str,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct SocialSignInRequest<'a> {
+    provider: CloudAuthProvider,
+    callback_url: &'a str,
+    error_callback_url: &'a str,
+}
+
+#[derive(Deserialize)]
+struct SocialSignInResponse {
+    url: Url,
+    redirect: bool,
 }
 
 #[derive(Serialize)]
@@ -664,6 +691,7 @@ fn validate_base_url(raw: &str) -> Result<Url, CloudFailure> {
         .and_then(|value| value.host_str().map(str::to_owned));
     let allowed = url.scheme() == "https"
         && (host == "api.press-say.app"
+            || host == "api-staging.press-say.app"
             || host == "pressay-cloud-staging.vercel.app"
             || configured_host.as_deref() == Some(host));
     #[cfg(test)]
@@ -678,6 +706,18 @@ fn endpoint(settings: &AppSettings, path: &str) -> Result<Url, CloudFailure> {
     validate_base_url(&settings.pressay_cloud_api_url)?
         .join(path)
         .map_err(|_| CloudFailure::new("cloud_api_url_invalid"))
+}
+
+fn validate_apple_authorization_url(url: Url) -> Result<Url, CloudFailure> {
+    if url.scheme() == "https"
+        && url.host_str() == Some("appleid.apple.com")
+        && url.path() == "/auth/authorize"
+        && url.username().is_empty()
+        && url.password().is_none()
+    {
+        return Ok(url);
+    }
+    Err(CloudFailure::new("cloud_auth_response_invalid"))
 }
 
 async fn finish(response: Response) -> Result<Response, CloudFailure> {
@@ -920,7 +960,7 @@ fn verify_entitlement_token_with_key(
         .map_err(|_| CloudFailure::new("cloud_entitlement_invalid"))?;
 
     let expected_audience = if cfg!(feature = "mas") {
-        "app.pressay.desktop.mas"
+        "fr.yodev.pressay"
     } else {
         "app.pressay.desktop"
     };
@@ -1073,17 +1113,40 @@ pub async fn request_magic_link(
 }
 
 pub async fn social_login_url(
-    _settings: &AppSettings,
+    settings: &AppSettings,
     provider: CloudAuthProvider,
     state: &str,
     verifier: &str,
 ) -> Result<String, CloudFailure> {
-    if provider != CloudAuthProvider::Google {
-        return Err(CloudFailure::new("cloud_social_login_unavailable"));
-    }
     if state.len() < 32 || verifier.len() < 43 || verifier.len() > 128 {
         return Err(CloudFailure::new("cloud_auth_state_invalid"));
     }
+
+    if provider == CloudAuthProvider::Apple {
+        let mut callback_url = endpoint(settings, "/v1/desktop-auth/callback")?;
+        callback_url.query_pairs_mut().append_pair("state", state);
+        let mut error_callback_url = Url::parse("pressay://oauth/error")
+            .map_err(|_| CloudFailure::new("cloud_auth_callback_invalid"))?;
+        error_callback_url
+            .query_pairs_mut()
+            .append_pair("state", state);
+        let response = client()
+            .post(endpoint(settings, "/v1/auth/sign-in/social")?)
+            .json(&SocialSignInRequest {
+                provider,
+                callback_url: callback_url.as_str(),
+                error_callback_url: error_callback_url.as_str(),
+            })
+            .send()
+            .await
+            .map_err(|_| CloudFailure::new("cloud_network_unavailable"))?;
+        let sign_in: SocialSignInResponse = json(response).await?;
+        if !sign_in.redirect {
+            return Err(CloudFailure::new("cloud_auth_response_invalid"));
+        }
+        return Ok(validate_apple_authorization_url(sign_in.url)?.to_string());
+    }
+
     let metadata = oauth_metadata().await?;
     let challenge = URL_SAFE_NO_PAD.encode(Sha256::digest(verifier.as_bytes()));
     let mut authorization_url = metadata.authorization_endpoint;
@@ -1615,6 +1678,41 @@ pub async fn account_snapshot(app: &AppHandle) -> Result<CloudAccountSnapshot, C
     }
 }
 
+pub async fn restore_app_store_transaction(
+    app: &AppHandle,
+    signed_transaction: &str,
+    transaction_id: &str,
+) -> Result<CloudAccountSnapshot, CloudFailure> {
+    if signed_transaction.len() < 64
+        || signed_transaction.len() > 250_000
+        || signed_transaction.split('.').count() != 3
+        || transaction_id.is_empty()
+        || transaction_id.len() > 32
+        || !transaction_id.bytes().all(|value| value.is_ascii_digit())
+    {
+        return Err(CloudFailure::new("storekit_transaction_invalid"));
+    }
+    let settings = get_settings(app);
+    let response: RestoreAppStoreResponse = json(
+        client()
+            .post(endpoint(&settings, "/v1/billing/restore-app-store")?)
+            .bearer_auth(access_token().await?)
+            .header(
+                "idempotency-key",
+                format!("app-store-transaction-{transaction_id}"),
+            )
+            .json(&RestoreAppStoreRequest { signed_transaction })
+            .send()
+            .await
+            .map_err(|_| CloudFailure::new("cloud_network_unavailable"))?,
+    )
+    .await?;
+    if !response.restored {
+        return Err(CloudFailure::new("storekit_restore_failed"));
+    }
+    account_snapshot(app).await
+}
+
 pub async fn sign_out(app: &AppHandle) -> Result<(), CloudFailure> {
     let settings = get_settings(app);
     if let Ok(token) = access_token().await {
@@ -1806,6 +1904,13 @@ pub fn handle_deep_link(app: AppHandle, url: Url) {
                     exchange_one_time_token(&settings, &token).await?;
                 }
             }
+            let _ = app.emit(
+                "cloud-auth-state-changed",
+                CloudAuthEvent {
+                    status: CloudAuthEventStatus::Bootstrapping,
+                    error_code: None,
+                },
+            );
             if let Err(error) = bootstrap_device(&app).await {
                 let _ = delete_cloud_bearer_token();
                 let _ = delete_cloud_oauth_token_set();
@@ -1879,7 +1984,7 @@ mod tests {
                     "transformations_limit": 2000
                 },
                 "iss": ENTITLEMENT_ISSUER,
-                "aud": ["app.pressay.desktop", "app.pressay.desktop.mas"],
+                "aud": ["app.pressay.desktop", "fr.yodev.pressay"],
                 "sub": account_id,
                 "iat": issued_at,
                 "exp": expires_at
@@ -1904,9 +2009,26 @@ mod tests {
     #[test]
     fn bearer_hosts_are_allowlisted() {
         assert!(validate_base_url("https://api.press-say.app").is_ok());
+        assert!(validate_base_url("https://api-staging.press-say.app").is_ok());
         assert!(validate_base_url("https://pressay-cloud-staging.vercel.app").is_ok());
         assert!(validate_base_url("https://attacker.example").is_err());
         assert!(validate_base_url("https://api.press-say.app.attacker.example").is_err());
+    }
+
+    #[test]
+    fn apple_authorization_url_is_strictly_allowlisted() {
+        assert!(validate_apple_authorization_url(
+            Url::parse("https://appleid.apple.com/auth/authorize?client_id=pressay").unwrap()
+        )
+        .is_ok());
+        assert!(validate_apple_authorization_url(
+            Url::parse("https://appleid.apple.com.attacker.example/auth/authorize").unwrap()
+        )
+        .is_err());
+        assert!(validate_apple_authorization_url(
+            Url::parse("https://appleid.apple.com/auth/token").unwrap()
+        )
+        .is_err());
     }
 
     #[test]

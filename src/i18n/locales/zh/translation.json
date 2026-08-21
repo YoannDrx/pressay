@@ -12,6 +12,16 @@
       "free": "Free plan",
       "pro": "Pro plan"
     },
+    "appStore": {
+      "title": "App Store 订阅",
+      "description": "订阅 Pressay Pro，并通过 Apple 安全管理订阅。",
+      "subscribe": "订阅",
+      "restore": "恢复购买",
+      "managedByApple": "账单和取消由 Apple 管理。",
+      "purchased": "Pressay Pro 现已启用。",
+      "restored": "App Store 购买项目已恢复。",
+      "error": "无法完成 App Store 操作。"
+    },
     "email": {
       "label": "Email",
       "placeholder": "you@example.com",

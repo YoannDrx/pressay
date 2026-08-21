@@ -13,7 +13,7 @@ La différence défendable n'est pas « encore une app de dictée avec de l'IA �
 1. une dictée locale réellement autonome ;
 2. une Voice Bar qui expose l'état et la route de traitement ;
 3. des commandes de texte sûres avant les actions système ;
-4. une architecture ouverte où Apple Intelligence, BYOK et PresSay Cloud sont des routes facultatives.
+4. une architecture ouverte où Apple Intelligence, BYOK et Pressay Cloud sont des routes facultatives.
 
 ## Statuts de vérité
 

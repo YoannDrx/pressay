@@ -16,7 +16,7 @@ building if Apple signing or notarization secrets are absent.
 
 ## Mac App Store
 
-- Bundle ID: `app.pressay.desktop.mas`
+- Bundle ID: `fr.yodev.pressay`
 - App Sandbox required
 - No Tauri self-updater
 - No Stripe checkout or external purchase call-to-action

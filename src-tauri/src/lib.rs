@@ -28,6 +28,7 @@ mod selection_context;
 mod settings;
 mod shortcut;
 mod signal_handle;
+mod storekit;
 mod sync_crypto;
 mod transcription_coordinator;
 mod tray;
@@ -60,7 +61,9 @@ use crate::settings::get_settings;
 
 // Global atomic to store the file log level filter
 // We use u8 to store the log::LevelFilter as a number
-pub static FILE_LOG_LEVEL: AtomicU8 = AtomicU8::new(log::LevelFilter::Debug as u8);
+// Commercial builds start at Info. Debug/Trace remain explicit diagnostic
+// choices and the `--debug` runtime override still enables Trace temporarily.
+pub static FILE_LOG_LEVEL: AtomicU8 = AtomicU8::new(log::LevelFilter::Info as u8);
 
 /// When `true`, log records are also forwarded to the webview via the
 /// `log://log` event for the debug panel's live log viewer. Gated on debug
@@ -717,6 +720,10 @@ pub fn run(cli_args: CliArgs) {
             commands::cloud::recover_cloud_sync,
             commands::cloud::run_cloud_sync,
             commands::cloud::retry_cloud_transcription,
+            commands::cloud::get_app_store_products,
+            commands::cloud::purchase_app_store_product,
+            commands::cloud::restore_app_store_purchases,
+            commands::cloud::reconcile_app_store_purchases,
             commands::is_portable,
             commands::get_app_dir_path,
             commands::get_app_settings,
@@ -1029,6 +1036,11 @@ pub fn run(cli_args: CliArgs) {
             }
 
             initialize_core_logic(&app_handle);
+
+            // The Mac App Store channel reconciles StoreKit 2 entitlements in
+            // the background. The direct DMG build compiles this to a no-op and
+            // never exposes or invokes App Store purchasing.
+            commands::cloud::start_app_store_reconciliation(app_handle.clone());
 
             // Secure Input monitor (macOS): detects stuck secure input that
             // silently blocks keyed shortcuts, warns the user, and activates

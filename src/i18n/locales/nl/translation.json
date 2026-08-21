@@ -12,6 +12,16 @@
       "free": "Free plan",
       "pro": "Pro plan"
     },
+    "appStore": {
+      "title": "App Store-abonnement",
+      "description": "Abonneer je op Pressay Pro en beheer je abonnement veilig via Apple.",
+      "subscribe": "Abonneren",
+      "restore": "Aankopen herstellen",
+      "managedByApple": "Facturering en opzegging worden beheerd door Apple.",
+      "purchased": "Pressay Pro is nu actief.",
+      "restored": "App Store-aankopen zijn hersteld.",
+      "error": "De App Store-bewerking kon niet worden voltooid."
+    },
     "email": {
       "label": "Email",
       "placeholder": "you@example.com",

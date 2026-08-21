@@ -8,6 +8,7 @@ use crate::cloud::{
 };
 use crate::cloud_sync::CloudSyncRunReport;
 use crate::settings::get_settings;
+use crate::storekit::{self, StoreKitProduct, StoreKitTransaction};
 
 fn public_error(error: cloud::CloudFailure) -> String {
     error.code
@@ -150,4 +151,131 @@ pub async fn retry_cloud_transcription(
     crate::cloud_transcription::retry_with_cloud(&app, &request_id)
         .await
         .map_err(public_error)
+}
+
+fn require_app_store_distribution() -> Result<(), String> {
+    if cfg!(feature = "mas") {
+        Ok(())
+    } else {
+        Err("storekit_distribution_unavailable".to_string())
+    }
+}
+
+async fn reconcile_transaction(
+    app: &AppHandle,
+    transaction: StoreKitTransaction,
+) -> Result<CloudAccountSnapshot, String> {
+    if transaction.status != "purchased" {
+        return Err(format!("storekit_{}", transaction.status));
+    }
+    let product_id = transaction
+        .product_id
+        .as_deref()
+        .ok_or_else(|| "storekit_transaction_invalid".to_string())?;
+    if !storekit::is_known_product(product_id) {
+        return Err("storekit_product_invalid".to_string());
+    }
+    let transaction_id = transaction
+        .transaction_id
+        .as_deref()
+        .ok_or_else(|| "storekit_transaction_invalid".to_string())?;
+    let signed_transaction = transaction
+        .signed_transaction
+        .as_deref()
+        .ok_or_else(|| "storekit_transaction_invalid".to_string())?;
+    let snapshot = cloud::restore_app_store_transaction(app, signed_transaction, transaction_id)
+        .await
+        .map_err(public_error)?;
+    tokio::task::spawn_blocking({
+        let transaction_id = transaction_id.to_string();
+        move || storekit::finish(&transaction_id)
+    })
+    .await
+    .map_err(|_| "storekit_finish_failed".to_string())??;
+    crate::tray::update_tray_menu(app, None);
+    Ok(snapshot)
+}
+
+#[tauri::command]
+#[specta::specta]
+pub async fn get_app_store_products() -> Result<Vec<StoreKitProduct>, String> {
+    require_app_store_distribution()?;
+    tokio::task::spawn_blocking(storekit::products)
+        .await
+        .map_err(|_| "storekit_products_unavailable".to_string())?
+}
+
+#[tauri::command]
+#[specta::specta]
+pub async fn purchase_app_store_product(
+    app: AppHandle,
+    product_id: String,
+) -> Result<CloudAccountSnapshot, String> {
+    require_app_store_distribution()?;
+    if !storekit::is_known_product(&product_id) {
+        return Err("storekit_product_invalid".to_string());
+    }
+    let account_id = get_settings(&app)
+        .pressay_cloud_account_id
+        .ok_or_else(|| "cloud_account_required".to_string())?;
+    uuid::Uuid::parse_str(&account_id).map_err(|_| "storekit_account_invalid".to_string())?;
+    let transaction =
+        tokio::task::spawn_blocking(move || storekit::purchase(&product_id, &account_id))
+            .await
+            .map_err(|_| "storekit_purchase_failed".to_string())??;
+    reconcile_transaction(&app, transaction).await
+}
+
+async fn restore_or_reconcile(
+    app: &AppHandle,
+    force_sync: bool,
+) -> Result<CloudAccountSnapshot, String> {
+    require_app_store_distribution()?;
+    if get_settings(app).pressay_cloud_account_id.is_none() {
+        return Err("cloud_account_required".to_string());
+    }
+    let transactions =
+        tokio::task::spawn_blocking(move || storekit::current_entitlements(force_sync))
+            .await
+            .map_err(|_| "storekit_restore_failed".to_string())??;
+    let mut snapshot = None;
+    for transaction in transactions {
+        snapshot = Some(reconcile_transaction(app, transaction).await?);
+    }
+    match snapshot {
+        Some(snapshot) => Ok(snapshot),
+        None => cloud::account_snapshot(app).await.map_err(public_error),
+    }
+}
+
+/// Reconcile StoreKit's locally verified current entitlements with Pressay
+/// Cloud at launch and periodically while the MAS app is running. This never
+/// presents the App Store sign-in sheet; only the explicit Restore command
+/// calls `AppStore.sync()`.
+pub fn start_app_store_reconciliation(app: AppHandle) {
+    if !cfg!(feature = "mas") {
+        return;
+    }
+    tauri::async_runtime::spawn(async move {
+        loop {
+            if get_settings(&app).pressay_cloud_account_id.is_some() {
+                if let Err(error) = restore_or_reconcile(&app, false).await {
+                    log::warn!("App Store entitlement reconciliation failed: {error}");
+                }
+            }
+            tokio::time::sleep(std::time::Duration::from_secs(15 * 60)).await;
+        }
+    });
+}
+
+#[tauri::command]
+#[specta::specta]
+pub async fn restore_app_store_purchases(app: AppHandle) -> Result<CloudAccountSnapshot, String> {
+    restore_or_reconcile(&app, true).await
+}
+
+#[tauri::command]
+#[specta::specta]
+pub async fn reconcile_app_store_purchases(app: AppHandle) -> Result<CloudAccountSnapshot, String> {
+    restore_or_reconcile(&app, false).await
 }
