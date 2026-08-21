@@ -934,7 +934,7 @@ fn verify_entitlement_token_with_key(
         .map_err(|_| CloudFailure::new("cloud_entitlement_invalid"))?;
 
     let expected_audience = if cfg!(feature = "mas") {
-        "app.pressay.desktop.mas"
+        "fr.yodev.pressay"
     } else {
         "app.pressay.desktop"
     };
@@ -1935,7 +1935,7 @@ mod tests {
                     "transformations_limit": 2000
                 },
                 "iss": ENTITLEMENT_ISSUER,
-                "aud": ["app.pressay.desktop", "app.pressay.desktop.mas"],
+                "aud": ["app.pressay.desktop", "fr.yodev.pressay"],
                 "sub": account_id,
                 "iat": issued_at,
                 "exp": expires_at

@@ -2,7 +2,7 @@
 
 ## Current result
 
-The sandboxed `app.pressay.desktop.mas` variant now compiles with a dedicated
+The sandboxed `fr.yodev.pressay` variant now compiles with a dedicated
 `mas` feature and a public Tauri window for the recording overlay. Its Cargo
 dependency graph excludes both `tauri-nspanel` and `macos-private-api`; CI
 enforces that boundary. Direct releases retain the native NSPanel overlay behind

@@ -58,7 +58,8 @@ old Prices only after all active subscriptions have moved; archive the Product l
 
 ### Product boundary
 
-- Bundle identifier: `app.pressay.desktop.mas`.
+- Bundle identifier: `fr.yodev.pressay` (the immutable identifier attached to
+  the existing Pressay App Store Connect record).
 - Store build uses App Sandbox, public APIs, StoreKit and Apple-delivered updates.
 - Store build contains no Stripe checkout, external purchase CTA, direct updater or
   private NSPanel feature.

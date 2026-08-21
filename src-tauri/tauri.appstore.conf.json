@@ -1,6 +1,6 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
-  "identifier": "app.pressay.desktop.mas",
+  "identifier": "fr.yodev.pressay",
   "app": {
     "macOSPrivateApi": false,
     "security": {

@@ -9,7 +9,8 @@ distribution profiles before the first review.
 
 ## Implemented in the repository
 
-- Separate bundle identifier: `app.pressay.desktop.mas`.
+- Separate bundle identifier: `fr.yodev.pressay`, aligned with the existing
+  Pressay App Store Connect record.
 - Separate `mas` feature graph without Tauri private macOS APIs or NSPanel.
 - App Sandbox, audio-input, network-client and user-selected-file entitlements.
 - StoreKit 2 product loading, purchase, on-device transaction verification,
