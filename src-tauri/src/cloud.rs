@@ -458,6 +458,20 @@ struct MagicLinkRequest<'a> {
 }
 
 #[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct SocialSignInRequest<'a> {
+    provider: CloudAuthProvider,
+    callback_url: &'a str,
+    error_callback_url: &'a str,
+}
+
+#[derive(Deserialize)]
+struct SocialSignInResponse {
+    url: Url,
+    redirect: bool,
+}
+
+#[derive(Serialize)]
 struct OneTimeTokenRequest<'a> {
     token: &'a str,
 }
@@ -692,6 +706,18 @@ fn endpoint(settings: &AppSettings, path: &str) -> Result<Url, CloudFailure> {
     validate_base_url(&settings.pressay_cloud_api_url)?
         .join(path)
         .map_err(|_| CloudFailure::new("cloud_api_url_invalid"))
+}
+
+fn validate_apple_authorization_url(url: Url) -> Result<Url, CloudFailure> {
+    if url.scheme() == "https"
+        && url.host_str() == Some("appleid.apple.com")
+        && url.path() == "/auth/authorize"
+        && url.username().is_empty()
+        && url.password().is_none()
+    {
+        return Ok(url);
+    }
+    Err(CloudFailure::new("cloud_auth_response_invalid"))
 }
 
 async fn finish(response: Response) -> Result<Response, CloudFailure> {
@@ -1087,17 +1113,40 @@ pub async fn request_magic_link(
 }
 
 pub async fn social_login_url(
-    _settings: &AppSettings,
+    settings: &AppSettings,
     provider: CloudAuthProvider,
     state: &str,
     verifier: &str,
 ) -> Result<String, CloudFailure> {
-    if provider != CloudAuthProvider::Google {
-        return Err(CloudFailure::new("cloud_social_login_unavailable"));
-    }
     if state.len() < 32 || verifier.len() < 43 || verifier.len() > 128 {
         return Err(CloudFailure::new("cloud_auth_state_invalid"));
     }
+
+    if provider == CloudAuthProvider::Apple {
+        let mut callback_url = endpoint(settings, "/v1/desktop-auth/callback")?;
+        callback_url.query_pairs_mut().append_pair("state", state);
+        let mut error_callback_url = Url::parse("pressay://oauth/error")
+            .map_err(|_| CloudFailure::new("cloud_auth_callback_invalid"))?;
+        error_callback_url
+            .query_pairs_mut()
+            .append_pair("state", state);
+        let response = client()
+            .post(endpoint(settings, "/v1/auth/sign-in/social")?)
+            .json(&SocialSignInRequest {
+                provider,
+                callback_url: callback_url.as_str(),
+                error_callback_url: error_callback_url.as_str(),
+            })
+            .send()
+            .await
+            .map_err(|_| CloudFailure::new("cloud_network_unavailable"))?;
+        let sign_in: SocialSignInResponse = json(response).await?;
+        if !sign_in.redirect {
+            return Err(CloudFailure::new("cloud_auth_response_invalid"));
+        }
+        return Ok(validate_apple_authorization_url(sign_in.url)?.to_string());
+    }
+
     let metadata = oauth_metadata().await?;
     let challenge = URL_SAFE_NO_PAD.encode(Sha256::digest(verifier.as_bytes()));
     let mut authorization_url = metadata.authorization_endpoint;
@@ -1964,6 +2013,22 @@ mod tests {
         assert!(validate_base_url("https://pressay-cloud-staging.vercel.app").is_ok());
         assert!(validate_base_url("https://attacker.example").is_err());
         assert!(validate_base_url("https://api.press-say.app.attacker.example").is_err());
+    }
+
+    #[test]
+    fn apple_authorization_url_is_strictly_allowlisted() {
+        assert!(validate_apple_authorization_url(
+            Url::parse("https://appleid.apple.com/auth/authorize?client_id=pressay").unwrap()
+        )
+        .is_ok());
+        assert!(validate_apple_authorization_url(
+            Url::parse("https://appleid.apple.com.attacker.example/auth/authorize").unwrap()
+        )
+        .is_err());
+        assert!(validate_apple_authorization_url(
+            Url::parse("https://appleid.apple.com/auth/token").unwrap()
+        )
+        .is_err());
     }
 
     #[test]
