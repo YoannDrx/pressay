@@ -1302,7 +1302,12 @@ export type AudioDevice = { index: string; name: string; is_default: boolean }
 export type AutoSubmitKey = "enter" | "ctrl_enter" | "cmd_enter"
 export type AvailableAccelerators = { transcribe: string[]; ort: string[]; gpu_devices: GpuDeviceOption[] }
 export type BindingResponse = { success: boolean; binding: ShortcutBinding | null; error: string | null }
-export type ByokUsageSummary = { periodStart: string; providerId: string; model: string; requests: number; inputTokens: number; cachedInputTokens: number; outputTokens: number; estimatedCostMicrousd: number | null; pricingVersion: string | null }
+export type ByokUsageSummary = { periodStart: string; providerId: string; model: string; requests: number; inputTokens: number; cachedInputTokens: number; outputTokens: number;
+/**
+ * Estimated cost captured at request time using a versioned public price
+ * table. None means the provider/model did not expose a reliable rate.
+ */
+estimatedCostMicrousd: number | null; pricingVersion: string | null }
 /**
  * The single product matrix consumed by UI and backend gates. It deliberately
  * distinguishes commercial release gates from an ordinary Free entitlement:
@@ -1449,7 +1454,6 @@ recorder_blocked: boolean }
 export type ShortcutBinding = { id: string; name: string; description: string; default_binding: string; current_binding: string }
 export type SoundTheme = "marimba" | "pop" | "minimal" | "soft" | "glass" | "mechanical" | "dreamy" | "scifi" | "studio" | "zen" | "custom"
 export type StoreKitProduct = { id: string; displayName: string; description: string; displayPrice: string }
-export type StoreKitTransaction = { status: string; productId: string | null; transactionId: string | null; signedTransaction: string | null }
 /**
  * Phase of the streaming overlay card, emitted to drive its UI state.
  */

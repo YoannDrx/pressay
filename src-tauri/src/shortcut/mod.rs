@@ -230,8 +230,16 @@ fn restore_registration(app: &AppHandle, binding: &ShortcutBinding) {
 #[tauri::command]
 #[specta::specta]
 pub fn reset_binding(app: AppHandle, id: String) -> Result<BindingResponse, String> {
-    let binding = settings::get_stored_binding(&app, &id);
-    change_binding(app, id, binding.default_binding)
+    let stored = settings::get_stored_binding(&app, &id);
+    let default = settings::get_default_settings()
+        .bindings
+        .get(&id)
+        .cloned()
+        .ok_or_else(|| format!("Unknown shortcut binding: {id}"))?;
+    let default_binding = stored
+        .map(|binding| binding.default_binding)
+        .unwrap_or(default.default_binding);
+    change_binding(app, id, default_binding)
 }
 
 /// Unregister every binding while the user is recording a new shortcut in
@@ -562,16 +570,11 @@ pub fn change_audio_feedback_volume_setting(app: AppHandle, volume: f32) -> Resu
 #[tauri::command]
 #[specta::specta]
 pub fn change_sound_theme_setting(app: AppHandle, theme: String) -> Result<(), String> {
+    let parsed = SoundTheme::try_from(theme.as_str())?;
+    if parsed != SoundTheme::Custom && !SoundTheme::BUNDLED.contains(&parsed) {
+        return Err(format!("Sound theme is not bundled: {theme}"));
+    }
     let mut settings = settings::get_settings(&app);
-    let parsed = match theme.as_str() {
-        "marimba" => SoundTheme::Marimba,
-        "pop" => SoundTheme::Pop,
-        "custom" => SoundTheme::Custom,
-        other => {
-            warn!("Invalid sound theme '{}', defaulting to marimba", other);
-            SoundTheme::Marimba
-        }
-    };
     settings.sound_theme = parsed;
     settings::write_settings(&app, settings);
     Ok(())

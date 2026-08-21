@@ -68,7 +68,10 @@ const AccessibilityOnboarding: React.FC<AccessibilityOnboardingProps> = ({
     if (completionStartedRef.current) return;
     completionStartedRef.current = true;
 
-    await Promise.all([refreshAudioDevices(), refreshOutputDevices()]);
+    // Device enumeration is useful but not a permission gate. A disconnected
+    // output or a transient CoreAudio error must never trap a user after both
+    // operating-system permissions have already been granted.
+    await Promise.allSettled([refreshAudioDevices(), refreshOutputDevices()]);
     timeoutRef.current = setTimeout(() => onComplete(), 300);
   }, [onComplete, refreshAudioDevices, refreshOutputDevices]);
 
@@ -313,6 +316,10 @@ const AccessibilityOnboarding: React.FC<AccessibilityOnboardingProps> = ({
 
   const handleGrantAccessibility = async () => {
     try {
+      if (await checkAccessibilityPermission()) {
+        await refreshMacOSPermissions();
+        return;
+      }
       await requestAccessibilityPermission();
       setPermissions((prev) => ({ ...prev, accessibility: "waiting" }));
       startPolling();

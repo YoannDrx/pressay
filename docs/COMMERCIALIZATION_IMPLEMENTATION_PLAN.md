@@ -44,7 +44,7 @@ No gate in this document authorizes enabling paid production traffic by itself.
 - Invoice success/failure, refunds and disputes are recorded without storing provider
   payloads or payment instruments.
 - Entitlements are recomputed after relevant lifecycle changes.
-- Test Clocks cover trial, renewal, failed renewal, recovery, cancellation, refund and
+- Test Clocks confirm no trial, then cover renewal, failed renewal, recovery, cancellation, refund and
   dispute scenarios.
 
 ### Migration gate

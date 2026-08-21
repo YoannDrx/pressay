@@ -1,0 +1,55 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["version", "environments"],
+  "properties": {
+    "$schema": { "type": "string" },
+    "version": { "const": 1 },
+    "environments": {
+      "type": "array",
+      "minItems": 4,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "channel",
+          "distribution",
+          "cloudApi",
+          "oauthIssuer",
+          "oauthAudience",
+          "authRedirect",
+          "paymentEnvironment",
+          "stripePriceEnvironment",
+          "storeKitProducts"
+        ],
+        "properties": {
+          "id": { "type": "string", "minLength": 1 },
+          "channel": { "enum": ["development", "beta", "stable"] },
+          "distribution": { "enum": ["direct", "mac_app_store"] },
+          "cloudApi": { "type": "string", "format": "uri" },
+          "oauthIssuer": { "type": "string", "format": "uri" },
+          "oauthAudience": { "type": "string", "format": "uri" },
+          "authRedirect": { "const": "pressay://oauth/callback" },
+          "paymentEnvironment": {
+            "enum": [
+              "disabled",
+              "stripe_test",
+              "stripe_live",
+              "storekit_production"
+            ]
+          },
+          "stripePriceEnvironment": {
+            "type": ["string", "null"]
+          },
+          "storeKitProducts": {
+            "type": "array",
+            "items": { "type": "string", "minLength": 1 },
+            "uniqueItems": true
+          }
+        }
+      }
+    }
+  }
+}

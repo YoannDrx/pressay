@@ -169,4 +169,24 @@ test.describe("Pressay App", () => {
     expect(motion.animation).toBe("1e-05s");
     expect(motion.transition).toBe("1e-05s");
   });
+
+  test("keeps every webview layer around the HUD transparent", async ({
+    page,
+  }) => {
+    await page.goto("/src/overlay/index.html");
+
+    const backgrounds = await page.evaluate(() =>
+      [document.documentElement, document.body, document.getElementById("root")]
+        .filter(
+          (element): element is HTMLElement => element instanceof HTMLElement,
+        )
+        .map((element) => getComputedStyle(element).backgroundColor),
+    );
+
+    expect(backgrounds).toEqual([
+      "rgba(0, 0, 0, 0)",
+      "rgba(0, 0, 0, 0)",
+      "rgba(0, 0, 0, 0)",
+    ]);
+  });
 });

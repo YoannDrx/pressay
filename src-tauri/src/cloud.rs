@@ -260,6 +260,7 @@ pub struct CloudAuthEvent {
 #[serde(rename_all = "snake_case")]
 pub enum CloudAuthEventStatus {
     Exchanging,
+    Bootstrapping,
     Connected,
     Failed,
 }
@@ -676,6 +677,7 @@ fn validate_base_url(raw: &str) -> Result<Url, CloudFailure> {
         .and_then(|value| value.host_str().map(str::to_owned));
     let allowed = url.scheme() == "https"
         && (host == "api.press-say.app"
+            || host == "api-staging.press-say.app"
             || host == "pressay-cloud-staging.vercel.app"
             || configured_host.as_deref() == Some(host));
     #[cfg(test)]
@@ -1853,6 +1855,13 @@ pub fn handle_deep_link(app: AppHandle, url: Url) {
                     exchange_one_time_token(&settings, &token).await?;
                 }
             }
+            let _ = app.emit(
+                "cloud-auth-state-changed",
+                CloudAuthEvent {
+                    status: CloudAuthEventStatus::Bootstrapping,
+                    error_code: None,
+                },
+            );
             if let Err(error) = bootstrap_device(&app).await {
                 let _ = delete_cloud_bearer_token();
                 let _ = delete_cloud_oauth_token_set();
@@ -1951,6 +1960,7 @@ mod tests {
     #[test]
     fn bearer_hosts_are_allowlisted() {
         assert!(validate_base_url("https://api.press-say.app").is_ok());
+        assert!(validate_base_url("https://api-staging.press-say.app").is_ok());
         assert!(validate_base_url("https://pressay-cloud-staging.vercel.app").is_ok());
         assert!(validate_base_url("https://attacker.example").is_err());
         assert!(validate_base_url("https://api.press-say.app.attacker.example").is_err());

@@ -41,14 +41,14 @@ tauri_panel! {
 // these in sync with the CSS card geometry.
 //
 // Compact overlay (Minimal / transcribing / processing): recovery states can
-// show two trailing actions and use 372pt (--ov-result-w). The transparent
+// show two trailing actions and use 388pt (--ov-result-w). The transparent
 // direct-build panel provides a little slack around that visible pill.
-const OVERLAY_WIDTH: f64 = 392.0;
-const OVERLAY_HEIGHT: f64 = 46.0;
+const OVERLAY_WIDTH: f64 = 408.0;
+const OVERLAY_HEIGHT: f64 = 48.0;
 
-// Actual maximum is 428x118, with a little horizontal slack.
-const OVERLAY_STREAM_WIDTH: f64 = 440.0;
-const OVERLAY_STREAM_HEIGHT: f64 = 120.0;
+// Actual maximum is 448x114, with a little horizontal and vertical slack.
+const OVERLAY_STREAM_WIDTH: f64 = 460.0;
+const OVERLAY_STREAM_HEIGHT: f64 = 128.0;
 
 /// Overlay window size (logical) for a given UI state.
 fn overlay_dimensions(state: &str) -> (f64, f64) {
@@ -467,7 +467,18 @@ pub fn create_recording_overlay(app_handle: &AppHandle) {
             .no_activate(true)
             .corner_radius(0.0)
             .style_mask(StyleMask::empty().borderless().nonactivating_panel())
-            .with_window(|w| w.decorations(false).transparent(true).focusable(false))
+            .with_window(|w| {
+                // `transparent(true)` makes both the NSWindow and WKWebView
+                // transparent, but WebKit can still paint its default opaque
+                // white backing store before (and sometimes after) the first
+                // page compositing pass. An explicit clear webview background
+                // removes the rectangular flash/surface around the visible
+                // glass pill.
+                w.decorations(false)
+                    .transparent(true)
+                    .background_color(tauri::window::Color(0, 0, 0, 0))
+                    .focusable(false)
+            })
             .collection_behavior(
                 CollectionBehavior::new()
                     .can_join_all_spaces()

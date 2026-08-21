@@ -28,11 +28,12 @@ import { AppPageHeader } from "@/components/layout";
 import { useSettings } from "@/hooks/useSettings";
 
 type CloudAuthEvent = {
-  status: "exchanging" | "connected" | "failed";
+  status: "exchanging" | "bootstrapping" | "connected" | "failed";
   errorCode: string | null;
 };
 
-type AuthPhase = "idle" | "opening" | "waiting" | "exchanging" | "failed";
+type AuthPhase =
+  "idle" | "opening" | "waiting" | "exchanging" | "bootstrapping" | "failed";
 
 const EMPTY_ACCOUNT: CloudAccountSnapshot = {
   connected: false,
@@ -137,6 +138,10 @@ export function AccountSettings() {
           setAuthPhase("exchanging");
           return;
         }
+        if (event.payload.status === "bootstrapping") {
+          setAuthPhase("bootstrapping");
+          return;
+        }
         setPendingAction(null);
         if (event.payload.status === "connected") {
           setAuthPhase("idle");
@@ -156,7 +161,10 @@ export function AccountSettings() {
   }, [refresh, t]);
 
   useEffect(() => {
-    if (!["opening", "waiting", "exchanging"].includes(authPhase)) return;
+    if (
+      !["opening", "waiting", "exchanging", "bootstrapping"].includes(authPhase)
+    )
+      return;
     const timeout = window.setTimeout(
       () => {
         setPendingAction(null);

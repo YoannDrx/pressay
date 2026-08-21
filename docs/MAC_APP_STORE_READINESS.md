@@ -73,6 +73,11 @@ The free local dictation tier remains usable without an account or subscription.
 - A review account that reaches Pro without exposing a shared password in the
   binary or repository.
 
+Prepared, non-published submission copy lives under [`docs/app-store`](app-store/):
+FR/EN metadata, review notes and the conservative privacy/accessibility draft.
+Those files intentionally retain explicit native, legal and owner-completion
+placeholders rather than claiming a capability that has not passed Sandbox.
+
 ## Required test sequence
 
 1. Run StoreKit Configuration locally: purchase, pending, cancellation,
