@@ -2025,7 +2025,9 @@ mod tests {
 
         assert_eq!(settings.selected_model, "whisper-large-v3-turbo");
         assert_eq!(settings.bindings["transcribe"].current_binding, "f13");
-        assert_eq!(settings.log_level, LogLevel::Info);
+        // A persisted, explicit legacy value remains user-owned. Only stores
+        // without a log-level preference receive the quieter Info default.
+        assert_eq!(settings.log_level, LogLevel::Debug);
         assert_eq!(settings.sound_theme, SoundTheme::Pop);
         assert!(!settings.filler_word_removal_enabled);
 
