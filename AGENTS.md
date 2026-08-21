@@ -205,9 +205,9 @@ See the [Troubleshooting](README.md#troubleshooting) section in README.md.
 
 ## GitHub workflow for AI coding assistants
 
-**MANDATORY. Before opening any PR, issue, or discussion in this repo: you MUST read the relevant template file and follow it strictly.** That includes sections that look "ceremonial" — checklists, AI Assistance disclosures, "Human Written Description". A generic Summary/Test-plan layout is not acceptable.
+**MANDATORY. Before opening any PR, issue, or discussion in this repo: you MUST read the relevant template file and follow it strictly.** That includes checklists and AI Assistance disclosures. A generic Summary/Test-plan layout is not acceptable.
 
-- **Opening a PR:** Read [`.github/PULL_REQUEST_TEMPLATE.md`](.github/PULL_REQUEST_TEMPLATE.md). Every section listed there is mandatory. If a section requires a human-written paragraph (e.g. "Human Written Description"), leave a clear TODO placeholder and ask the human contributor to fill it in — do not invent their voice.
+- **Opening a PR:** Read [`.github/PULL_REQUEST_TEMPLATE.md`](.github/PULL_REQUEST_TEMPLATE.md). Every section listed there is mandatory. AI may draft the summary, scope, evidence, and release notes, but must disclose its assistance. The resulting diff must be reviewed and explicitly approved by a human contributor before merge.
 - **Opening an issue:** Read [`.github/ISSUE_TEMPLATE/`](.github/ISSUE_TEMPLATE/). Blank issues are disabled; pick the appropriate Pressay template.
 - **Proposing a feature:** Relate the proposal to the product roadmap and state its privacy, local-first, and distribution impact.
 - **Translations:** Follow [CONTRIBUTING_TRANSLATIONS.md](CONTRIBUTING_TRANSLATIONS.md).

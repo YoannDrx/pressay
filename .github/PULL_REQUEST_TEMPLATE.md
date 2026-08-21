@@ -1,8 +1,6 @@
-## Human Written Description
+## Summary
 
-<!-- Required: the repository owner writes this section in their own words. -->
-
-TODO (owner)
+<!-- Explain the user-visible outcome and the reason for the change. This section may be drafted with AI assistance when that assistance is disclosed below. -->
 
 ## Scope
 
@@ -33,5 +31,5 @@ Commands and manual scenarios:
 
 ## AI assistance
 
-- [ ] AI assistance was used and the resulting diff was reviewed by a human.
+- [ ] AI assistance was used and the resulting diff was reviewed and approved by a human contributor.
 - [ ] No AI assistance was used.
