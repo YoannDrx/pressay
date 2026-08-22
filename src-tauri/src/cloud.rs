@@ -27,14 +27,61 @@ use crate::settings::{get_settings, write_settings, AppSettings};
 const AUTH_STATE_TTL: Duration = Duration::from_secs(15 * 60);
 const REQUEST_TIMEOUT: Duration = Duration::from_secs(45);
 const MAX_ERROR_CODE_LEN: usize = 80;
-const ENTITLEMENT_KEY_ID: &str = "pressay-entitlement-2026-01";
-const ENTITLEMENT_PUBLIC_KEY: &str = "gj3woVSEMEiNemiZKdA28oEvMrLL9iQPbiMPr_B-plQ";
-const ENTITLEMENT_ISSUER: &str = "https://api.press-say.app";
+const STAGING_ENTITLEMENT_KEY_ID: &str = "pressay-entitlement-2026-01";
+const STAGING_ENTITLEMENT_PUBLIC_KEY: &str = "gj3woVSEMEiNemiZKdA28oEvMrLL9iQPbiMPr_B-plQ";
+const PRODUCTION_ENTITLEMENT_KEY_ID: &str = "pressay-entitlement-production-2026-01";
+const PRODUCTION_ENTITLEMENT_PUBLIC_KEY: &str = "Xm5Rqwpjhv85nc7Y_Lrf3S7M40iCozJCrFh1UCXeoF0";
+const DEFAULT_ENTITLEMENT_ISSUER: &str = "https://api.press-say.app";
 const OAUTH_ISSUER: &str = "https://press-say.app";
 const OAUTH_CLIENT_ID: &str = "w9ckUgrcFp7H7wNV";
 const OAUTH_RESOURCE: &str = "https://api.press-say.app";
 const OAUTH_REDIRECT_URI: &str = "pressay://oauth/callback";
 const OAUTH_SCOPE: &str = "openid profile email offline_access";
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct EntitlementVerifierConfig {
+    key_id: &'static str,
+    public_key: &'static str,
+    issuer: &'static str,
+}
+
+fn default_entitlement_verifier_config(version: &str) -> EntitlementVerifierConfig {
+    if version.contains('-') {
+        EntitlementVerifierConfig {
+            key_id: STAGING_ENTITLEMENT_KEY_ID,
+            public_key: STAGING_ENTITLEMENT_PUBLIC_KEY,
+            issuer: DEFAULT_ENTITLEMENT_ISSUER,
+        }
+    } else {
+        EntitlementVerifierConfig {
+            key_id: PRODUCTION_ENTITLEMENT_KEY_ID,
+            public_key: PRODUCTION_ENTITLEMENT_PUBLIC_KEY,
+            issuer: DEFAULT_ENTITLEMENT_ISSUER,
+        }
+    }
+}
+
+fn entitlement_verifier_config() -> Result<EntitlementVerifierConfig, CloudFailure> {
+    let defaults = default_entitlement_verifier_config(env!("CARGO_PKG_VERSION"));
+    match (
+        option_env!("PRESSAY_ENTITLEMENT_KEY_ID"),
+        option_env!("PRESSAY_ENTITLEMENT_PUBLIC_KEY"),
+    ) {
+        (Some(key_id), Some(public_key)) if !key_id.is_empty() && !public_key.is_empty() => {
+            Ok(EntitlementVerifierConfig {
+                key_id,
+                public_key,
+                issuer: option_env!("PRESSAY_ENTITLEMENT_ISSUER")
+                    .unwrap_or(DEFAULT_ENTITLEMENT_ISSUER),
+            })
+        }
+        (None, None) => Ok(EntitlementVerifierConfig {
+            issuer: option_env!("PRESSAY_ENTITLEMENT_ISSUER").unwrap_or(DEFAULT_ENTITLEMENT_ISSUER),
+            ..defaults
+        }),
+        _ => Err(CloudFailure::new("cloud_entitlement_config_invalid")),
+    }
+}
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct CloudFailure {
@@ -901,19 +948,37 @@ fn verify_entitlement_token(
     settings: &AppSettings,
     now_seconds: i64,
 ) -> Result<(EntitlementSnapshot, UsageSnapshot), CloudFailure> {
+    let verifier = entitlement_verifier_config()?;
     let public_key_bytes: [u8; 32] = URL_SAFE_NO_PAD
-        .decode(ENTITLEMENT_PUBLIC_KEY)
+        .decode(verifier.public_key)
         .map_err(|_| CloudFailure::new("cloud_entitlement_invalid"))?
         .try_into()
         .map_err(|_| CloudFailure::new("cloud_entitlement_invalid"))?;
-    verify_entitlement_token_with_key(token, settings, now_seconds, &public_key_bytes)
+    verify_entitlement_token_with_config(token, settings, now_seconds, &public_key_bytes, verifier)
 }
 
+#[cfg(test)]
 fn verify_entitlement_token_with_key(
     token: &str,
     settings: &AppSettings,
     now_seconds: i64,
     public_key_bytes: &[u8; 32],
+) -> Result<(EntitlementSnapshot, UsageSnapshot), CloudFailure> {
+    verify_entitlement_token_with_config(
+        token,
+        settings,
+        now_seconds,
+        public_key_bytes,
+        entitlement_verifier_config()?,
+    )
+}
+
+fn verify_entitlement_token_with_config(
+    token: &str,
+    settings: &AppSettings,
+    now_seconds: i64,
+    public_key_bytes: &[u8; 32],
+    verifier: EntitlementVerifierConfig,
 ) -> Result<(EntitlementSnapshot, UsageSnapshot), CloudFailure> {
     let mut parts = token.split('.');
     let header_part = parts
@@ -935,7 +1000,7 @@ fn verify_entitlement_token_with_key(
             .map_err(|_| CloudFailure::new("cloud_entitlement_invalid"))?,
     )
     .map_err(|_| CloudFailure::new("cloud_entitlement_invalid"))?;
-    if header.alg != "EdDSA" || header.kid != ENTITLEMENT_KEY_ID || header.typ != "JWT" {
+    if header.alg != "EdDSA" || header.kid != verifier.key_id || header.typ != "JWT" {
         return Err(CloudFailure::new("cloud_entitlement_invalid"));
     }
 
@@ -964,7 +1029,7 @@ fn verify_entitlement_token_with_key(
     } else {
         "app.pressay.desktop"
     };
-    if claims.iss != ENTITLEMENT_ISSUER
+    if claims.iss != verifier.issuer
         || !claims
             .aud
             .iter()
@@ -1623,12 +1688,13 @@ pub async fn account_snapshot(app: &AppHandle) -> Result<CloudAccountSnapshot, C
                 .map_err(|_| CloudFailure::new("cloud_network_unavailable"))?,
         )
         .await?;
+        let verifier = entitlement_verifier_config()?;
         if me.account_id
             != settings
                 .pressay_cloud_account_id
                 .as_deref()
                 .unwrap_or_default()
-            || entitlements.signed_snapshot.key_id != ENTITLEMENT_KEY_ID
+            || entitlements.signed_snapshot.key_id != verifier.key_id
         {
             return Err(CloudFailure::new("cloud_account_mismatch"));
         }
@@ -1953,6 +2019,19 @@ mod tests {
         assert_eq!(legacy.error.code(), "account_bootstrap_failed");
     }
 
+    #[test]
+    fn release_channels_pin_distinct_entitlement_verifiers() {
+        let beta = default_entitlement_verifier_config("2.0.0-beta.3");
+        let stable = default_entitlement_verifier_config("2.0.0");
+
+        assert_eq!(beta.key_id, STAGING_ENTITLEMENT_KEY_ID);
+        assert_eq!(beta.public_key, STAGING_ENTITLEMENT_PUBLIC_KEY);
+        assert_eq!(stable.key_id, PRODUCTION_ENTITLEMENT_KEY_ID);
+        assert_eq!(stable.public_key, PRODUCTION_ENTITLEMENT_PUBLIC_KEY);
+        assert_ne!(beta.key_id, stable.key_id);
+        assert_ne!(beta.public_key, stable.public_key);
+    }
+
     fn signed_entitlement_fixture(
         signing_key: &SigningKey,
         account_id: &str,
@@ -1960,10 +2039,29 @@ mod tests {
         issued_at: i64,
         expires_at: i64,
     ) -> String {
+        let verifier = entitlement_verifier_config().unwrap();
+        signed_entitlement_fixture_with_config(
+            signing_key,
+            account_id,
+            device_id,
+            issued_at,
+            expires_at,
+            verifier,
+        )
+    }
+
+    fn signed_entitlement_fixture_with_config(
+        signing_key: &SigningKey,
+        account_id: &str,
+        device_id: &str,
+        issued_at: i64,
+        expires_at: i64,
+        verifier: EntitlementVerifierConfig,
+    ) -> String {
         let header = URL_SAFE_NO_PAD.encode(
             serde_json::to_vec(&serde_json::json!({
                 "alg": "EdDSA",
-                "kid": ENTITLEMENT_KEY_ID,
+                "kid": verifier.key_id,
                 "typ": "JWT"
             }))
             .unwrap(),
@@ -1983,7 +2081,7 @@ mod tests {
                     "transformations_used": 7,
                     "transformations_limit": 2000
                 },
-                "iss": ENTITLEMENT_ISSUER,
+                "iss": verifier.issuer,
                 "aud": ["app.pressay.desktop", "fr.yodev.pressay"],
                 "sub": account_id,
                 "iat": issued_at,
@@ -2142,6 +2240,33 @@ mod tests {
             &settings,
             2_000,
             &signing_key.verifying_key().to_bytes(),
+        )
+        .is_err());
+    }
+
+    #[test]
+    fn entitlement_from_another_release_channel_is_rejected() {
+        let signing_key = SigningKey::from_bytes(&[11_u8; 32]);
+        let mut settings = AppSettings::default();
+        settings.pressay_cloud_account_id = Some("account-id".to_string());
+        settings.pressay_cloud_device_id = Some("device-id".to_string());
+        let staging = default_entitlement_verifier_config("2.0.0-beta.3");
+        let production = default_entitlement_verifier_config("2.0.0");
+        let token = signed_entitlement_fixture_with_config(
+            &signing_key,
+            "account-id",
+            "device-id",
+            1_000,
+            2_000,
+            staging,
+        );
+
+        assert!(verify_entitlement_token_with_config(
+            &token,
+            &settings,
+            1_100,
+            &signing_key.verifying_key().to_bytes(),
+            production,
         )
         .is_err());
     }
