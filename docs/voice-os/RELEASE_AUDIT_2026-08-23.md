@@ -18,14 +18,15 @@ contient ni contenu dicté, ni secret, ni donnée d'identité ou de paiement.
 | Identité            | `Developer ID Application: Yoann ANDRIEUX (G9WFV7HNV6)`            |
 
 Les contrôles ci-dessus ont été rejoués sur les assets retéléchargés depuis la
-release GitHub, après upload. La landing et le portfolio redirigent vers
-`https://press-say.app/download/pressay`, qui résout désormais cette prerelease.
+release GitHub, après upload. La redirection de la landing vers cette prerelease
+a été validée avant l'incident Vercel documenté plus bas.
 
 ## Modèles
 
-`models.press-say.app` est rétabli avec TLS et des routes de marque limitées aux
-trois artefacts audités. `bun run voice-os:probe-models` valide la route primaire
-et le fallback, avec HTTP 200 et tailles exactes :
+`models.press-say.app` a été rétabli avec TLS et des routes de marque limitées
+aux trois artefacts audités. Avant la suspension Vercel, la commande
+`bun run voice-os:probe-models` validait la route primaire et le fallback, avec
+HTTP 200 et tailles exactes :
 
 | Modèle   |               Taille |
 | -------- | -------------------: |
@@ -33,21 +34,34 @@ et le fallback, avec HTTP 200 et tailles exactes :
 | Polyglot |   269 751 136 octets |
 | Precise  | 1 161 143 008 octets |
 
-Les benchmarks M1 8 Go et la matrice téléchargement interrompu/repris restent
-des preuves natives obligatoires avant de déclarer les modèles entièrement
-validés.
+Le domaine renvoie actuellement `503 DEPLOYMENT_PAUSED`. Il doit être réactivé
+et le probe doit être rejoué avant toute installation. Les benchmarks M1 8 Go et
+la matrice téléchargement interrompu/repris restent également obligatoires.
 
 ## Cloud isolé
 
-| Environnement         | Commit                                     | Base                                     | État                                                           |
-| --------------------- | ------------------------------------------ | ---------------------------------------- | -------------------------------------------------------------- |
-| production temporaire | `edd6628a0a6be13fde3388d8d5bcb2f3eb915282` | Neon production EU, schéma 0014          | `/health` et `/ready` verts, kill switches fermés              |
-| staging temporaire    | `edd6628a0a6be13fde3388d8d5bcb2f3eb915282` | branche Neon staging dédiée, schéma 0014 | validateur pré-cutover vert pour Apple et les routes protégées |
+| Environnement         | Commit                                     | Base                                     | État                                                         |
+| --------------------- | ------------------------------------------ | ---------------------------------------- | ------------------------------------------------------------ |
+| production temporaire | `edd6628a0a6be13fde3388d8d5bcb2f3eb915282` | Neon production EU, schéma 0014          | preuves `/health` et `/ready` vertes avant suspension Vercel |
+| staging temporaire    | `edd6628a0a6be13fde3388d8d5bcb2f3eb915282` | branche Neon staging dédiée, schéma 0014 | validation pré-cutover obtenue avant suspension Vercel       |
 
 Le domaine `api.press-say.app` reste sur l'ancien backend. Le domaine
 `api-staging.press-say.app` ne sera déplacé qu'après ajout et validation de
 Google OAuth, puis smoke tests complets. Stripe et le traitement Cloud restent
 désactivés.
+
+## Incident Vercel
+
+À 22:22 UTC, Spend Management a automatiquement suspendu les projets de
+l'équipe après atteinte du budget mensuel. L'activité Vercel identifie
+explicitement l'événement `project-paused`; la landing, le CDN modèles et les
+backends temporaires renvoient actuellement `503 DEPLOYMENT_PAUSED`.
+
+La reprise exige deux actions opérateur : relever ou désactiver le plafond avec
+une décision budgétaire explicite, puis réactiver individuellement les projets
+Pressay. Tous les domaines, probes et smoke tests doivent ensuite être rejoués.
+Cette panne interdit une installation neuve et tout cutover Cloud tant qu'elle
+n'est pas fermée.
 
 ## Spike Mac App Store
 
@@ -75,6 +89,7 @@ chiffrement restent des gates.
 ## Gates encore ouverts
 
 - matrice native sur les machines et applications de référence ;
+- budget Vercel corrigé, projets réactivés et smoke tests entièrement rejoués ;
 - Google OAuth app/web, puis Google et Apple de bout en bout sur le build signé ;
 - suppression de compte et E2EE sur deux Macs ;
 - Stripe KYC/fiscalité/catalogue/Test Clocks et entitlements commerciaux ;
