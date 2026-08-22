@@ -49,6 +49,29 @@ Le domaine `api.press-say.app` reste sur l'ancien backend. Le domaine
 Google OAuth, puis smoke tests complets. Stripe et le traitement Cloud restent
 désactivés.
 
+## Spike Mac App Store
+
+Le workflow `32602095878` a compilé avec succès le bundle Apple Silicon
+`fr.yodev.pressay` avec la feature `mas`. Les contrôles CI confirment App
+Sandbox, audio input et l'absence des dépendances/API privées interdites dans le
+graphe Store.
+
+L'artefact retéléchargé a ensuite été signé localement avec le certificat
+`3rd Party Mac Developer Application` et le provisioning profile
+`Pressay Mac App Store Distribution`. `codesign --verify --deep --strict`
+réussit et les entitlements effectifs couvrent :
+
+- App Sandbox et microphone ;
+- réseau sortant et fichiers explicitement choisis ;
+- Keychain limité à l'équipe ;
+- Sign in with Apple ;
+- identifiant d'application `G9WFV7HNV6.fr.yodev.pressay`.
+
+Cette preuve valide le chemin de compilation et de signature de l'application,
+pas encore l'upload App Store. Le certificat Mac Installer Distribution, les
+métadonnées d'abonnement, le Sandbox StoreKit, TestFlight et la déclaration de
+chiffrement restent des gates.
+
 ## Gates encore ouverts
 
 - matrice native sur les machines et applications de référence ;
