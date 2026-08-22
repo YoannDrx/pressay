@@ -86,6 +86,17 @@ pas encore l'upload App Store. Le certificat Mac Installer Distribution, les
 métadonnées d'abonnement, le Sandbox StoreKit, TestFlight et la déclaration de
 chiffrement restent des gates.
 
+## Baseline native disponible
+
+`bun run voice-os:native-baseline` est vert sur un Mac Apple M2 avec 16 Go sous
+macOS 26.3.1. Mail, Messages, Notes, Safari, Chrome, Slack et Terminal y sont
+disponibles pour la matrice ; Notion, Word et Cursor n'y sont pas installés.
+
+Un cycle silencieux sur la bêta signée a atteint successivement l'écoute,
+`no_audio`, puis l'état `Ready` sans laisser la pipeline active. Cette
+observation ne remplace pas les scénarios audio/insertion. Le Mac M1 8 Go et les
+applications absentes restent requis avant validation commerciale.
+
 ## Gates encore ouverts
 
 - matrice native sur les machines et applications de référence ;
