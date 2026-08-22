@@ -48,7 +48,7 @@ export const SoundPicker: React.FC<SoundPickerProps> = ({
 
   // Only add Custom option if both custom sound files exist
   if (customSounds.start && customSounds.stop) {
-    options.push({ value: "custom", label: "Custom" });
+    options.push({ value: "custom", label: t("modelSelector.custom") });
   }
 
   const handlePlayBothSounds = async () => {
@@ -76,8 +76,8 @@ export const SoundPicker: React.FC<SoundPickerProps> = ({
           variant="ghost"
           size="sm"
           onClick={handlePlayBothSounds}
-          title={t("settings.soundTheme.description")}
-          aria-label={t("settings.soundTheme.description")}
+          title={description}
+          aria-label={description}
         >
           <PlayIcon className="h-4 w-4" />
         </Button>

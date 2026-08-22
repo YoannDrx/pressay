@@ -38,7 +38,10 @@ export const MicrophoneSelector: React.FC<MicrophoneSelectorProps> = React.memo(
 
     const microphoneOptions = audioDevices.map((device) => ({
       value: device.name,
-      label: device.name,
+      label:
+        device.is_default || device.name.toLowerCase() === "default"
+          ? t("signalOs.dashboard.defaultMicrophone")
+          : device.name,
     }));
 
     return (
