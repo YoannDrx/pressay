@@ -9,6 +9,7 @@
     }
   },
   "bundle": {
+    "category": "Productivity",
     "createUpdaterArtifacts": false,
     "targets": ["app"],
     "macOS": {
