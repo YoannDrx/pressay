@@ -550,6 +550,10 @@ jobs:
         shell: bash
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_ID_PASSWORD: ${{ secrets.APPLE_ID_PASSWORD }}
+          APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
         run: |
           set -euo pipefail
           PROFILE="${{ steps.build-profile.outputs.profile }}"
@@ -558,10 +562,50 @@ jobs:
             echo "No DMG produced for the release" >&2
             exit 1
           fi
+
+          NOTARY_PASSWORD="${APPLE_PASSWORD:-$APPLE_ID_PASSWORD}"
+          if [ -z "${APPLE_ID:-}" ] || [ -z "${NOTARY_PASSWORD:-}" ] || [ -z "${APPLE_TEAM_ID:-}" ]; then
+            echo "Apple notarization credentials are incomplete" >&2
+            exit 1
+          fi
+
+          # Tauri notarizes the application bundle before constructing the DMG.
+          # Submit the final container too: Gatekeeper evaluates the downloaded
+          # artifact, and a stapled app inside an unstapled DMG is not sufficient.
+          xcrun notarytool submit "$DMG_PATH" \
+            --apple-id "$APPLE_ID" \
+            --password "$NOTARY_PASSWORD" \
+            --team-id "$APPLE_TEAM_ID" \
+            --wait
+          xcrun stapler staple "$DMG_PATH"
+          xcrun stapler validate "$DMG_PATH"
+          spctl -a -vv -t install "$DMG_PATH"
+
+          MOUNT_DIR="$(mktemp -d)"
+          cleanup_mount() {
+            if mount | grep -Fq "on $MOUNT_DIR "; then
+              hdiutil detach "$MOUNT_DIR" >/dev/null
+            fi
+            rm -rf "$MOUNT_DIR"
+          }
+          trap cleanup_mount EXIT
+          hdiutil attach -readonly -nobrowse -mountpoint "$MOUNT_DIR" "$DMG_PATH" >/dev/null
+          APP_PATH="$(find "$MOUNT_DIR" -maxdepth 2 -name '*.app' -type d -print -quit)"
+          if [ -z "$APP_PATH" ]; then
+            echo "No application bundle found inside the DMG" >&2
+            exit 1
+          fi
+          codesign --verify --deep --strict --verbose=2 "$APP_PATH"
+          spctl -a -vv "$APP_PATH"
+          xcrun stapler validate "$APP_PATH"
+          hdiutil detach "$MOUNT_DIR" >/dev/null
+
           cp "$DMG_PATH" Pressay.dmg
+          ARCH_DMG="Pressay_${{ steps.get-version.outputs.version }}_aarch64.dmg"
+          cp "$DMG_PATH" "$ARCH_DMG"
           shasum -a 256 Pressay.dmg > Pressay.dmg.sha256
           gh release upload "v${{ steps.get-version.outputs.version }}" \
-            Pressay.dmg Pressay.dmg.sha256 --clobber
+            Pressay.dmg Pressay.dmg.sha256 "$ARCH_DMG" --clobber
 
       # tauri-action uploads release assets before returning. All AppImage
       # filtering therefore happens inside linuxdeploy above; this verifies the
