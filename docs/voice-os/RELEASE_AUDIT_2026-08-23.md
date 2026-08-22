@@ -60,8 +60,9 @@ backends temporaires renvoient actuellement `503 DEPLOYMENT_PAUSED`.
 La reprise exige deux actions opérateur : relever ou désactiver le plafond avec
 une décision budgétaire explicite, puis réactiver individuellement les projets
 Pressay. Tous les domaines, probes et smoke tests doivent ensuite être rejoués.
-Cette panne interdit une installation neuve et tout cutover Cloud tant qu'elle
-n'est pas fermée.
+Cette panne interdit le parcours d'installation public via la landing et tout
+cutover Cloud tant qu'elle n'est pas fermée. Le fallback Hugging Face signé
+reste présent dans l'app, mais ne suffit pas à lever le gate commercial.
 
 ## Spike Mac App Store
 
