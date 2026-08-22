@@ -105,7 +105,7 @@ Sur une URL Preview de production, mesurer desktop et mobile avec reduced motion
 {
   "gate": "MODEL-CDN",
   "status": "pass | fail | blocked",
-  "appVersion": "2.0.0-beta.2",
+  "appVersion": "2.0.0-beta.3",
   "commit": "<sha>",
   "channel": "direct | mas | web | cloud",
   "machineClass": "M1-8GB-macOS14",
