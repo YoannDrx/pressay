@@ -24,45 +24,47 @@ a été validée avant l'incident Vercel documenté plus bas.
 ## Modèles
 
 `models.press-say.app` a été rétabli avec TLS et des routes de marque limitées
-aux trois artefacts audités. Avant la suspension Vercel, la commande
-`bun run voice-os:probe-models` validait la route primaire et le fallback, avec
-HTTP 200 et tailles exactes :
+aux trois artefacts audités. Le 23 août, la commande
+`bun run voice-os:probe-models` valide la route primaire et le fallback, avec
+HTTP 200 et tailles exactes. Un téléchargement complet supplémentaire depuis
+la route primaire confirme aussi chaque SHA-256 du catalogue signé :
 
-| Modèle   |               Taille |
-| -------- | -------------------: |
-| Fast     |   739 508 576 octets |
-| Polyglot |   269 751 136 octets |
-| Precise  | 1 161 143 008 octets |
+| Modèle   |               Taille | SHA-256 complet |
+| -------- | -------------------: | --------------- |
+| Fast     |   739 508 576 octets | conforme        |
+| Polyglot |   269 751 136 octets | conforme        |
+| Precise  | 1 161 143 008 octets | conforme        |
 
-Le domaine renvoie actuellement `503 DEPLOYMENT_PAUSED`. Il doit être réactivé
-et le probe doit être rejoué avant toute installation. Les benchmarks M1 8 Go et
-la matrice téléchargement interrompu/repris restent également obligatoires.
+Les benchmarks M1 8 Go et la matrice native téléchargement
+interrompu/repris restent obligatoires avant la release commerciale.
 
 ## Cloud isolé
 
-| Environnement         | Commit                                     | Base                                     | État                                                         |
-| --------------------- | ------------------------------------------ | ---------------------------------------- | ------------------------------------------------------------ |
-| production temporaire | `edd6628a0a6be13fde3388d8d5bcb2f3eb915282` | Neon production EU, schéma 0014          | preuves `/health` et `/ready` vertes avant suspension Vercel |
-| staging temporaire    | `edd6628a0a6be13fde3388d8d5bcb2f3eb915282` | branche Neon staging dédiée, schéma 0014 | validation pré-cutover obtenue avant suspension Vercel       |
+| Environnement         | Commit                                     | Base                                     | État                                                                 |
+| --------------------- | ------------------------------------------ | ---------------------------------------- | -------------------------------------------------------------------- |
+| production temporaire | `0eccad0ad574e6315bab961ecd4157453cdf374a` | Neon production EU, schéma 0014          | `/health` et `/ready` verts derrière Deployment Protection           |
+| staging temporaire    | `0eccad0ad574e6315bab961ecd4157453cdf374a` | branche Neon staging dédiée, schéma 0014 | validation publique health, DB, Apple, JWKS et frontières auth verte |
 
 Le domaine `api.press-say.app` reste sur l'ancien backend. Le domaine
 `api-staging.press-say.app` ne sera déplacé qu'après ajout et validation de
 Google OAuth, puis smoke tests complets. Stripe et le traitement Cloud restent
 désactivés.
 
-## Incident Vercel
+## Incident Vercel résolu
 
 À 22:22 UTC, Spend Management a automatiquement suspendu les projets de
 l'équipe après atteinte du budget mensuel. L'activité Vercel identifie
-explicitement l'événement `project-paused`; la landing, le CDN modèles et les
-backends temporaires renvoient actuellement `503 DEPLOYMENT_PAUSED`.
+explicitement l'événement `project-paused`. Les projets Pressay ont depuis été
+réactivés et toutes les surfaces concernées ont été rejouées : landing,
+`/support/secure-input`, métadonnées OAuth, portfolio, CDN primaire et fallback,
+Cloud staging et Cloud production protégé. La landing production correspond au
+déploiement `dpl_2ToTEREweHfySB55EbuTkdgMiBGq` et ses 22 scénarios distants
+applicables passent ; les scénarios commerce/identité privée restent fermés.
 
-La reprise exige deux actions opérateur : relever ou désactiver le plafond avec
-une décision budgétaire explicite, puis réactiver individuellement les projets
-Pressay. Tous les domaines, probes et smoke tests doivent ensuite être rejoués.
-Cette panne interdit le parcours d'installation public via la landing et tout
-cutover Cloud tant qu'elle n'est pas fermée. Le fallback Hugging Face signé
-reste présent dans l'app, mais ne suffit pas à lever le gate commercial.
+Le budget Vercel conserve une marge limitée et doit rester surveillé pour éviter
+une nouvelle suspension. Ce risque opérationnel n'autorise pas le cutover Cloud
+production : `api.press-say.app` sert toujours l'ancien backend jusqu'à la
+validation native du compte et du rollback.
 
 ## Spike Mac App Store
 
@@ -101,7 +103,7 @@ applications absentes restent requis avant validation commerciale.
 ## Gates encore ouverts
 
 - matrice native sur les machines et applications de référence ;
-- budget Vercel corrigé, projets réactivés et smoke tests entièrement rejoués ;
+- surveillance du budget Vercel et alerte avant une nouvelle suspension ;
 - Google OAuth app/web, puis Google et Apple de bout en bout sur le build signé ;
 - suppression de compte et E2EE sur deux Macs ;
 - Stripe KYC/fiscalité/catalogue/Test Clocks et entitlements commerciaux ;
