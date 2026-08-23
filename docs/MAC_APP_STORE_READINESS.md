@@ -15,6 +15,9 @@ distribution profiles before the first review.
 - App Sandbox, audio-input, network-client and user-selected-file entitlements.
 - StoreKit 2 product loading, purchase, on-device transaction verification,
   explicit Restore Purchases and background entitlement reconciliation.
+- On macOS 15.2 and later, the StoreKit confirmation sheet is explicitly
+  attached to the active Pressay AppKit window; macOS 14 uses Apple's compatible
+  generic purchase API because the window-attached overload is unavailable.
 - Authenticated server verification of the StoreKit JWS and exact
   `appAccountToken` match to the Pressay account UUID.
 - Local StoreKit configuration for monthly and annual Pressay Pro products.
