@@ -55,7 +55,7 @@ Le dépôt frère accepte maintenant les JWT OAuth/JWKS du site et les jetons co
 | `Pressay`       | `bun run test:playwright`      | 7 réussis, dont FR lazy-load et RTL/reduced motion |
 | `pressay-web`   | lint, typecheck, build Next 16 | réussis                                            |
 | `pressay-web`   | Playwright desktop + mobile    | 26 locaux ; 18 distants réussis                    |
-| `pressay-cloud` | `bun run verify`               | 22 fichiers / 75 tests réussis                     |
+| `pressay-cloud` | `bun run verify`               | 23 fichiers / 90 tests réussis                     |
 
 ## Release gates encore ouverts
 
@@ -64,15 +64,26 @@ Le dépôt frère accepte maintenant les JWT OAuth/JWKS du site et les jetons co
 - Apple Intelligence sur matériel et région compatibles.
 - Contrats réels de chaque fournisseur BYOK.
 - Comptage local des tokens BYOK et registre de prix versionné avant d’afficher un coût mensuel : sans `usage` réel de chaque réponse, une estimation serait trompeuse.
-- Smoke interactif Google OAuth dans l’app, puis sync à deux appareils ; les cinq probes et l’identité web distante passent.
+- Smoke interactif Google OAuth dans l’app, puis sync à deux appareils ; les huit probes staging et l’identité web distante passent.
 - Stripe Test Clocks et matrice upgrade/downgrade/échec/remboursement/taxes.
 - StoreKit Configuration, Sandbox, restore, remboursement et TestFlight.
 - Revue sécurité externe E2EE/entitlements.
 - Core Web Vitals sur déploiement Preview et MacBook Air de référence.
 - Traduction humaine des nouveaux textes Signal OS au-delà de FR/EN. Les autres langues ont un fallback anglais explicite ; RTL et reduced motion sont testés.
 
-Observation CDN du 17 août 2026 : les trois fallbacks Hugging Face annoncent les tailles signées attendues, mais les trois routes primaires `models.press-say.app` sont inaccessibles. La gate modèle est donc en échec mesuré, pas seulement non testée.
+Observation modèles du 23 août 2026 : les trois routes de marque
+`models.press-say.app` et les trois fallbacks répondent avec les tailles signées
+attendues. Les téléchargements complets de Fast, Polyglot et Precise ont aussi
+les SHA-256 du catalogue. La route de marque redirige encore vers Hugging Face :
+elle prouve la disponibilité mais pas une origine CDN indépendante ni le cache
+immutable attendu.
 
-Preuve native partielle sur le Mac de travail M2 16 Go/macOS 26.3.1 : Fast et Polyglot sont présents avec des tailles et SHA-256 exactement conformes au catalogue. Sur une fixture vocale française synthétique de 5,58 s, le binaire release headless transcrit Fast en 635 ms (chargement 330 ms) et Polyglot en 860 ms (chargement 135 ms), tous deux via Metal. Precise reste un téléchargement partiel de 283 453 046 octets. Ces chiffres prouvent le chemin fichier→modèle→texte sur cette machine, pas la gate M1 8 Go ni l’insertion inter-apps.
+Preuve native partielle actualisée sur le Mac de travail M2 16 Go/macOS
+26.3.1 : Fast, Polyglot et Precise sont présents avec des tailles et SHA-256
+exactement conformes au catalogue. Sur une fixture française synthétique de
+8,647 s, leurs médianes warm sur dix-neuf passages sont respectivement 199 ms,
+458 ms et 2 643 ms, tous via Metal. Les p95 sont 344 ms, 540 ms et 2 892 ms.
+Ces chiffres prouvent les trois chemins fichier→modèle→texte sur cette machine,
+pas la gate M1 8 Go, la précision sur voix humaine ni l’insertion inter-apps.
 
 Ces gates ne peuvent pas être déclarés réussis par des mocks ou des tests source. La dictée locale reste indépendante de leur disponibilité.

@@ -4,7 +4,11 @@
 
 Clôturés en source : VO-003 (suite Rust exécutable), VO-004 (routes explicites), VO-005 (état canonique), VO-006 (matrice et guards compilables), VO-101/102 (tokens et glyphes Signal OS), VO-104 (diagnostic), VO-106/107 (exercice et sandbox), VO-120/121/122 (Voice Bar, erreurs, tray), VO-123/124 (commandes déterministes et snippets), VO-220 (dépôt landing audité) et l’implémentation de VO-222. Les tests frontend couvrent désormais FR chargé à la demande, RTL et reduced motion ; le bundle initial ne contient plus les 23 catalogues.
 
-Partiellement prouvés : VO-007 valide les fallbacks, hashes et deux modèles sur M2 16 Go, mais le CDN primaire échoue et Precise est incomplet ; VO-201 passe seulement les probes staging publics ; VO-204 dispose d’un harness sans comptes fournisseurs ; VO-222 attend encore les Core Web Vitals d’un déploiement Preview.
+Partiellement prouvés : VO-007 valide les routes de marque/fallback, les hashes
+et les trois modèles sur M2 16 Go, mais la route de marque n’est pas encore une
+origine CDN indépendante ; VO-201 passe seulement les probes staging publics ;
+VO-204 dispose d’un harness sans comptes fournisseurs ; VO-222 attend encore
+les Core Web Vitals d’un déploiement Preview.
 
 Toujours externes : VO-002, tests novices de VO-103, matrices natives DMG/MAS, M1 8 Go, Apple Intelligence, comptes BYOK, auth/sync à deux appareils, Stripe Test Clocks, StoreKit Sandbox/TestFlight, revue sécurité et traduction humaine hors FR/EN. Le protocole exécutable et le format de preuve sont dans [`RELEASE_GATE_RUNBOOK.md`](RELEASE_GATE_RUNBOOK.md).
 
@@ -15,7 +19,7 @@ Toujours externes : VO-002, tests novices de VO-103, matrices natives DMG/MAS, M
 - La recherche Historique occupe toute la largeur disponible.
 - Les chemins de données et journaux ont quitté « À propos » et restent accessibles uniquement dans Avancé > Expérimental pour le support.
 - « À propos » expose la Signal Orb et la signature YoDev.
-- Les anciennes installations bêta qui pointaient vers l'API commerciale historique migrent vers le control plane staging compatible ; la suite desktop compte 308 tests passants et le backend Cloud 75. Six probes publics valident aussi la santé, la base, la configuration auth, la clé publique d'entitlements et les frontières d'authentification.
+- Les anciennes installations bêta qui pointaient vers l'API commerciale historique migrent vers le control plane staging compatible ; la suite desktop compte 308 tests passants et le backend Cloud 90. Huit probes publics valident aussi la santé, la base, la configuration auth, Apple, l’issuer OAuth PKCE, la clé publique d'entitlements et les frontières d'authentification.
 
 Gate encore ouverte : rejouer Google dans le binaire installé, puis valider la migration de données et le rollback avant tout cutover de `api.press-say.app`. Tant que cette gate n'est pas fermée, le produit ne doit pas être annoncé comme « 100 % commercialisable », même si la dictée locale reste pleinement indépendante du compte.
 
