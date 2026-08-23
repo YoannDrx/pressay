@@ -3,7 +3,9 @@
 <plist version="1.0">
 <dict>
   <!-- Pressay implements standard cryptography for local history and E2EE sync.
-       Keep this aligned with the export-compliance declaration in App Store Connect. -->
+       Keep this aligned with the export-compliance declaration in App Store Connect.
+       The protected MAS release workflow injects Apple's approved
+       ITSEncryptionExportComplianceCode into the built bundle before signing. -->
   <key>ITSAppUsesNonExemptEncryption</key>
   <true/>
   <key>NSMicrophoneUsageDescription</key>
