@@ -173,9 +173,25 @@ const capitalizeKey = (key: string): string => {
  * Handles _left/_right suffixes and capitalizes names.
  * e.g. "shift_left" -> "Left Shift", "option" -> "Option", "space" -> "Space"
  */
-const formatKeyPart = (part: string): string => {
+const MAC_KEY_SYMBOLS: Record<string, string> = {
+  alt: "⌥",
+  command: "⌘",
+  control: "⌃",
+  ctrl: "⌃",
+  meta: "⌘",
+  option: "⌥",
+  shift: "⇧",
+  super: "⌘",
+};
+
+const formatKeyPart = (part: string, osType: OSType): string => {
   const trimmed = part.trim();
   if (!trimmed) return "";
+
+  const withoutSide = trimmed.replace(/_(left|right)$/, "");
+  if (osType === "macos" && MAC_KEY_SYMBOLS[withoutSide]) {
+    return MAC_KEY_SYMBOLS[withoutSide];
+  }
 
   if (trimmed.endsWith("_left")) {
     const name = trimmed.slice(0, -5);
@@ -196,10 +212,13 @@ const formatKeyPart = (part: string): string => {
  */
 export const formatKeyCombination = (
   combination: string,
-  _osType: OSType,
+  osType: OSType,
 ): string => {
   if (!combination) return "";
-  return combination.split("+").map(formatKeyPart).join(" + ");
+  return combination
+    .split("+")
+    .map((part) => formatKeyPart(part, osType))
+    .join(" + ");
 };
 
 /**

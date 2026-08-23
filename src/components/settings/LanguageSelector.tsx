@@ -1,4 +1,10 @@
-import React, { useState, useRef, useEffect, useMemo } from "react";
+import React, {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import { useTranslation } from "react-i18next";
 import { SettingContainer } from "../ui/SettingContainer";
 import { ResetButton } from "../ui/ResetButton";
@@ -44,7 +50,7 @@ export const LanguageSelector: React.FC<LanguageSelectorProps> = ({
   supportedLanguages,
   supportsLanguageDetection = true,
 }) => {
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
   const { getSetting, updateSetting, resetSetting, isUpdating } = useSettings();
   const [isOpen, setIsOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
@@ -93,16 +99,33 @@ export const LanguageSelector: React.FC<LanguageSelectorProps> = ({
     );
   }, [supportedLanguages, supportsLanguageDetection]);
 
-  const filteredLanguages = useMemo(
+  const languageDisplayNames = useMemo(
     () =>
-      availableLanguages.filter((language) =>
-        language.label.toLowerCase().includes(searchQuery.toLowerCase()),
-      ),
-    [searchQuery, availableLanguages],
+      new Intl.DisplayNames([i18n.resolvedLanguage ?? i18n.language], {
+        type: "language",
+      }),
+    [i18n.language, i18n.resolvedLanguage],
+  );
+  const languageLabel = useCallback(
+    (languageCode: string) =>
+      languageCode === "auto"
+        ? t("settings.general.language.auto")
+        : (languageDisplayNames.of(languageCode) ??
+          getLanguageLabel(languageCode) ??
+          languageCode),
+    [languageDisplayNames, t],
   );
 
-  const selectedLanguageName =
-    getLanguageLabel(selectedLanguage) || t("settings.general.language.auto");
+  const filteredLanguages = useMemo(() => {
+    const normalizedQuery = searchQuery.toLocaleLowerCase(i18n.language);
+    return availableLanguages.filter((language) =>
+      languageLabel(language.value)
+        .toLocaleLowerCase(i18n.language)
+        .includes(normalizedQuery),
+    );
+  }, [availableLanguages, i18n.language, languageLabel, searchQuery]);
+
+  const selectedLanguageName = languageLabel(selectedLanguage);
 
   const handleLanguageSelect = async (languageCode: string) => {
     await updateSetting("selected_language", languageCode);
@@ -197,7 +220,9 @@ export const LanguageSelector: React.FC<LanguageSelectorProps> = ({
                       onClick={() => handleLanguageSelect(language.value)}
                     >
                       <div className="flex items-center justify-between">
-                        <span className="truncate">{language.label}</span>
+                        <span className="truncate">
+                          {languageLabel(language.value)}
+                        </span>
                       </div>
                     </button>
                   ))
