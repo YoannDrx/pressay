@@ -21,6 +21,13 @@ distribution profiles before the first review.
 - Stripe and updater surfaces remain separate from the MAS purchase path.
 - CI feasibility job builds the MAS graph, ad-hoc signs the bundle and rejects
   private API features or unexpected entitlements.
+- A separate protected archive workflow imports the application and installer
+  identities into an ephemeral keychain, embeds the provisioning profile,
+  signs and packages the app, rechecks the public feature boundary, and can
+  validate/upload the resulting package with an App Store Connect API key.
+  The Store-signed package is checked with `pkgutil` and then with Apple's
+  `altool`; unlike a notarized Direct package, it is not expected to pass a
+  local Gatekeeper distribution assessment before App Store processing.
 
 ## Acceptance risks to validate natively
 
@@ -91,6 +98,11 @@ placeholders rather than claiming a capability that has not passed Sandbox.
    mismatch in TestFlight.
 7. Submit the stable app and both first subscriptions together with precise
    review notes and a short screen recording of the shortcut and permissions.
+
+The protected GitHub environment is named `app-store-production`. Its required
+secrets are documented by the variable names in
+`.github/workflows/app-store-release.yml`; the workflow cannot run from a branch
+other than `main`, and upload is a separate explicit input.
 
 ## Sources
 
