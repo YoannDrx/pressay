@@ -30,8 +30,11 @@ jobs:
           if [[ "${GITHUB_REF_TYPE:-}" == "branch" ]]; then
             test "$GITHUB_REF" = "refs/heads/main"
             test "$(git rev-parse FETCH_HEAD)" = "$GITHUB_SHA"
-          else
+          elif [[ "$GITHUB_REF_TYPE" == "tag" ]]; then
             git merge-base --is-ancestor "$GITHUB_SHA" FETCH_HEAD
+          else
+            echo "Unsupported release ref type: ${GITHUB_REF_TYPE:-missing}" >&2
+            exit 1
           fi
 
       - name: Read and validate version
