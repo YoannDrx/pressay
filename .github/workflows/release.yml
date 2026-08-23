@@ -17,6 +17,22 @@ jobs:
       version: ${{ steps.version.outputs.version }}
     steps:
       - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+
+      - name: Refuse releases outside merged main
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -z "$(git status --porcelain)"
+          git fetch --no-tags origin main
+
+          if [[ "${GITHUB_REF_TYPE:-}" == "branch" ]]; then
+            test "$GITHUB_REF" = "refs/heads/main"
+            test "$(git rev-parse FETCH_HEAD)" = "$GITHUB_SHA"
+          else
+            git merge-base --is-ancestor "$GITHUB_SHA" FETCH_HEAD
+          fi
 
       - name: Read and validate version
         id: version
