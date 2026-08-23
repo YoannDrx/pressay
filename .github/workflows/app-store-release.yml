@@ -188,8 +188,10 @@ jobs:
             "$signed_entitlements" | grep -qx true
           /usr/libexec/PlistBuddy -c 'Print :com.apple.security.device.audio-input' \
             "$signed_entitlements" | grep -qx true
-          test "$(defaults read "$app/Contents/Info" CFBundleIdentifier)" = "fr.yodev.pressay"
-          test "$(defaults read "$app/Contents/Info" ITSAppUsesNonExemptEncryption)" = "1"
+          /usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' \
+            "$app/Contents/Info.plist" | grep -qx 'fr.yodev.pressay'
+          /usr/libexec/PlistBuddy -c 'Print :ITSAppUsesNonExemptEncryption' \
+            "$app/Contents/Info.plist" | grep -qx true
 
           profile_plist="$RUNNER_TEMP/pressay-mas-profile.plist"
           security cms -D -i "$app/Contents/embedded.provisionprofile" > "$profile_plist"
