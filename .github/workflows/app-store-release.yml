@@ -33,7 +33,8 @@ jobs:
           set -euo pipefail
           test "$GITHUB_REF" = "refs/heads/main"
           test -z "$(git status --porcelain)"
-          git merge-base --is-ancestor "$GITHUB_SHA" origin/main
+          git fetch --no-tags origin main
+          test "$(git rev-parse FETCH_HEAD)" = "$GITHUB_SHA"
 
       - uses: oven-sh/setup-bun@v2
         with:
