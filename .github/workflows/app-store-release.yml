@@ -51,6 +51,9 @@ jobs:
 
       - run: bun install --frozen-lockfile
 
+      - name: Validate StoreKit catalogue
+        run: bun run storekit:validate
+
       - name: Require the protected signing material
         shell: bash
         env:
