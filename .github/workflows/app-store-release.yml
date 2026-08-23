@@ -170,6 +170,27 @@ jobs:
             --features mas \
             --bundles app
 
+      - name: Stamp a monotonic App Store build number
+        id: build_number
+        shell: bash
+        run: |
+          set -euo pipefail
+          app=$(find src-tauri/target/aarch64-apple-darwin/release/bundle/macos \
+            -name '*.app' -type d -print -quit)
+          test -n "$app"
+
+          # The public version remains 2.0.0. App Store Connect requires a new,
+          # monotonically increasing CFBundleVersion for every uploaded build.
+          # Including the attempt also keeps an explicitly re-run workflow unique.
+          build_number="${GITHUB_RUN_NUMBER}.${GITHUB_RUN_ATTEMPT}"
+          /usr/libexec/PlistBuddy -c "Set :CFBundleVersion $build_number" \
+            "$app/Contents/Info.plist"
+          test "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleVersion' \
+            "$app/Contents/Info.plist")" = "$build_number"
+
+          echo "build_number=$build_number" >> "$GITHUB_OUTPUT"
+          echo "Stamped App Store build $build_number"
+
       - name: Reject private, updater and Direct-payment code paths
         shell: bash
         run: |
@@ -196,6 +217,7 @@ jobs:
           APP_IDENTITY: ${{ steps.signing.outputs.app_identity }}
           INSTALLER_IDENTITY: ${{ steps.signing.outputs.installer_identity }}
           PROFILE_PATH: ${{ steps.signing.outputs.profile }}
+          EXPECTED_BUILD_NUMBER: ${{ steps.build_number.outputs.build_number }}
         run: |
           set -euo pipefail
           app=$(find src-tauri/target/aarch64-apple-darwin/release/bundle/macos \
@@ -217,6 +239,8 @@ jobs:
             "$signed_entitlements" | grep -qx true
           /usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' \
             "$app/Contents/Info.plist" | grep -qx 'fr.yodev.pressay'
+          /usr/libexec/PlistBuddy -c 'Print :CFBundleVersion' \
+            "$app/Contents/Info.plist" | grep -qxF "$EXPECTED_BUILD_NUMBER"
           /usr/libexec/PlistBuddy -c 'Print :ITSAppUsesNonExemptEncryption' \
             "$app/Contents/Info.plist" | grep -qx true
 
