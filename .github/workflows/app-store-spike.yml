@@ -48,6 +48,7 @@ jobs:
           codesign -d --entitlements :- "$app" > entitlements.plist 2>/dev/null
           /usr/libexec/PlistBuddy -c 'Print :com.apple.security.app-sandbox' entitlements.plist | grep -qx true
           /usr/libexec/PlistBuddy -c 'Print :com.apple.security.device.audio-input' entitlements.plist | grep -qx true
+          test "$(defaults read "$app/Contents/Info" ITSAppUsesNonExemptEncryption)" = "1"
           if /usr/libexec/PlistBuddy -c 'Print :com.apple.security.device.microphone' entitlements.plist >/dev/null 2>&1; then
             echo "Unknown microphone entitlement found; MAS uses audio-input" >&2
             exit 1
