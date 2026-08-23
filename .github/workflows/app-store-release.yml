@@ -113,11 +113,13 @@ jobs:
           security set-keychain-settings -lut 21600 "$keychain"
           security unlock-keychain -p "$keychain_password" "$keychain"
           security import "$app_certificate" -k "$keychain" \
-            -P "$MAS_APP_CERTIFICATE_PASSWORD" -T /usr/bin/codesign
+            -P "$MAS_APP_CERTIFICATE_PASSWORD" -A -t cert -f pkcs12
           security import "$installer_certificate" -k "$keychain" \
-            -P "$MAS_INSTALLER_CERTIFICATE_PASSWORD" \
-            -T /usr/bin/productbuild
-          security set-key-partition-list -S apple-tool:,apple:,codesign: \
+            -P "$MAS_INSTALLER_CERTIFICATE_PASSWORD" -A -t cert -f pkcs12
+          # GitHub-hosted runners have no interactive keychain UI. Grant the
+          # imported keys non-interactive access inside this disposable keychain;
+          # the keychain and source files are deleted after every run.
+          security set-key-partition-list -S apple-tool:,apple: \
             -s -k "$keychain_password" "$keychain"
           security list-keychains -d user -s "$keychain"
 
@@ -134,6 +136,29 @@ jobs:
           echo "app_identity=$app_identity" >> "$GITHUB_OUTPUT"
           echo "installer_identity=$installer_identity" >> "$GITHUB_OUTPUT"
           echo "profile=$profile" >> "$GITHUB_OUTPUT"
+
+      - name: Preflight installer private-key access
+        timeout-minutes: 1
+        shell: bash
+        env:
+          INSTALLER_IDENTITY: ${{ steps.signing.outputs.installer_identity }}
+        run: |
+          set -euo pipefail
+          unsigned_package="$RUNNER_TEMP/pressay-signing-preflight-unsigned.pkg"
+          signed_package="$RUNNER_TEMP/pressay-signing-preflight.pkg"
+
+          pkgbuild \
+            --nopayload \
+            --identifier app.pressay.signing-preflight \
+            --version 1.0 \
+            "$unsigned_package"
+          productsign \
+            --sign "$INSTALLER_IDENTITY" \
+            --timestamp=none \
+            "$unsigned_package" \
+            "$signed_package"
+          pkgutil --check-signature "$signed_package"
+          rm -f "$unsigned_package" "$signed_package"
 
       - name: Build the public MAS feature graph
         shell: bash
@@ -205,8 +230,6 @@ jobs:
           echo "Creating the signed component package"
           # Apple documents this single productbuild invocation as sufficient for
           # submitting an app composed of one bundle to the Mac App Store.
-          # productsign hangs on the hosted macOS 26 runner, with or without an
-          # explicit keychain, after the unsigned package has already been built.
           productbuild \
             --sign "$INSTALLER_IDENTITY" \
             --component "$app" \
