@@ -116,7 +116,7 @@ jobs:
             -P "$MAS_APP_CERTIFICATE_PASSWORD" -T /usr/bin/codesign
           security import "$installer_certificate" -k "$keychain" \
             -P "$MAS_INSTALLER_CERTIFICATE_PASSWORD" \
-            -T /usr/bin/productbuild -T /usr/bin/productsign
+            -T /usr/bin/productbuild
           security set-key-partition-list -S apple-tool:,apple:,codesign: \
             -s -k "$keychain_password" "$keychain"
           security list-keychains -d user -s "$keychain"
@@ -200,20 +200,17 @@ jobs:
           /usr/libexec/PlistBuddy -c 'Print :Entitlements:com.apple.application-identifier' \
             "$profile_plist" | grep -qx 'G9WFV7HNV6.fr.yodev.pressay'
 
-          unsigned_package="$RUNNER_TEMP/Pressay-Mac-App-Store-unsigned.pkg"
           package="$RUNNER_TEMP/Pressay-Mac-App-Store.pkg"
 
-          echo "Creating the unsigned component package"
-          productbuild --component "$app" /Applications "$unsigned_package"
-          test -s "$unsigned_package"
-
-          echo "Signing the completed package"
-          # The user keychain search list contains only the ephemeral release
-          # keychain. Passing its path explicitly hangs productsign on macOS 26.
-          productsign \
+          echo "Creating the signed component package"
+          # Apple documents this single productbuild invocation as sufficient for
+          # submitting an app composed of one bundle to the Mac App Store.
+          # productsign hangs on the hosted macOS 26 runner, with or without an
+          # explicit keychain, after the unsigned package has already been built.
+          productbuild \
             --sign "$INSTALLER_IDENTITY" \
-            --timestamp=none \
-            "$unsigned_package" \
+            --component "$app" \
+            /Applications \
             "$package"
           test -s "$package"
           pkgutil --check-signature "$package"
