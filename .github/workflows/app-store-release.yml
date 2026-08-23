@@ -115,7 +115,8 @@ jobs:
           security import "$app_certificate" -k "$keychain" \
             -P "$MAS_APP_CERTIFICATE_PASSWORD" -T /usr/bin/codesign
           security import "$installer_certificate" -k "$keychain" \
-            -P "$MAS_INSTALLER_CERTIFICATE_PASSWORD" -T /usr/bin/productbuild
+            -P "$MAS_INSTALLER_CERTIFICATE_PASSWORD" \
+            -T /usr/bin/productbuild -T /usr/bin/productsign
           security set-key-partition-list -S apple-tool:,apple:,codesign: \
             -s -k "$keychain_password" "$keychain"
           security list-keychains -d user -s "$keychain"
@@ -164,10 +165,12 @@ jobs:
 
       - name: Embed the profile and sign the app
         id: package
+        timeout-minutes: 10
         shell: bash
         env:
           APP_IDENTITY: ${{ steps.signing.outputs.app_identity }}
           INSTALLER_IDENTITY: ${{ steps.signing.outputs.installer_identity }}
+          KEYCHAIN_PATH: ${{ steps.signing.outputs.keychain }}
           PROFILE_PATH: ${{ steps.signing.outputs.profile }}
         run: |
           set -euo pipefail
@@ -200,7 +203,10 @@ jobs:
 
           package="$RUNNER_TEMP/Pressay-Mac-App-Store.pkg"
           productbuild --component "$app" /Applications \
-            --sign "$INSTALLER_IDENTITY" "$package"
+            --sign "$INSTALLER_IDENTITY" \
+            --keychain "$KEYCHAIN_PATH" \
+            --timestamp=none \
+            "$package"
           pkgutil --check-signature "$package"
           shasum -a 256 "$package" > "$package.sha256"
 
