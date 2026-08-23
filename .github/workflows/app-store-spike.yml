@@ -26,6 +26,8 @@ jobs:
           workspaces: "./src-tauri -> target"
           key: pressay-app-store-spike
       - run: bun install --frozen-lockfile
+      - name: Validate StoreKit catalogue
+        run: bun run storekit:validate
       - name: Build sandboxed app bundle
         run: >-
           bun run tauri build

@@ -18,6 +18,7 @@
     "test:playwright:ui": "playwright test --ui",
     "check:translations": "bun scripts/check-translations.ts",
     "models:sign": "bash scripts/sign-model-catalog.sh",
+    "storekit:validate": "bun scripts/validate-storekit-config.ts",
     "voice-os:native-baseline": "bun scripts/voice-os/native-baseline.ts",
     "voice-os:probe-models": "bun scripts/voice-os/probe-model-cdn.ts",
     "voice-os:probe-byok": "bun scripts/voice-os/probe-byok.ts",
