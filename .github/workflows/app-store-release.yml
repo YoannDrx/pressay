@@ -201,12 +201,21 @@ jobs:
           /usr/libexec/PlistBuddy -c 'Print :Entitlements:com.apple.application-identifier' \
             "$profile_plist" | grep -qx 'G9WFV7HNV6.fr.yodev.pressay'
 
+          unsigned_package="$RUNNER_TEMP/Pressay-Mac-App-Store-unsigned.pkg"
           package="$RUNNER_TEMP/Pressay-Mac-App-Store.pkg"
-          productbuild --component "$app" /Applications \
+
+          echo "Creating the unsigned component package"
+          productbuild --component "$app" /Applications "$unsigned_package"
+          test -s "$unsigned_package"
+
+          echo "Signing the completed package"
+          productsign \
             --sign "$INSTALLER_IDENTITY" \
             --keychain "$KEYCHAIN_PATH" \
             --timestamp=none \
+            "$unsigned_package" \
             "$package"
+          test -s "$package"
           pkgutil --check-signature "$package"
           shasum -a 256 "$package" > "$package.sha256"
 
