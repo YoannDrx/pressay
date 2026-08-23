@@ -62,7 +62,7 @@ Avec cette définition stricte, aucune grande capacité de dictée n'est encore 
 ## Limites de l'investigation
 
 - La landing Signal OS est déployée sur `https://press-say.app` ; ses parcours distants desktop/mobile et son identité Better Auth passent.
-- Le staging public est joignable et ses cinq probes read-only passent. Stripe test est configuré avec prix mensuel/annuel et webhook signé ; les clés live, la fiscalité et Test Clocks restent des gates.
+- Le staging public est joignable et ses huit probes read-only passent. Le catalogue Stripe dédié existe avec prix mensuel/annuel ; les identifiants restreints, webhooks signés, fiscalité et Test Clocks restent des gates avant ouverture.
 - Les tests M1 8 Go, macOS 14, Apple Intelligence, Sandbox StoreKit et TestFlight sont des release gates explicites.
 - Les prix et offres concurrentes évoluent ; ils doivent être revérifiés au moment des décisions commerciales.
 
