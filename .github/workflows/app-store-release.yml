@@ -170,7 +170,6 @@ jobs:
         env:
           APP_IDENTITY: ${{ steps.signing.outputs.app_identity }}
           INSTALLER_IDENTITY: ${{ steps.signing.outputs.installer_identity }}
-          KEYCHAIN_PATH: ${{ steps.signing.outputs.keychain }}
           PROFILE_PATH: ${{ steps.signing.outputs.profile }}
         run: |
           set -euo pipefail
@@ -209,9 +208,10 @@ jobs:
           test -s "$unsigned_package"
 
           echo "Signing the completed package"
+          # The user keychain search list contains only the ephemeral release
+          # keychain. Passing its path explicitly hangs productsign on macOS 26.
           productsign \
             --sign "$INSTALLER_IDENTITY" \
-            --keychain "$KEYCHAIN_PATH" \
             --timestamp=none \
             "$unsigned_package" \
             "$package"
