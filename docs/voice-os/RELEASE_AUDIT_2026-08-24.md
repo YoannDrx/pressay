@@ -57,6 +57,14 @@ Le correctif doit être revu, mergé et déployé sur staging avant de rejouer l
 login natif, puis promu en production après smoke tests. La dictée locale ne
 dépend pas de cette promotion.
 
+Les endpoints publics `/v1/desktop-auth/config` de staging et production
+n'annoncent actuellement que le provider `apple`. Le couple
+`GOOGLE_CLIENT_ID`/`GOOGLE_CLIENT_SECRET` n'est donc pas configuré dans ces
+déploiements ; un login Google ne peut pas fonctionner dans cet état. Les
+identifiants OAuth Google doivent être créés ou récupérés dans le projet Google
+Cloud Pressay, limités aux URI autorisées, puis injectés séparément dans les
+deux projets Vercel avant les tests PKCE/deep-link.
+
 ## Diagnostics desktop
 
 L'audit des journaux de développement a révélé que le dump `Debug` complet des
@@ -121,7 +129,8 @@ actuel ou par des tests automatisés.
 ## Gates restantes
 
 1. Revue et merge des correctifs Cloud et desktop de cet audit.
-2. Déploiement staging Cloud et replay Google/compte/usage sur le build signé.
+2. Configuration OAuth Google, déploiement staging Cloud et replay
+   Google/compte/usage sur le build signé.
 3. Scénarios E2EE et suppression sur deux Macs.
 4. Matrice Stripe test complète, sans ouvrir le checkout live.
 5. Capture App Review de chaque abonnement depuis la vraie variante StoreKit.
