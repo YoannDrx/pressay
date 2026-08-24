@@ -7,22 +7,7 @@ import { useSettingsStore } from "../../stores/settingsStore";
 import { useSettings } from "../../hooks/useSettings";
 import { useTranslation } from "react-i18next";
 import type { SoundTheme } from "../../bindings";
-
-const BUNDLED_SOUND_THEME_LABELS: Record<
-  Exclude<SoundTheme, "custom">,
-  string
-> = {
-  marimba: "Marimba",
-  pop: "Pop",
-  minimal: "Minimal",
-  soft: "Soft",
-  glass: "Glass",
-  mechanical: "Mechanical",
-  dreamy: "Dreamy",
-  scifi: "Sci-Fi",
-  studio: "Studio",
-  zen: "Zen",
-};
+import { BUNDLED_SOUND_THEME_LABELS } from "@/lib/soundThemes";
 
 interface SoundPickerProps {
   label: string;
