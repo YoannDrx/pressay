@@ -16,6 +16,7 @@
     "format:backend": "cd src-tauri && cargo fmt",
     "test:playwright": "playwright test",
     "test:playwright:ui": "playwright test --ui",
+    "test:unit": "bun test unit-tests",
     "check:translations": "bun scripts/check-translations.ts",
     "models:sign": "bash scripts/sign-model-catalog.sh",
     "storekit:validate": "bun scripts/validate-storekit-config.ts",
