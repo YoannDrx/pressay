@@ -67,6 +67,12 @@ pub async fn begin_cloud_social_login(
 
 #[tauri::command]
 #[specta::specta]
+pub fn cancel_cloud_social_login(app: AppHandle) {
+    app.state::<CloudAuthRuntime>().clear();
+}
+
+#[tauri::command]
+#[specta::specta]
 pub async fn get_cloud_account_snapshot(app: AppHandle) -> Result<CloudAccountSnapshot, String> {
     let snapshot = cloud::account_snapshot(&app).await.map_err(|error| {
         log::warn!("Cloud account snapshot failed with code {}", error.code);
