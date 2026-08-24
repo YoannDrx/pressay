@@ -84,6 +84,30 @@ Les erreurs de chargement du compte journalisent désormais seulement le code
 public sûr. Le catalogue des dix thèmes sonores dispose aussi d'un contrat
 frontend testé par la CI.
 
+Un cycle natif de capture silencieuse a été rejoué sur le build signé. La
+capture a démarré, le pipeline a reçu zéro échantillon utilisable, la surface
+est passée par l'état d'erreur attendu puis l'icône menu bar est revenue à
+`Idle` environ 2,2 secondes plus tard. Une annulation de sécurité effectuée
+ensuite n'a trouvé aucune opération ou surface orpheline.
+
+## Landing et portfolio
+
+Le site Pressay passe lint, typecheck et build. La suite Playwright locale a
+d'abord révélé trois timeouts pendant une exécution concurrente avec la lourde
+matrice portfolio. Les mêmes contrats passaient isolément, mais restaient trop
+proches de la limite à cause de la compilation à froid de plusieurs routes
+Next.js. La PR web #20 sérialise donc les scénarios à l'intérieur de chaque
+projet tout en conservant desktop et mobile en parallèle. Avec ce réglage,
+40 scénarios passent et 2 scénarios réservés à un déploiement distant sont
+ignorés en 30 secondes.
+
+La production `https://press-say.app` passe les 32 scénarios applicables sur
+desktop et mobile ; 10 contrats réservés au mode local sont ignorés. Le
+portfolio passe son build et 30 scénarios multi-navigateurs ; 14 scénarios non
+applicables à certaines variantes sont ignorés. Un timeout Chromium observé
+pendant la concurrence avec la suite web repasse seul en 4,6 secondes et ne
+révèle aucune violation Axe sérieuse.
+
 ## Stripe direct
 
 Le compte test Pressay contient un seul produit actif `Pressay Pro`, à 7,99 €
@@ -133,8 +157,9 @@ Word et Cursor ne le sont pas. La bêta 3 installée est signée, notarisée,
 acceptée par Gatekeeper et possède un ticket staplé.
 
 Les scénarios interactifs complets restent à exécuter après déploiement du
-correctif Cloud. La gate M1 8 Go/macOS 14 ne peut pas être remplacée par le Mac
-actuel ou par des tests automatisés.
+correctif Cloud. La capture silencieuse et son auto-disparition sont validées
+sur cette machine. La gate M1 8 Go/macOS 14 ne peut pas être remplacée par le
+Mac actuel ou par des tests automatisés.
 
 ## Gates restantes
 
