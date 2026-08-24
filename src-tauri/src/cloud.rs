@@ -505,20 +505,6 @@ struct MagicLinkRequest<'a> {
 }
 
 #[derive(Serialize)]
-#[serde(rename_all = "camelCase")]
-struct SocialSignInRequest<'a> {
-    provider: CloudAuthProvider,
-    callback_url: &'a str,
-    error_callback_url: &'a str,
-}
-
-#[derive(Deserialize)]
-struct SocialSignInResponse {
-    url: Url,
-    redirect: bool,
-}
-
-#[derive(Serialize)]
 struct OneTimeTokenRequest<'a> {
     token: &'a str,
 }
@@ -755,16 +741,10 @@ fn endpoint(settings: &AppSettings, path: &str) -> Result<Url, CloudFailure> {
         .map_err(|_| CloudFailure::new("cloud_api_url_invalid"))
 }
 
-fn validate_apple_authorization_url(url: Url) -> Result<Url, CloudFailure> {
-    if url.scheme() == "https"
-        && url.host_str() == Some("appleid.apple.com")
-        && url.path() == "/auth/authorize"
-        && url.username().is_empty()
-        && url.password().is_none()
-    {
-        return Ok(url);
-    }
-    Err(CloudFailure::new("cloud_auth_response_invalid"))
+fn apple_browser_login_url(settings: &AppSettings, state: &str) -> Result<Url, CloudFailure> {
+    let mut url = endpoint(settings, "/v1/desktop-auth/social/apple")?;
+    url.query_pairs_mut().append_pair("state", state);
+    Ok(url)
 }
 
 async fn finish(response: Response) -> Result<Response, CloudFailure> {
@@ -1183,33 +1163,19 @@ pub async fn social_login_url(
     state: &str,
     verifier: &str,
 ) -> Result<String, CloudFailure> {
-    if state.len() < 32 || verifier.len() < 43 || verifier.len() > 128 {
+    if state.len() < 32 {
         return Err(CloudFailure::new("cloud_auth_state_invalid"));
     }
 
     if provider == CloudAuthProvider::Apple {
-        let mut callback_url = endpoint(settings, "/v1/desktop-auth/callback")?;
-        callback_url.query_pairs_mut().append_pair("state", state);
-        let mut error_callback_url = Url::parse("pressay://oauth/error")
-            .map_err(|_| CloudFailure::new("cloud_auth_callback_invalid"))?;
-        error_callback_url
-            .query_pairs_mut()
-            .append_pair("state", state);
-        let response = client()
-            .post(endpoint(settings, "/v1/auth/sign-in/social")?)
-            .json(&SocialSignInRequest {
-                provider,
-                callback_url: callback_url.as_str(),
-                error_callback_url: error_callback_url.as_str(),
-            })
-            .send()
-            .await
-            .map_err(|_| CloudFailure::new("cloud_network_unavailable"))?;
-        let sign_in: SocialSignInResponse = json(response).await?;
-        if !sign_in.redirect {
-            return Err(CloudFailure::new("cloud_auth_response_invalid"));
-        }
-        return Ok(validate_apple_authorization_url(sign_in.url)?.to_string());
+        // Better Auth must create its signed provider-state cookie in the
+        // user's browser. The API route then redirects the same browser to
+        // Apple and receives Apple's form_post callback with that cookie.
+        return Ok(apple_browser_login_url(settings, state)?.to_string());
+    }
+
+    if verifier.len() < 43 || verifier.len() > 128 {
+        return Err(CloudFailure::new("cloud_auth_state_invalid"));
     }
 
     let metadata = oauth_metadata().await?;
@@ -1226,6 +1192,10 @@ pub async fn social_login_url(
         .append_pair("code_challenge_method", "S256")
         .append_pair("resource", OAUTH_RESOURCE);
     Ok(authorization_url.to_string())
+}
+
+pub(crate) fn uses_native_oauth_pkce(provider: CloudAuthProvider) -> bool {
+    provider != CloudAuthProvider::Apple
 }
 
 async fn exchange_one_time_token(settings: &AppSettings, token: &str) -> Result<(), CloudFailure> {
@@ -2114,19 +2084,23 @@ mod tests {
     }
 
     #[test]
-    fn apple_authorization_url_is_strictly_allowlisted() {
-        assert!(validate_apple_authorization_url(
-            Url::parse("https://appleid.apple.com/auth/authorize?client_id=pressay").unwrap()
-        )
-        .is_ok());
-        assert!(validate_apple_authorization_url(
-            Url::parse("https://appleid.apple.com.attacker.example/auth/authorize").unwrap()
-        )
-        .is_err());
-        assert!(validate_apple_authorization_url(
-            Url::parse("https://appleid.apple.com/auth/token").unwrap()
-        )
-        .is_err());
+    fn apple_auth_starts_in_the_browser_on_the_configured_api() {
+        let settings = crate::settings::get_default_settings();
+        let url = apple_browser_login_url(&settings, "expected-state-value").unwrap();
+        assert_eq!(url.path(), "/v1/desktop-auth/social/apple");
+        assert_eq!(
+            url.query_pairs()
+                .find_map(|(key, value)| (key == "state").then(|| value.into_owned())),
+            Some("expected-state-value".to_string())
+        );
+        assert_eq!(
+            url.host_str(),
+            validate_base_url(&settings.pressay_cloud_api_url)
+                .unwrap()
+                .host_str()
+        );
+        assert!(!uses_native_oauth_pkce(CloudAuthProvider::Apple));
+        assert!(uses_native_oauth_pkce(CloudAuthProvider::Google));
     }
 
     #[test]
