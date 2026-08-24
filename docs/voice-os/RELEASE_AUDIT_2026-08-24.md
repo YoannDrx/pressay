@@ -148,8 +148,9 @@ lever ces gates.
 - Le groupe `Pressay Pro` contient les abonnements mensuel et annuel, mais les
   deux restent « Finaliser avant soumission » car leur capture App Review est
   absente.
-- Les coordonnées App Review restent à confirmer visuellement avant la
-  soumission finale.
+- Les coordonnées App Review autorisées ont été renseignées et sauvegardées.
+  La fiche conserve Yoann ANDRIEUX comme contact et la version reste en
+  publication manuelle.
 
 Le workflow MAS doit rester bloqué tant que le code de conformité Apple n'est
 pas disponible. Les captures d'abonnement doivent montrer la vraie surface
