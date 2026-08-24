@@ -27,6 +27,11 @@ Le bundle MAS local compile avec l'identifiant `fr.yodev.pressay`, la version
 `2.0.0`, App Sandbox et `ITSAppUsesNonExemptEncryption=true`. Cette preuve ne
 remplace ni un upload, ni StoreKit Sandbox, ni TestFlight.
 
+Le DMG `v2.0.0-beta.3` retéléchargé depuis GitHub a été vérifié de nouveau :
+image disque valide, checksum public identique, ticket de notarisation présent
+sur le DMG et l'app interne, puis acceptation Gatekeeper des deux niveaux sous
+l'identité Developer ID de Yoann ANDRIEUX.
+
 ## Modèles et exécution headless
 
 Les trois routes primaires et leurs fallbacks ont été reprobés. Les tailles
