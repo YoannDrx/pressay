@@ -73,9 +73,15 @@ frontend testé par la CI.
 
 Le compte test Pressay contient un seul produit actif `Pressay Pro`, à 7,99 €
 par mois et 69 € par an, sans essai. La destination staging cible
-`https://api-staging.press-say.app/v1/webhooks/stripe`, écoute 21 événements et
-n'a encore reçu aucune livraison. Son compteur est donc à zéro réussite et
-zéro échec : il ne constitue pas une preuve fonctionnelle de webhook.
+`https://api-staging.press-say.app/v1/webhooks/stripe` et écoute 21 événements.
+
+Un scénario synthétique `customer.subscription.updated` a ensuite été
+déclenché depuis Stripe Workbench. Stripe a correctement créé ses fixtures et
+envoyé cinq événements associés, mais les cinq livraisons ont reçu HTTP 401
+`invalid_stripe_signature`. Le secret de signature injecté dans le projet
+Vercel staging ne correspond donc pas à la destination Stripe actuelle. Cette
+incohérence est une gate P0 : le secret doit être réaligné, le test renvoyé puis
+la projection SQL et l'entitlement contrôlés avant toute matrice Checkout.
 
 Le live conserve le bon produit et les bons prix, mais les points suivants
 restent des gates : clarification du statut KYC affiché par Stripe, support
