@@ -65,6 +65,7 @@ jobs:
           APP_STORE_CONNECT_API_KEY_BASE64: ${{ secrets.APP_STORE_CONNECT_API_KEY_BASE64 }}
           APP_STORE_CONNECT_KEY_ID: ${{ secrets.APP_STORE_CONNECT_KEY_ID }}
           APP_STORE_CONNECT_ISSUER_ID: ${{ secrets.APP_STORE_CONNECT_ISSUER_ID }}
+          MAS_EXPORT_COMPLIANCE_CODE: ${{ vars.MAS_EXPORT_COMPLIANCE_CODE }}
         run: |
           set -euo pipefail
           required=(
@@ -73,6 +74,7 @@ jobs:
             MAS_INSTALLER_CERTIFICATE_BASE64
             MAS_INSTALLER_CERTIFICATE_PASSWORD
             MAS_PROVISIONING_PROFILE_BASE64
+            MAS_EXPORT_COMPLIANCE_CODE
           )
           if [[ "${{ inputs.upload }}" == "true" ]]; then
             required+=(
@@ -83,7 +85,7 @@ jobs:
           fi
           for name in "${required[@]}"; do
             test -n "${!name:-}" || {
-              echo "Missing protected secret: $name" >&2
+              echo "Missing protected release value: $name" >&2
               exit 1
             }
           done
@@ -173,6 +175,8 @@ jobs:
       - name: Stamp a monotonic App Store build number
         id: build_number
         shell: bash
+        env:
+          MAS_EXPORT_COMPLIANCE_CODE: ${{ vars.MAS_EXPORT_COMPLIANCE_CODE }}
         run: |
           set -euo pipefail
           app=$(find src-tauri/target/aarch64-apple-darwin/release/bundle/macos \
@@ -187,6 +191,20 @@ jobs:
             "$app/Contents/Info.plist"
           test "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleVersion' \
             "$app/Contents/Info.plist")" = "$build_number"
+
+          # Pressay declares non-exempt encryption. Apple requires the code it
+          # issues after approving the export-compliance documentation in every
+          # submitted app bundle. The protected environment variable is only
+          # populated after App Store Connect displays that approved value.
+          /usr/libexec/PlistBuddy \
+            -c 'Delete :ITSEncryptionExportComplianceCode' \
+            "$app/Contents/Info.plist" >/dev/null 2>&1 || true
+          /usr/libexec/PlistBuddy \
+            -c "Add :ITSEncryptionExportComplianceCode string $MAS_EXPORT_COMPLIANCE_CODE" \
+            "$app/Contents/Info.plist"
+          test "$(/usr/libexec/PlistBuddy \
+            -c 'Print :ITSEncryptionExportComplianceCode' \
+            "$app/Contents/Info.plist")" = "$MAS_EXPORT_COMPLIANCE_CODE"
 
           echo "build_number=$build_number" >> "$GITHUB_OUTPUT"
           echo "Stamped App Store build $build_number"
@@ -218,6 +236,7 @@ jobs:
           INSTALLER_IDENTITY: ${{ steps.signing.outputs.installer_identity }}
           PROFILE_PATH: ${{ steps.signing.outputs.profile }}
           EXPECTED_BUILD_NUMBER: ${{ steps.build_number.outputs.build_number }}
+          EXPECTED_EXPORT_COMPLIANCE_CODE: ${{ vars.MAS_EXPORT_COMPLIANCE_CODE }}
         run: |
           set -euo pipefail
           app=$(find src-tauri/target/aarch64-apple-darwin/release/bundle/macos \
@@ -243,6 +262,8 @@ jobs:
             "$app/Contents/Info.plist" | grep -qxF "$EXPECTED_BUILD_NUMBER"
           /usr/libexec/PlistBuddy -c 'Print :ITSAppUsesNonExemptEncryption' \
             "$app/Contents/Info.plist" | grep -qx true
+          /usr/libexec/PlistBuddy -c 'Print :ITSEncryptionExportComplianceCode' \
+            "$app/Contents/Info.plist" | grep -qxF "$EXPECTED_EXPORT_COMPLIANCE_CODE"
 
           profile_plist="$RUNNER_TEMP/pressay-mas-profile.plist"
           security cms -D -i "$app/Contents/embedded.provisionprofile" > "$profile_plist"
