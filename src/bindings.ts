@@ -552,6 +552,9 @@ async beginCloudSocialLogin(provider: CloudAuthProvider) : Promise<Result<null, 
     else return { status: "error", error: e  as any };
 }
 },
+async cancelCloudSocialLogin() : Promise<null> {
+    return await TAURI_INVOKE("cancel_cloud_social_login");
+},
 async getCloudAccountSnapshot() : Promise<Result<CloudAccountSnapshot, string>> {
     try {
     return { status: "ok", data: await TAURI_INVOKE("get_cloud_account_snapshot") };

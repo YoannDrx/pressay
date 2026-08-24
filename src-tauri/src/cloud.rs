@@ -2163,6 +2163,14 @@ mod tests {
     }
 
     #[test]
+    fn clearing_pending_state_cancels_the_login() {
+        let runtime = CloudAuthRuntime::default();
+        let state = runtime.begin().unwrap();
+        runtime.clear();
+        assert!(runtime.consume(&state).is_err());
+    }
+
+    #[test]
     fn oauth_pending_state_carries_a_pkce_verifier_once() {
         let runtime = CloudAuthRuntime::default();
         let (state, verifier) = runtime.begin_oauth().unwrap();
