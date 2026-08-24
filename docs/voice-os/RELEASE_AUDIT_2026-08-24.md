@@ -108,6 +108,12 @@ applicables à certaines variantes sont ignorés. Un timeout Chromium observé
 pendant la concurrence avec la suite web repasse seul en 4,6 secondes et ne
 révèle aucune violation Axe sérieuse.
 
+Les routes de téléchargement de la landing et du portfolio ont été suivies
+jusqu'à l'asset GitHub publié. Toutes deux aboutissent à `Pressay.dmg` de la
+prerelease `v2.0.0-beta.3`, d'une taille de 20 439 772 octets. Le checksum
+public correspond au digest GitHub :
+`89ae5d40df921a796f238e1c750c6f204beca49f0d5eea1dbf2798e5827bf9e3`.
+
 ## Stripe direct
 
 Le compte test Pressay contient un seul produit actif `Pressay Pro`, à 7,99 €
