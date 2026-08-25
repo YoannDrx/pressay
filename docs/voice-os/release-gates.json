@@ -1,0 +1,177 @@
+{
+  "auditedAt": "2026-08-25",
+  "sourceCommits": {
+    "desktop": "f5d06c67f7dbdee8cefd381ab3137f10b87070ee",
+    "cloud": "e6fc44b167218b7a2dc2f71a5879a918a1e55c3e",
+    "web": "577b6efab6f5485bf1449f6d88fa449b1642eddc"
+  },
+  "gates": [
+    {
+      "id": "source_automated",
+      "channels": ["direct", "mas"],
+      "status": "pass",
+      "stage": "preflight",
+      "evidence": ["GitHub main CI at desktop sourceCommits.desktop"],
+      "notes": "Build, tests, quality, security and MAS graph checks are green on the recorded main commit."
+    },
+    {
+      "id": "model_catalogue_and_routes",
+      "channels": ["direct", "mas"],
+      "status": "pass",
+      "stage": "preflight",
+      "evidence": ["bun run voice-os:probe-models on 2026-08-25"],
+      "notes": "Primary and fallback routes expose the expected sizes for Fast, Polyglot and Precise."
+    },
+    {
+      "id": "model_cdn_independent_origin",
+      "channels": ["direct", "mas"],
+      "status": "blocked",
+      "stage": "preflight",
+      "evidence": [],
+      "notes": "The branded primary routes still resolve to the same Hugging Face CDN as fallback; provision the independent immutable-cache origin or explicitly remove the redundancy claim."
+    },
+    {
+      "id": "cloud_production_isolation",
+      "channels": ["direct", "mas"],
+      "status": "pass",
+      "stage": "preflight",
+      "evidence": [
+        "https://api.press-say.app/v1/health",
+        "https://api.press-say.app/v1/ready"
+      ],
+      "notes": "Production reports the expected Cloud commit, environment and schema from an isolated project and database."
+    },
+    {
+      "id": "direct_candidate_from_current_main",
+      "channels": ["direct"],
+      "status": "blocked",
+      "stage": "artifact",
+      "evidence": [],
+      "notes": "The verified beta.4 DMG predates the current main commit; build, notarize and retest the next immutable candidate."
+    },
+    {
+      "id": "oauth_google_native",
+      "channels": ["direct", "mas"],
+      "status": "pass",
+      "stage": "preflight",
+      "evidence": ["docs/voice-os/RELEASE_AUDIT_2026-08-24.md"],
+      "notes": "The native Google PKCE callback and account bootstrap passed on the available Mac."
+    },
+    {
+      "id": "oauth_apple_native",
+      "channels": ["direct", "mas"],
+      "status": "blocked",
+      "stage": "preflight",
+      "evidence": [],
+      "notes": "Re-run Apple form-post, deep link, bootstrap and account loading after the latest Cloud fix."
+    },
+    {
+      "id": "native_current_mac_matrix",
+      "channels": ["direct", "mas"],
+      "status": "blocked",
+      "stage": "preflight",
+      "evidence": [],
+      "notes": "Complete microphone, permissions, HUD, sounds, modes, offline and installed target-app scenarios on the current Mac."
+    },
+    {
+      "id": "native_m1_8gb_macos14_matrix",
+      "channels": ["direct", "mas"],
+      "status": "external_gate",
+      "stage": "preflight",
+      "evidence": [],
+      "notes": "Requires physical M1 8 GB hardware running macOS 14; the available M2/macOS 26 machine is not equivalent."
+    },
+    {
+      "id": "e2ee_two_device_matrix",
+      "channels": ["direct", "mas"],
+      "status": "external_gate",
+      "stage": "preflight",
+      "evidence": [],
+      "notes": "Requires two physical Macs for enrollment, approval, revocation, recovery and network-loss scenarios."
+    },
+    {
+      "id": "independent_crypto_review",
+      "channels": ["direct", "mas"],
+      "status": "external_gate",
+      "stage": "preflight",
+      "evidence": [],
+      "notes": "An independent reviewer must close every critical and high finding; Pressay cannot self-attest this gate."
+    },
+    {
+      "id": "stripe_tax_and_legal",
+      "channels": ["direct"],
+      "status": "external_gate",
+      "stage": "preflight",
+      "evidence": [],
+      "notes": "Fiscal treatment, Stripe Tax registration, product tax code, Price tax behavior and legal links require documented professional validation."
+    },
+    {
+      "id": "stripe_test_clock_matrix",
+      "channels": ["direct"],
+      "status": "blocked",
+      "stage": "preflight",
+      "evidence": [],
+      "notes": "Run monthly and annual purchase, renewal, failure, recovery, changes, cancellation, refund, dispute and out-of-order webhook scenarios."
+    },
+    {
+      "id": "stripe_account_verification",
+      "channels": ["direct"],
+      "status": "external_gate",
+      "stage": "preflight",
+      "evidence": [],
+      "notes": "Clarify the keyed identity warning with Stripe and verify the first payout path before live launch."
+    },
+    {
+      "id": "apple_export_compliance",
+      "channels": ["mas"],
+      "status": "external_gate",
+      "stage": "preflight",
+      "evidence": [],
+      "notes": "App Store Connect is reviewing the encryption declaration; upload remains blocked until Apple issues the compliance code."
+    },
+    {
+      "id": "storekit_metadata_and_prices",
+      "channels": ["mas"],
+      "status": "pass",
+      "stage": "preflight",
+      "evidence": [
+        "App Store Connect monthly pricing: France 7.99 EUR on 2026-08-25",
+        "App Store Connect annual pricing: France 69.00 EUR on 2026-08-25",
+        "FR/EN subscription localizations and review screenshots present"
+      ],
+      "notes": "Both products have the intended localized prices for 175 territories, no introductory offer and the required review metadata."
+    },
+    {
+      "id": "storekit_first_submission",
+      "channels": ["mas"],
+      "status": "blocked",
+      "stage": "submission",
+      "evidence": [],
+      "notes": "Add both first subscriptions to the same App Review submission as the validated 2.0.0 build."
+    },
+    {
+      "id": "mas_candidate_upload",
+      "channels": ["mas"],
+      "status": "blocked",
+      "stage": "artifact",
+      "evidence": [],
+      "notes": "Build the current main with protected signing material, then validate and upload only after export approval."
+    },
+    {
+      "id": "storekit_sandbox_testflight",
+      "channels": ["mas"],
+      "status": "blocked",
+      "stage": "submission",
+      "evidence": [],
+      "notes": "Pass purchase, restore, expiry, retry, grace, refund, account mismatch and server-outage scenarios in Sandbox and TestFlight."
+    },
+    {
+      "id": "stable_marketing_alignment",
+      "channels": ["direct", "mas"],
+      "status": "blocked",
+      "stage": "post_release",
+      "evidence": [],
+      "notes": "Publish stable download and paid claims only after the matching immutable candidate passes its commercial gates."
+    }
+  ]
+}

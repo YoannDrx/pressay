@@ -20,6 +20,12 @@ jobs:
         with:
           fetch-depth: 0
 
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version-file: ".bun-version"
+
+      - run: bun install --frozen-lockfile
+
       - name: Refuse releases outside merged main
         shell: bash
         run: |
@@ -47,6 +53,16 @@ jobs:
             exit 1
           fi
           echo "version=$version" >> "$GITHUB_OUTPUT"
+
+      - name: Enforce the Direct release registry
+        shell: bash
+        run: |
+          set -euo pipefail
+          args=(--channel direct)
+          if [[ "${{ steps.version.outputs.version }}" != *-* ]]; then
+            args+=(--strict)
+          fi
+          bun run release:readiness -- "${args[@]}"
 
       - name: Create draft release
         id: create-release

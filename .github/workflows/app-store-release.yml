@@ -54,6 +54,15 @@ jobs:
       - name: Validate StoreKit catalogue
         run: bun run storekit:validate
 
+      - name: Validate source release contracts
+        run: bun run release:readiness -- --channel mas
+
+      - name: Enforce commercial MAS gates before upload
+        if: inputs.upload
+        run: >-
+          bun run release:readiness -- --channel mas
+          --require apple_export_compliance
+
       - name: Require the protected signing material
         shell: bash
         env:
@@ -74,13 +83,13 @@ jobs:
             MAS_INSTALLER_CERTIFICATE_BASE64
             MAS_INSTALLER_CERTIFICATE_PASSWORD
             MAS_PROVISIONING_PROFILE_BASE64
-            MAS_EXPORT_COMPLIANCE_CODE
           )
           if [[ "${{ inputs.upload }}" == "true" ]]; then
             required+=(
               APP_STORE_CONNECT_API_KEY_BASE64
               APP_STORE_CONNECT_KEY_ID
               APP_STORE_CONNECT_ISSUER_ID
+              MAS_EXPORT_COMPLIANCE_CODE
             )
           fi
           for name in "${required[@]}"; do
@@ -192,19 +201,23 @@ jobs:
           test "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleVersion' \
             "$app/Contents/Info.plist")" = "$build_number"
 
-          # Pressay declares non-exempt encryption. Apple requires the code it
-          # issues after approving the export-compliance documentation in every
-          # submitted app bundle. The protected environment variable is only
-          # populated after App Store Connect displays that approved value.
+          # Pressay declares non-exempt encryption. A local signed archive may
+          # be produced while Apple reviews the documentation, but an upload is
+          # fail-closed until the protected environment supplies Apple's code.
           /usr/libexec/PlistBuddy \
             -c 'Delete :ITSEncryptionExportComplianceCode' \
             "$app/Contents/Info.plist" >/dev/null 2>&1 || true
-          /usr/libexec/PlistBuddy \
-            -c "Add :ITSEncryptionExportComplianceCode string $MAS_EXPORT_COMPLIANCE_CODE" \
-            "$app/Contents/Info.plist"
-          test "$(/usr/libexec/PlistBuddy \
-            -c 'Print :ITSEncryptionExportComplianceCode' \
-            "$app/Contents/Info.plist")" = "$MAS_EXPORT_COMPLIANCE_CODE"
+          if [[ -n "$MAS_EXPORT_COMPLIANCE_CODE" ]]; then
+            /usr/libexec/PlistBuddy \
+              -c "Add :ITSEncryptionExportComplianceCode string $MAS_EXPORT_COMPLIANCE_CODE" \
+              "$app/Contents/Info.plist"
+            test "$(/usr/libexec/PlistBuddy \
+              -c 'Print :ITSEncryptionExportComplianceCode' \
+              "$app/Contents/Info.plist")" = "$MAS_EXPORT_COMPLIANCE_CODE"
+          elif [[ "${{ inputs.upload }}" == "true" ]]; then
+            echo "Apple export-compliance approval is required before upload" >&2
+            exit 1
+          fi
 
           echo "build_number=$build_number" >> "$GITHUB_OUTPUT"
           echo "Stamped App Store build $build_number"
@@ -262,8 +275,10 @@ jobs:
             "$app/Contents/Info.plist" | grep -qxF "$EXPECTED_BUILD_NUMBER"
           /usr/libexec/PlistBuddy -c 'Print :ITSAppUsesNonExemptEncryption' \
             "$app/Contents/Info.plist" | grep -qx true
-          /usr/libexec/PlistBuddy -c 'Print :ITSEncryptionExportComplianceCode' \
-            "$app/Contents/Info.plist" | grep -qxF "$EXPECTED_EXPORT_COMPLIANCE_CODE"
+          if [[ -n "$EXPECTED_EXPORT_COMPLIANCE_CODE" ]]; then
+            /usr/libexec/PlistBuddy -c 'Print :ITSEncryptionExportComplianceCode' \
+              "$app/Contents/Info.plist" | grep -qxF "$EXPECTED_EXPORT_COMPLIANCE_CODE"
+          fi
 
           profile_plist="$RUNNER_TEMP/pressay-mas-profile.plist"
           security cms -D -i "$app/Contents/embedded.provisionprofile" > "$profile_plist"

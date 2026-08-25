@@ -1,6 +1,6 @@
 [package]
 name = "pressay"
-version = "2.0.0-beta.4"
+version = "2.0.0-beta.5"
 description = "Local-first dictation for macOS"
 authors = ["Yoann Andrieux", "CJ Pais and Handy contributors"]
 edition = "2021"

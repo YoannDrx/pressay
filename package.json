@@ -1,7 +1,7 @@
 {
   "name": "pressay-app",
   "private": true,
-  "version": "2.0.0-beta.4",
+  "version": "2.0.0-beta.5",
   "type": "module",
   "scripts": {
     "dev": "vite",
@@ -20,6 +20,7 @@
     "check:translations": "bun scripts/check-translations.ts",
     "models:sign": "bash scripts/sign-model-catalog.sh",
     "storekit:validate": "bun scripts/validate-storekit-config.ts",
+    "release:readiness": "bun scripts/voice-os/release-readiness.ts",
     "voice-os:native-baseline": "bun scripts/voice-os/native-baseline.ts",
     "voice-os:probe-models": "bun scripts/voice-os/probe-model-cdn.ts",
     "voice-os:probe-byok": "bun scripts/voice-os/probe-byok.ts",
