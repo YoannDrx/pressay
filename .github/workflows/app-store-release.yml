@@ -25,7 +25,7 @@ jobs:
     env:
       VITE_DISTRIBUTION_CHANNEL: app-store
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
 
       - name: Refuse non-main or dirty release sources
         shell: bash

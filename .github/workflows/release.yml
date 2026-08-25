@@ -16,7 +16,7 @@ jobs:
       release-id: ${{ steps.create-release.outputs.result }}
       version: ${{ steps.version.outputs.version }}
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
         with:
           fetch-depth: 0
 
