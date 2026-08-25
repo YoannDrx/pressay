@@ -1248,6 +1248,13 @@ async fn bootstrap_device(app: &AppHandle) -> Result<(), CloudFailure> {
     settings.pressay_cloud_account_id = Some(bootstrap.account_id);
     settings.pressay_cloud_device_id = Some(bootstrap.device.id);
     write_settings(app, settings);
+    let _ = app.emit(
+        "settings-changed",
+        serde_json::json!({
+            "setting": "pressay_cloud_account_id",
+            "connected": true
+        }),
+    );
     Ok(())
 }
 
@@ -1755,6 +1762,7 @@ pub async fn sign_out(app: &AppHandle) -> Result<(), CloudFailure> {
         let _ = client()
             .post(endpoint(&settings, "/v1/auth/sign-out")?)
             .bearer_auth(token)
+            .json(&serde_json::json!({}))
             .send()
             .await;
     }
@@ -1766,6 +1774,13 @@ pub async fn sign_out(app: &AppHandle) -> Result<(), CloudFailure> {
     settings.pressay_cloud_account_id = None;
     settings.pressay_cloud_device_id = None;
     write_settings(app, settings);
+    let _ = app.emit(
+        "settings-changed",
+        serde_json::json!({
+            "setting": "pressay_cloud_account_id",
+            "connected": false
+        }),
+    );
     clear_account_snapshot_cache();
     Ok(())
 }
