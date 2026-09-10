@@ -69,7 +69,7 @@ export const SettingContainer: React.FC<SettingContainerProps> = ({
                 fill="none"
                 stroke="currentColor"
                 viewBox="0 0 24 24"
-                aria-label="More information"
+                aria-label={description}
                 role="button"
                 tabIndex={0}
                 onKeyDown={(e) => {
@@ -138,7 +138,7 @@ export const SettingContainer: React.FC<SettingContainerProps> = ({
                 fill="none"
                 stroke="currentColor"
                 viewBox="0 0 24 24"
-                aria-label="More information"
+                aria-label={description}
                 role="button"
                 tabIndex={0}
                 onKeyDown={(e) => {

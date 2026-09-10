@@ -41,7 +41,10 @@ export const OutputDeviceSelector: React.FC<OutputDeviceSelectorProps> =
 
       const outputDeviceOptions = outputDevices.map((device: AudioDevice) => ({
         value: device.name,
-        label: device.name,
+        label:
+          device.is_default || device.name.toLowerCase() === "default"
+            ? t("signalOs.dashboard.defaultMicrophone")
+            : device.name,
       }));
 
       return (

@@ -56,6 +56,65 @@ impl TrayIconState {
 
 const LISTENING_FRAME_INTERVAL: Duration = Duration::from_millis(120);
 
+fn format_shortcut_label(binding: &str, macos_symbols: bool) -> String {
+    binding
+        .split('+')
+        .filter_map(|part| {
+            let trimmed = part.trim();
+            if trimmed.is_empty() {
+                return None;
+            }
+
+            let (base, side) = if let Some(base) = trimmed.strip_suffix("_left") {
+                (base, Some("Left"))
+            } else if let Some(base) = trimmed.strip_suffix("_right") {
+                (base, Some("Right"))
+            } else {
+                (trimmed, None)
+            };
+
+            if macos_symbols {
+                let symbol = match base {
+                    "alt" | "option" => Some("⌥"),
+                    "command" | "cmd" | "meta" | "super" => Some("⌘"),
+                    "control" | "ctrl" => Some("⌃"),
+                    "shift" => Some("⇧"),
+                    _ => None,
+                };
+                if let Some(symbol) = symbol {
+                    return Some(symbol.to_string());
+                }
+            }
+
+            let key = base
+                .split(['_', ' '])
+                .filter(|word| !word.is_empty())
+                .map(|word| {
+                    if word.strip_prefix('f').is_some_and(|suffix| {
+                        !suffix.is_empty() && suffix.chars().all(|c| c.is_ascii_digit())
+                    }) {
+                        return word.to_uppercase();
+                    }
+                    let mut chars = word.chars();
+                    match chars.next() {
+                        Some(first) => {
+                            format!("{}{}", first.to_uppercase(), chars.as_str().to_lowercase())
+                        }
+                        None => String::new(),
+                    }
+                })
+                .collect::<Vec<_>>()
+                .join(" ");
+
+            Some(match side {
+                Some(side) => format!("{side} {key}"),
+                None => key,
+            })
+        })
+        .collect::<Vec<_>>()
+        .join(" + ")
+}
+
 /// Tauri managed state holding the last icon state set via `change_tray_icon`.
 /// The revision prevents an animation frame from overwriting a newer state.
 pub struct CurrentTrayIconState {
@@ -566,8 +625,9 @@ pub fn update_tray_menu(app: &AppHandle, locale: Option<&str>) {
     let shortcut_label = settings
         .bindings
         .get("transcribe")
-        .map(|binding| binding.current_binding.as_str())
-        .unwrap_or("—");
+        .map(|binding| format_shortcut_label(&binding.current_binding, cfg!(target_os = "macos")))
+        .filter(|label| !label.is_empty())
+        .unwrap_or_else(|| "—".to_string());
     let shortcut_i = MenuItem::with_id(
         app,
         "shortcut_state",
@@ -683,8 +743,8 @@ pub fn copy_last_transcript(app: &AppHandle) {
 #[cfg(test)]
 mod tests {
     use super::{
-        get_icon_path, get_listening_frame_path, last_transcript_text, load_tray_icon, AppTheme,
-        TrayIconState,
+        format_shortcut_label, get_icon_path, get_listening_frame_path, last_transcript_text,
+        load_tray_icon, AppTheme, TrayIconState,
     };
     use crate::managers::history::HistoryEntry;
     use std::collections::HashSet;
@@ -767,5 +827,21 @@ mod tests {
                 .collect();
             assert_eq!(paths.len(), 4);
         }
+    }
+
+    #[test]
+    fn formats_persisted_shortcuts_for_native_menu_surfaces() {
+        assert_eq!(
+            format_shortcut_label("option_left+space", true),
+            "⌥ + Space"
+        );
+        assert_eq!(
+            format_shortcut_label("command_right+shift+f13", true),
+            "⌘ + ⇧ + F13"
+        );
+        assert_eq!(
+            format_shortcut_label("option_left+space", false),
+            "Left Option + Space"
+        );
     }
 }

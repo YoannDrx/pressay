@@ -1,3 +1,4 @@
+import AppKit
 import Dispatch
 import Foundation
 import StoreKit
@@ -82,6 +83,28 @@ private func decodeProductIds(_ pointer: UnsafePointer<CChar>) throws -> [String
     return values
 }
 
+@MainActor
+private func purchase(
+    _ product: Product,
+    accountToken: UUID
+) async throws -> Product.PurchaseResult {
+    let options: Set<Product.PurchaseOption> = [.appAccountToken(accountToken)]
+    guard #available(macOS 15.2, *) else {
+        // `confirmIn` was added after Pressay's macOS 14 deployment target.
+        return try await product.purchase(options: options)
+    }
+    let application = NSApplication.shared
+    guard let window = application.keyWindow
+        ?? application.mainWindow
+        ?? application.orderedWindows.first(where: { $0.isVisible }) else {
+        throw NSError(domain: "storekit_window_unavailable", code: 1)
+    }
+    return try await product.purchase(
+        confirmIn: window,
+        options: options
+    )
+}
+
 private func runStoreKitOperation(
     _ operation: @escaping @Sendable () async throws -> String
 ) -> ResponsePointer {
@@ -157,7 +180,7 @@ public func storeKitPurchase(
         guard let product = try await Product.products(for: [productId]).first else {
             throw NSError(domain: "storekit_product_unavailable", code: 1)
         }
-        let result = try await product.purchase(options: [.appAccountToken(accountToken)])
+        let result = try await purchase(product, accountToken: accountToken)
         switch result {
         case .success(let verification):
             switch verification {

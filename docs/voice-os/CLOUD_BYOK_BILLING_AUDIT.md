@@ -20,7 +20,14 @@ Correction livrée côté desktop :
 - erreur de compte explicite sans remise en cause de la dictée locale ;
 - test unitaire de migration et exécution de la suite Rust complète.
 
-Preuve staging du 18 août 2026 : health 200, readiness base 200, configuration desktop auth 200, clé publique d'entitlements Ed25519 conforme 200, entitlements sans session 401 et sync sans session 401. Les 75 tests du dépôt Cloud passent. Le validateur vérifie aussi que le JWKS expose exactement la clé publique attendue et jamais la clé privée. Le parcours Google interactif doit encore être rejoué par un utilisateur dans le nouveau binaire, car il nécessite le compte et le navigateur de l'opérateur.
+Preuve staging rejouée le 23 août 2026 : health 200, readiness base 200,
+configuration desktop auth 200, fournisseur Apple 200, issuer OAuth 2.1 PKCE
+200, clé publique d'entitlements Ed25519 conforme 200, entitlements sans session
+401 et sync sans session 401. Les 90 tests du dépôt Cloud passent. Le
+validateur vérifie aussi que le JWKS expose exactement la clé publique attendue
+et jamais la clé privée. Le parcours Google interactif doit encore être rejoué
+par un utilisateur dans le nouveau binaire, car il nécessite le compte et le
+navigateur de l'opérateur.
 
 La production ne doit pas être réassignée au nouveau backend pour contourner cet incident. Le cutover exige d'abord la migration ou le rapprochement des comptes, entitlements Stripe/StoreKit, appareils et suppressions, avec sauvegarde et rollback documentés.
 

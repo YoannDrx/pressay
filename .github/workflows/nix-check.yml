@@ -19,15 +19,10 @@ on:
       - "src-tauri/**"
       - "src/**"
       - ".github/workflows/**"
+  # This check is required by branch protection, so every PR must create a
+  # check run. The expensive package build remains gated below to packaging
+  # changes; docs-only PRs perform only dependency sync and flake evaluation.
   pull_request:
-    paths:
-      - "flake.nix"
-      - "flake.lock"
-      - ".nix/**"
-      - "bun.lock"
-      - "src-tauri/**"
-      - "src/**"
-      - ".github/workflows/**"
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}

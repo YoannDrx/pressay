@@ -28,6 +28,8 @@ jobs:
           workspaces: "./src-tauri -> target"
           key: pressay-app-store-spike
       - run: bun install --frozen-lockfile
+      - name: Validate StoreKit catalogue
+        run: bun run storekit:validate
       - name: Build sandboxed app bundle
         run: >-
           bun run tauri build
@@ -50,6 +52,8 @@ jobs:
           codesign -d --entitlements :- "$app" > entitlements.plist 2>/dev/null
           /usr/libexec/PlistBuddy -c 'Print :com.apple.security.app-sandbox' entitlements.plist | grep -qx true
           /usr/libexec/PlistBuddy -c 'Print :com.apple.security.device.audio-input' entitlements.plist | grep -qx true
+          /usr/libexec/PlistBuddy -c 'Print :ITSAppUsesNonExemptEncryption' \
+            "$app/Contents/Info.plist" | grep -qx true
           if /usr/libexec/PlistBuddy -c 'Print :com.apple.security.device.microphone' entitlements.plist >/dev/null 2>&1; then
             echo "Unknown microphone entitlement found; MAS uses audio-input" >&2
             exit 1

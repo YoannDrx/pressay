@@ -189,6 +189,7 @@ export function AccountSettings() {
       return;
     const timeout = window.setTimeout(
       () => {
+        void commands.cancelCloudSocialLogin();
         setPendingAction(null);
         setAuthPhase("failed");
         setAuthErrorCode("cloud_auth_timeout");
@@ -223,6 +224,13 @@ export function AccountSettings() {
       return;
     }
     setAuthPhase("waiting");
+  };
+
+  const cancelSocialLogin = async () => {
+    await commands.cancelCloudSocialLogin();
+    setPendingAction(null);
+    setAuthPhase("idle");
+    setAuthErrorCode(null);
   };
 
   const disconnect = async () => {
@@ -762,7 +770,15 @@ export function AccountSettings() {
                   >
                     {t("cloud.actions.retry")}
                   </Button>
-                ) : null}
+                ) : (
+                  <Button
+                    size="sm"
+                    variant="secondary"
+                    onClick={() => void cancelSocialLogin()}
+                  >
+                    {t("common.cancel")}
+                  </Button>
+                )}
               </div>
             ) : null}
             {loading ? (

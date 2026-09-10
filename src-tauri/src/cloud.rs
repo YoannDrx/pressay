@@ -27,25 +27,11 @@ use crate::settings::{get_settings, write_settings, AppSettings};
 const AUTH_STATE_TTL: Duration = Duration::from_secs(15 * 60);
 const REQUEST_TIMEOUT: Duration = Duration::from_secs(45);
 const MAX_ERROR_CODE_LEN: usize = 80;
-const ENTITLEMENT_KEY_ID: &str = "pressay-entitlement-2026-01";
-const ENTITLEMENT_PUBLIC_KEY: &str = "gj3woVSEMEiNemiZKdA28oEvMrLL9iQPbiMPr_B-plQ";
+const STAGING_ENTITLEMENT_KEY_ID: &str = "pressay-entitlement-2026-01";
+const STAGING_ENTITLEMENT_PUBLIC_KEY: &str = "gj3woVSEMEiNemiZKdA28oEvMrLL9iQPbiMPr_B-plQ";
 const PRODUCTION_ENTITLEMENT_KEY_ID: &str = "pressay-entitlement-production-2026-01";
 const PRODUCTION_ENTITLEMENT_PUBLIC_KEY: &str = "Xm5Rqwpjhv85nc7Y_Lrf3S7M40iCozJCrFh1UCXeoF0";
-
-// Public trust anchors verified against each canonical deployment's JWKS.
-// Never fetch and trust replacement keys from a transaction or at runtime.
-fn entitlement_trust_anchor(settings: &AppSettings) -> (&'static str, &'static str) {
-    if settings.pressay_cloud_api_url.trim_end_matches('/') == "https://api.press-say.app" {
-        (
-            PRODUCTION_ENTITLEMENT_KEY_ID,
-            PRODUCTION_ENTITLEMENT_PUBLIC_KEY,
-        )
-    } else {
-        (ENTITLEMENT_KEY_ID, ENTITLEMENT_PUBLIC_KEY)
-    }
-}
-
-const ENTITLEMENT_ISSUER: &str = "https://api.press-say.app";
+const DEFAULT_ENTITLEMENT_ISSUER: &str = "https://api.press-say.app";
 const OAUTH_ISSUER: &str = "https://press-say.app";
 const OAUTH_CLIENT_ID: &str = "w9ckUgrcFp7H7wNV";
 const OAUTH_RESOURCE: &str = "https://api.press-say.app";
@@ -71,6 +57,69 @@ fn require_session_revision(expected: u64) -> Result<(), CloudFailure> {
 
 fn advance_session_revision() {
     SESSION_REVISION.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct EntitlementVerifierConfig {
+    key_id: &'static str,
+    public_key: &'static str,
+    issuer: &'static str,
+}
+
+fn default_entitlement_verifier_config(version: &str) -> EntitlementVerifierConfig {
+    if version.contains('-') {
+        EntitlementVerifierConfig {
+            key_id: STAGING_ENTITLEMENT_KEY_ID,
+            public_key: STAGING_ENTITLEMENT_PUBLIC_KEY,
+            issuer: DEFAULT_ENTITLEMENT_ISSUER,
+        }
+    } else {
+        EntitlementVerifierConfig {
+            key_id: PRODUCTION_ENTITLEMENT_KEY_ID,
+            public_key: PRODUCTION_ENTITLEMENT_PUBLIC_KEY,
+            issuer: DEFAULT_ENTITLEMENT_ISSUER,
+        }
+    }
+}
+
+fn entitlement_defaults_for_environment(
+    version: &str,
+    api_url: Option<&str>,
+) -> EntitlementVerifierConfig {
+    match api_url.map(|url| url.trim_end_matches('/')) {
+        Some("https://api.press-say.app") => default_entitlement_verifier_config("stable"),
+        Some("https://pressay-cloud-staging.vercel.app" | "https://api-staging.press-say.app") => {
+            default_entitlement_verifier_config("staging-test")
+        }
+        _ => default_entitlement_verifier_config(version),
+    }
+}
+
+fn entitlement_verifier_config() -> Result<EntitlementVerifierConfig, CloudFailure> {
+    // The declared build environment is authoritative even for a stable-version
+    // candidate intentionally connected to staging. These are compile-time pins.
+    let defaults = entitlement_defaults_for_environment(
+        env!("CARGO_PKG_VERSION"),
+        option_env!("PRESSAY_RESOLVED_CLOUD_API_URL"),
+    );
+    match (
+        option_env!("PRESSAY_ENTITLEMENT_KEY_ID"),
+        option_env!("PRESSAY_ENTITLEMENT_PUBLIC_KEY"),
+    ) {
+        (Some(key_id), Some(public_key)) if !key_id.is_empty() && !public_key.is_empty() => {
+            Ok(EntitlementVerifierConfig {
+                key_id,
+                public_key,
+                issuer: option_env!("PRESSAY_ENTITLEMENT_ISSUER")
+                    .unwrap_or(DEFAULT_ENTITLEMENT_ISSUER),
+            })
+        }
+        (None, None) => Ok(EntitlementVerifierConfig {
+            issuer: option_env!("PRESSAY_ENTITLEMENT_ISSUER").unwrap_or(DEFAULT_ENTITLEMENT_ISSUER),
+            ..defaults
+        }),
+        _ => Err(CloudFailure::new("cloud_entitlement_config_invalid")),
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -495,20 +544,6 @@ struct MagicLinkRequest<'a> {
 }
 
 #[derive(Serialize)]
-#[serde(rename_all = "camelCase")]
-struct SocialSignInRequest<'a> {
-    provider: CloudAuthProvider,
-    callback_url: &'a str,
-    error_callback_url: &'a str,
-}
-
-#[derive(Deserialize)]
-struct SocialSignInResponse {
-    url: Url,
-    redirect: bool,
-}
-
-#[derive(Serialize)]
 struct OneTimeTokenRequest<'a> {
     token: &'a str,
 }
@@ -745,16 +780,10 @@ fn endpoint(settings: &AppSettings, path: &str) -> Result<Url, CloudFailure> {
         .map_err(|_| CloudFailure::new("cloud_api_url_invalid"))
 }
 
-fn validate_apple_authorization_url(url: Url) -> Result<Url, CloudFailure> {
-    if url.scheme() == "https"
-        && url.host_str() == Some("appleid.apple.com")
-        && url.path() == "/auth/authorize"
-        && url.username().is_empty()
-        && url.password().is_none()
-    {
-        return Ok(url);
-    }
-    Err(CloudFailure::new("cloud_auth_response_invalid"))
+fn apple_browser_login_url(settings: &AppSettings, state: &str) -> Result<Url, CloudFailure> {
+    let mut url = endpoint(settings, "/v1/desktop-auth/social/apple")?;
+    url.query_pairs_mut().append_pair("state", state);
+    Ok(url)
 }
 
 async fn finish(response: Response) -> Result<Response, CloudFailure> {
@@ -969,19 +998,37 @@ fn verify_entitlement_token(
     settings: &AppSettings,
     now_seconds: i64,
 ) -> Result<(EntitlementSnapshot, UsageSnapshot), CloudFailure> {
+    let verifier = entitlement_verifier_config()?;
     let public_key_bytes: [u8; 32] = URL_SAFE_NO_PAD
-        .decode(entitlement_trust_anchor(settings).1)
+        .decode(verifier.public_key)
         .map_err(|_| CloudFailure::new("cloud_entitlement_invalid"))?
         .try_into()
         .map_err(|_| CloudFailure::new("cloud_entitlement_invalid"))?;
-    verify_entitlement_token_with_key(token, settings, now_seconds, &public_key_bytes)
+    verify_entitlement_token_with_config(token, settings, now_seconds, &public_key_bytes, verifier)
 }
 
+#[cfg(test)]
 fn verify_entitlement_token_with_key(
     token: &str,
     settings: &AppSettings,
     now_seconds: i64,
     public_key_bytes: &[u8; 32],
+) -> Result<(EntitlementSnapshot, UsageSnapshot), CloudFailure> {
+    verify_entitlement_token_with_config(
+        token,
+        settings,
+        now_seconds,
+        public_key_bytes,
+        entitlement_verifier_config()?,
+    )
+}
+
+fn verify_entitlement_token_with_config(
+    token: &str,
+    settings: &AppSettings,
+    now_seconds: i64,
+    public_key_bytes: &[u8; 32],
+    verifier: EntitlementVerifierConfig,
 ) -> Result<(EntitlementSnapshot, UsageSnapshot), CloudFailure> {
     let mut parts = token.split('.');
     let header_part = parts
@@ -1003,10 +1050,7 @@ fn verify_entitlement_token_with_key(
             .map_err(|_| CloudFailure::new("cloud_entitlement_invalid"))?,
     )
     .map_err(|_| CloudFailure::new("cloud_entitlement_invalid"))?;
-    if header.alg != "EdDSA"
-        || header.kid != entitlement_trust_anchor(settings).0
-        || header.typ != "JWT"
-    {
+    if header.alg != "EdDSA" || header.kid != verifier.key_id || header.typ != "JWT" {
         return Err(CloudFailure::new("cloud_entitlement_invalid"));
     }
 
@@ -1035,7 +1079,7 @@ fn verify_entitlement_token_with_key(
     } else {
         "app.pressay.desktop"
     };
-    if claims.iss != ENTITLEMENT_ISSUER
+    if claims.iss != verifier.issuer
         || !claims
             .aud
             .iter()
@@ -1189,33 +1233,19 @@ pub async fn social_login_url(
     state: &str,
     verifier: &str,
 ) -> Result<String, CloudFailure> {
-    if state.len() < 32 || verifier.len() < 43 || verifier.len() > 128 {
+    if state.len() < 32 {
         return Err(CloudFailure::new("cloud_auth_state_invalid"));
     }
 
     if provider == CloudAuthProvider::Apple {
-        let mut callback_url = endpoint(settings, "/v1/desktop-auth/callback")?;
-        callback_url.query_pairs_mut().append_pair("state", state);
-        let mut error_callback_url = Url::parse("pressay://oauth/error")
-            .map_err(|_| CloudFailure::new("cloud_auth_callback_invalid"))?;
-        error_callback_url
-            .query_pairs_mut()
-            .append_pair("state", state);
-        let response = client()
-            .post(endpoint(settings, "/v1/auth/sign-in/social")?)
-            .json(&SocialSignInRequest {
-                provider,
-                callback_url: callback_url.as_str(),
-                error_callback_url: error_callback_url.as_str(),
-            })
-            .send()
-            .await
-            .map_err(|_| CloudFailure::new("cloud_network_unavailable"))?;
-        let sign_in: SocialSignInResponse = json(response).await?;
-        if !sign_in.redirect {
-            return Err(CloudFailure::new("cloud_auth_response_invalid"));
-        }
-        return Ok(validate_apple_authorization_url(sign_in.url)?.to_string());
+        // Better Auth must create its signed provider-state cookie in the
+        // user's browser. The API route then redirects the same browser to
+        // Apple and receives Apple's form_post callback with that cookie.
+        return Ok(apple_browser_login_url(settings, state)?.to_string());
+    }
+
+    if verifier.len() < 43 || verifier.len() > 128 {
+        return Err(CloudFailure::new("cloud_auth_state_invalid"));
     }
 
     let metadata = oauth_metadata().await?;
@@ -1232,6 +1262,10 @@ pub async fn social_login_url(
         .append_pair("code_challenge_method", "S256")
         .append_pair("resource", OAUTH_RESOURCE);
     Ok(authorization_url.to_string())
+}
+
+pub(crate) fn uses_native_oauth_pkce(provider: CloudAuthProvider) -> bool {
+    provider != CloudAuthProvider::Apple
 }
 
 async fn exchange_one_time_token(settings: &AppSettings, token: &str) -> Result<(), CloudFailure> {
@@ -1291,6 +1325,13 @@ async fn bootstrap_device(app: &AppHandle) -> Result<(), CloudFailure> {
     latest.pressay_cloud_account_id = Some(bootstrap.account_id);
     latest.pressay_cloud_device_id = Some(bootstrap.device.id);
     write_settings(app, latest);
+    let _ = app.emit(
+        "settings-changed",
+        serde_json::json!({
+            "setting": "pressay_cloud_account_id",
+            "connected": true
+        }),
+    );
     Ok(())
 }
 
@@ -1704,12 +1745,13 @@ pub async fn account_snapshot(app: &AppHandle) -> Result<CloudAccountSnapshot, C
                 .map_err(|_| CloudFailure::new("cloud_network_unavailable"))?,
         )
         .await?;
+        let verifier = entitlement_verifier_config()?;
         if me.account_id
             != settings
                 .pressay_cloud_account_id
                 .as_deref()
                 .unwrap_or_default()
-            || entitlements.signed_snapshot.key_id != entitlement_trust_anchor(&settings).0
+            || entitlements.signed_snapshot.key_id != verifier.key_id
         {
             return Err(CloudFailure::new("cloud_account_mismatch"));
         }
@@ -1805,6 +1847,7 @@ pub async fn sign_out(app: &AppHandle) -> Result<(), CloudFailure> {
         let _ = client()
             .post(endpoint(&settings, "/v1/auth/sign-out")?)
             .bearer_auth(token)
+            .json(&serde_json::json!({}))
             .send()
             .await;
     }
@@ -1819,6 +1862,13 @@ pub async fn sign_out(app: &AppHandle) -> Result<(), CloudFailure> {
     settings.pressay_cloud_account_id = None;
     settings.pressay_cloud_device_id = None;
     write_settings(app, settings);
+    let _ = app.emit(
+        "settings-changed",
+        serde_json::json!({
+            "setting": "pressay_cloud_account_id",
+            "connected": false
+        }),
+    );
     clear_account_snapshot_cache();
     Ok(())
 }
@@ -2099,30 +2149,13 @@ mod tests {
     }
 
     #[test]
-    fn production_and_staging_use_distinct_pinned_entitlement_keys() {
-        let production = AppSettings {
-            pressay_cloud_api_url: "https://api.press-say.app/".into(),
-            ..AppSettings::default()
-        };
-        let staging = AppSettings {
-            pressay_cloud_api_url: "https://pressay-cloud-staging.vercel.app".into(),
-            ..AppSettings::default()
-        };
-        assert_eq!(
-            entitlement_trust_anchor(&production).0,
-            "pressay-entitlement-production-2026-01"
-        );
-        assert_eq!(
-            entitlement_trust_anchor(&staging).0,
-            "pressay-entitlement-2026-01"
-        );
-        assert_ne!(
-            entitlement_trust_anchor(&production).1,
-            entitlement_trust_anchor(&staging).1
-        );
-        for settings in [&production, &staging] {
+    fn pinned_entitlement_keys_are_valid_ed25519_keys() {
+        for config in [
+            default_entitlement_verifier_config("2.0.0"),
+            default_entitlement_verifier_config("2.0.0-beta.4"),
+        ] {
             let bytes: [u8; 32] = URL_SAFE_NO_PAD
-                .decode(entitlement_trust_anchor(settings).1)
+                .decode(config.public_key)
                 .unwrap()
                 .try_into()
                 .unwrap();
@@ -2141,6 +2174,31 @@ mod tests {
         assert_eq!(legacy.error.code(), "account_bootstrap_failed");
     }
 
+    #[test]
+    fn release_channels_pin_distinct_entitlement_verifiers() {
+        let beta = default_entitlement_verifier_config("2.0.0-beta.3");
+        let stable = default_entitlement_verifier_config("2.0.0");
+
+        assert_eq!(beta.key_id, STAGING_ENTITLEMENT_KEY_ID);
+        assert_eq!(beta.public_key, STAGING_ENTITLEMENT_PUBLIC_KEY);
+        assert_eq!(stable.key_id, PRODUCTION_ENTITLEMENT_KEY_ID);
+        assert_eq!(stable.public_key, PRODUCTION_ENTITLEMENT_PUBLIC_KEY);
+        assert_ne!(beta.key_id, stable.key_id);
+        assert_ne!(beta.public_key, stable.public_key);
+    }
+
+    #[test]
+    fn declared_backend_selects_the_corresponding_pinned_key() {
+        let staging = entitlement_defaults_for_environment(
+            "2.0.0",
+            Some("https://api-staging.press-say.app/"),
+        );
+        let production =
+            entitlement_defaults_for_environment("2.0.0-beta.4", Some("https://api.press-say.app"));
+        assert_eq!(staging.key_id, STAGING_ENTITLEMENT_KEY_ID);
+        assert_eq!(production.key_id, PRODUCTION_ENTITLEMENT_KEY_ID);
+    }
+
     fn signed_entitlement_fixture(
         signing_key: &SigningKey,
         account_id: &str,
@@ -2148,10 +2206,29 @@ mod tests {
         issued_at: i64,
         expires_at: i64,
     ) -> String {
+        let verifier = entitlement_verifier_config().unwrap();
+        signed_entitlement_fixture_with_config(
+            signing_key,
+            account_id,
+            device_id,
+            issued_at,
+            expires_at,
+            verifier,
+        )
+    }
+
+    fn signed_entitlement_fixture_with_config(
+        signing_key: &SigningKey,
+        account_id: &str,
+        device_id: &str,
+        issued_at: i64,
+        expires_at: i64,
+        verifier: EntitlementVerifierConfig,
+    ) -> String {
         let header = URL_SAFE_NO_PAD.encode(
             serde_json::to_vec(&serde_json::json!({
                 "alg": "EdDSA",
-                "kid": entitlement_trust_anchor(&crate::settings::get_default_settings()).0,
+                "kid": verifier.key_id,
                 "typ": "JWT"
             }))
             .unwrap(),
@@ -2171,7 +2248,7 @@ mod tests {
                     "transformations_used": 7,
                     "transformations_limit": 2000
                 },
-                "iss": ENTITLEMENT_ISSUER,
+                "iss": verifier.issuer,
                 "aud": ["app.pressay.desktop", "fr.yodev.pressay"],
                 "sub": account_id,
                 "iat": issued_at,
@@ -2208,19 +2285,23 @@ mod tests {
     }
 
     #[test]
-    fn apple_authorization_url_is_strictly_allowlisted() {
-        assert!(validate_apple_authorization_url(
-            Url::parse("https://appleid.apple.com/auth/authorize?client_id=pressay").unwrap()
-        )
-        .is_ok());
-        assert!(validate_apple_authorization_url(
-            Url::parse("https://appleid.apple.com.attacker.example/auth/authorize").unwrap()
-        )
-        .is_err());
-        assert!(validate_apple_authorization_url(
-            Url::parse("https://appleid.apple.com/auth/token").unwrap()
-        )
-        .is_err());
+    fn apple_auth_starts_in_the_browser_on_the_configured_api() {
+        let settings = crate::settings::get_default_settings();
+        let url = apple_browser_login_url(&settings, "expected-state-value").unwrap();
+        assert_eq!(url.path(), "/v1/desktop-auth/social/apple");
+        assert_eq!(
+            url.query_pairs()
+                .find_map(|(key, value)| (key == "state").then(|| value.into_owned())),
+            Some("expected-state-value".to_string())
+        );
+        assert_eq!(
+            url.host_str(),
+            validate_base_url(&settings.pressay_cloud_api_url)
+                .unwrap()
+                .host_str()
+        );
+        assert!(!uses_native_oauth_pkce(CloudAuthProvider::Apple));
+        assert!(uses_native_oauth_pkce(CloudAuthProvider::Google));
     }
 
     #[test]
@@ -2283,6 +2364,14 @@ mod tests {
     }
 
     #[test]
+    fn clearing_pending_state_cancels_the_login() {
+        let runtime = CloudAuthRuntime::default();
+        let state = runtime.begin().unwrap();
+        runtime.clear();
+        assert!(runtime.consume(&state).is_err());
+    }
+
+    #[test]
     fn oauth_pending_state_carries_a_pkce_verifier_once() {
         let runtime = CloudAuthRuntime::default();
         let (state, verifier) = runtime.begin_oauth().unwrap();
@@ -2336,6 +2425,33 @@ mod tests {
             &settings,
             2_000,
             &signing_key.verifying_key().to_bytes(),
+        )
+        .is_err());
+    }
+
+    #[test]
+    fn entitlement_from_another_release_channel_is_rejected() {
+        let signing_key = SigningKey::from_bytes(&[11_u8; 32]);
+        let mut settings = AppSettings::default();
+        settings.pressay_cloud_account_id = Some("account-id".to_string());
+        settings.pressay_cloud_device_id = Some("device-id".to_string());
+        let staging = default_entitlement_verifier_config("2.0.0-beta.3");
+        let production = default_entitlement_verifier_config("2.0.0");
+        let token = signed_entitlement_fixture_with_config(
+            &signing_key,
+            "account-id",
+            "device-id",
+            1_000,
+            2_000,
+            staging,
+        );
+
+        assert!(verify_entitlement_token_with_config(
+            &token,
+            &settings,
+            1_100,
+            &signing_key.verifying_key().to_bytes(),
+            production,
         )
         .is_err());
     }

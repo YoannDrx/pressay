@@ -15,12 +15,22 @@ distribution profiles before the first review.
 - App Sandbox, audio-input, network-client and user-selected-file entitlements.
 - StoreKit 2 product loading, purchase, on-device transaction verification,
   explicit Restore Purchases and background entitlement reconciliation.
+- On macOS 15.2 and later, the StoreKit confirmation sheet is explicitly
+  attached to the active Pressay AppKit window; macOS 14 uses Apple's compatible
+  generic purchase API because the window-attached overload is unavailable.
 - Authenticated server verification of the StoreKit JWS and exact
   `appAccountToken` match to the Pressay account UUID.
 - Local StoreKit configuration for monthly and annual Pressay Pro products.
 - Stripe and updater surfaces remain separate from the MAS purchase path.
 - CI feasibility job builds the MAS graph, ad-hoc signs the bundle and rejects
   private API features or unexpected entitlements.
+- A separate protected archive workflow imports the application and installer
+  identities into an ephemeral keychain, embeds the provisioning profile,
+  signs and packages the app, rechecks the public feature boundary, and can
+  validate/upload the resulting package with an App Store Connect API key.
+  The Store-signed package is checked with `pkgutil` and then with Apple's
+  `altool`; unlike a notarized Direct package, it is not expected to pass a
+  local Gatekeeper distribution assessment before App Store processing.
 
 ## Acceptance risks to validate natively
 
@@ -91,6 +101,11 @@ placeholders rather than claiming a capability that has not passed Sandbox.
    mismatch in TestFlight.
 7. Submit the stable app and both first subscriptions together with precise
    review notes and a short screen recording of the shortcut and permissions.
+
+The protected GitHub environment is named `app-store-production`. Its required
+secrets are documented by the variable names in
+`.github/workflows/app-store-release.yml`; the workflow cannot run from a branch
+other than `main`, and upload is a separate explicit input.
 
 ## Sources
 

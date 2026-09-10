@@ -41,6 +41,9 @@ jobs:
       - name: Check translation consistency
         run: bun run check:translations
 
+      - name: Validate StoreKit catalogue
+        run: bun run storekit:validate
+
       - name: Run ESLint
         run: bun run lint
 

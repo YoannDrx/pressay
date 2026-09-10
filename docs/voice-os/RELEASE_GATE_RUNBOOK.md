@@ -16,7 +16,14 @@ bun run voice-os:probe-models > model-routes.jsonl
 
 Le baseline ne collecte ni numéro de série, ni nom d’utilisateur, ni micro, ni contenu. Le probe modèles ne télécharge qu’un en-tête HTTP ou un octet et compare la taille annoncée à la taille du catalogue signé.
 
-État observé le 17 août 2026 : les trois fallbacks Hugging Face répondent et annoncent la taille attendue ; les trois routes primaires `models.press-say.app` échouent. `MODEL-CDN` reste donc rouge jusqu’au rétablissement du DNS/CDN puis à la vérification des SHA-256 complets.
+État observé le 23 août 2026 : les trois routes primaires
+`models.press-say.app` et les trois fallbacks répondent, annoncent exactement les
+tailles du catalogue signé et les téléchargements complets ont les SHA-256
+attendus. La route de marque redirige cependant encore vers Hugging Face et
+n’est donc pas une origine indépendante ; sa réponse de redirection ne porte pas
+encore le cache immutable demandé. La disponibilité et l’intégrité sont
+prouvées, mais la redondance et la politique de cache restent une gate
+d’infrastructure distincte.
 
 ## 2. Matrice native macOS
 
@@ -105,7 +112,7 @@ Sur une URL Preview de production, mesurer desktop et mobile avec reduced motion
 {
   "gate": "MODEL-CDN",
   "status": "pass | fail | blocked",
-  "appVersion": "2.0.0-beta.2",
+  "appVersion": "2.0.0-beta.3",
   "commit": "<sha>",
   "channel": "direct | mas | web | cloud",
   "machineClass": "M1-8GB-macOS14",

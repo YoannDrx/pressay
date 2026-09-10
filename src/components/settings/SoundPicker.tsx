@@ -7,22 +7,7 @@ import { useSettingsStore } from "../../stores/settingsStore";
 import { useSettings } from "../../hooks/useSettings";
 import { useTranslation } from "react-i18next";
 import type { SoundTheme } from "../../bindings";
-
-const BUNDLED_SOUND_THEME_LABELS: Record<
-  Exclude<SoundTheme, "custom">,
-  string
-> = {
-  marimba: "Marimba",
-  pop: "Pop",
-  minimal: "Minimal",
-  soft: "Soft",
-  glass: "Glass",
-  mechanical: "Mechanical",
-  dreamy: "Dreamy",
-  scifi: "Sci-Fi",
-  studio: "Studio",
-  zen: "Zen",
-};
+import { BUNDLED_SOUND_THEME_LABELS } from "@/lib/soundThemes";
 
 interface SoundPickerProps {
   label: string;
@@ -48,7 +33,7 @@ export const SoundPicker: React.FC<SoundPickerProps> = ({
 
   // Only add Custom option if both custom sound files exist
   if (customSounds.start && customSounds.stop) {
-    options.push({ value: "custom", label: "Custom" });
+    options.push({ value: "custom", label: t("modelSelector.custom") });
   }
 
   const handlePlayBothSounds = async () => {
@@ -76,8 +61,8 @@ export const SoundPicker: React.FC<SoundPickerProps> = ({
           variant="ghost"
           size="sm"
           onClick={handlePlayBothSounds}
-          title={t("settings.soundTheme.description")}
-          aria-label={t("settings.soundTheme.description")}
+          title={description}
+          aria-label={description}
         >
           <PlayIcon className="h-4 w-4" />
         </Button>

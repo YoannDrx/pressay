@@ -22,6 +22,7 @@ import {
 import { useSettings } from "@/hooks/useSettings";
 import { useModelStore } from "@/stores/modelStore";
 import { Button } from "@/components/ui/Button";
+import { formatKeyCombination } from "@/lib/utils/keyboard";
 import { INITIAL_PIPELINE_STATE } from "@/lib/voiceSurface";
 
 const INITIAL_CORRECTION_STATUS: CorrectionStatus = {
@@ -190,6 +191,9 @@ export const HomeDashboardView = ({
   const activeModeLabel = t(`pressay.modes.builtins.${modeId}.name`, {
     defaultValue: modeName ?? t("signalOs.dashboard.faithful"),
   });
+  const shortcutLabel = shortcut
+    ? formatKeyCombination(shortcut, "macos")
+    : "⌥ + Space";
 
   return (
     <div className="product-page">
@@ -239,7 +243,7 @@ export const HomeDashboardView = ({
         <StatusCard
           icon={<Command size={18} />}
           label={t("signalOs.dashboard.shortcut")}
-          value={shortcut || "⌥ Space"}
+          value={shortcutLabel}
           mono
         />
         <StatusCard

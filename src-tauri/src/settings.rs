@@ -1083,12 +1083,42 @@ impl AppSettings {
     }
 }
 
+#[derive(Debug, PartialEq, Eq)]
+struct SettingsDiagnosticSummary {
+    schema_version: u32,
+    onboarding_completed: bool,
+    model_configured: bool,
+    configured_byok_providers: usize,
+    cloud_account_configured: bool,
+    cloud_device_configured: bool,
+    history_enabled: bool,
+}
+
+fn settings_diagnostic_summary(settings: &AppSettings) -> SettingsDiagnosticSummary {
+    SettingsDiagnosticSummary {
+        schema_version: settings.settings_schema_version,
+        onboarding_completed: settings.onboarding_completed,
+        model_configured: !settings.selected_model.is_empty(),
+        configured_byok_providers: settings
+            .post_process_api_keys_configured
+            .values()
+            .filter(|configured| **configured)
+            .count(),
+        cloud_account_configured: settings.pressay_cloud_account_id.is_some(),
+        cloud_device_configured: settings.pressay_cloud_device_id.is_some(),
+        history_enabled: settings.history_enabled,
+    }
+}
+
 /// Startup entry point. Same load-or-create/salvage/migrate behavior as
 /// `get_settings`; kept as a named alias for call-site clarity, plus a
-/// one-time debug dump of the loaded settings.
+/// one-time content-free diagnostic summary.
 pub fn load_or_create_app_settings(app: &AppHandle) -> AppSettings {
     let settings = get_settings(app);
-    debug!("Loaded settings: {:?}", settings);
+    debug!(
+        "Loaded settings: {:?}",
+        settings_diagnostic_summary(&settings)
+    );
     settings
 }
 
@@ -1899,6 +1929,31 @@ mod tests {
 
     fn default_settings_json() -> serde_json::Value {
         serde_json::to_value(get_default_settings()).unwrap()
+    }
+
+    #[test]
+    fn settings_diagnostics_never_serialize_user_content_or_identifiers() {
+        let mut settings = get_default_settings();
+        settings.pressay_cloud_account_id = Some("sensitive-account-id".to_string());
+        settings.pressay_cloud_device_id = Some("sensitive-device-id".to_string());
+        settings.custom_words = vec!["sensitive-dictionary-entry".to_string()];
+        settings.selected_microphone = Some("sensitive-microphone-name".to_string());
+        settings
+            .post_process_api_keys_configured
+            .insert("openai".to_string(), true);
+
+        let diagnostic = format!("{:?}", settings_diagnostic_summary(&settings));
+
+        assert!(diagnostic.contains("configured_byok_providers: 1"));
+        assert!(diagnostic.contains("cloud_account_configured: true"));
+        for sensitive in [
+            "sensitive-account-id",
+            "sensitive-device-id",
+            "sensitive-dictionary-entry",
+            "sensitive-microphone-name",
+        ] {
+            assert!(!diagnostic.contains(sensitive));
+        }
     }
 
     /// Every field must survive a partial store: a missing key must never fail

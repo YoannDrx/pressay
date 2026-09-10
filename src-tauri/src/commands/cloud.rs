@@ -41,7 +41,11 @@ pub async fn begin_cloud_social_login(
     provider: CloudAuthProvider,
 ) -> Result<(), String> {
     let runtime = app.state::<CloudAuthRuntime>();
-    let (state, verifier) = runtime.begin_oauth().map_err(public_error)?;
+    let (state, verifier) = if cloud::uses_native_oauth_pkce(provider) {
+        runtime.begin_oauth().map_err(public_error)?
+    } else {
+        (runtime.begin().map_err(public_error)?, String::new())
+    };
     let authorization_url =
         match cloud::social_login_url(&get_settings(&app), provider, &state, &verifier).await {
             Ok(url) => url,
@@ -63,8 +67,17 @@ pub async fn begin_cloud_social_login(
 
 #[tauri::command]
 #[specta::specta]
+pub fn cancel_cloud_social_login(app: AppHandle) {
+    app.state::<CloudAuthRuntime>().clear();
+}
+
+#[tauri::command]
+#[specta::specta]
 pub async fn get_cloud_account_snapshot(app: AppHandle) -> Result<CloudAccountSnapshot, String> {
-    let snapshot = cloud::account_snapshot(&app).await.map_err(public_error)?;
+    let snapshot = cloud::account_snapshot(&app).await.map_err(|error| {
+        log::warn!("Cloud account snapshot failed with code {}", error.code);
+        public_error(error)
+    })?;
     crate::tray::update_tray_menu(&app, None);
     Ok(snapshot)
 }

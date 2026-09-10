@@ -22,6 +22,10 @@ import type { ModelInfo } from "@/bindings";
 import { AppPageHeader } from "@/components/layout";
 import { Button } from "@/components/ui/Button";
 import { Input } from "@/components/ui/Input";
+import {
+  getTranslatedModelDescription,
+  getTranslatedModelName,
+} from "@/lib/utils/modelTranslation";
 
 // check if model supports a language based on its supported_languages list
 const modelSupportsLanguage = (model: ModelInfo, langCode: string): boolean => {
@@ -197,7 +201,8 @@ export const ModelsSettings: React.FC = () => {
       if (filterTranslation && !model.supports_translation) return false;
 
       if (q) {
-        const haystack = `${model.name} ${model.description}`.toLowerCase();
+        const haystack =
+          `${getTranslatedModelName(model, t)} ${getTranslatedModelDescription(model, t)}`.toLowerCase();
         if (!haystack.includes(q)) return false;
       }
       return true;
@@ -210,6 +215,7 @@ export const ModelsSettings: React.FC = () => {
     filterStreaming,
     filterTranslation,
     searchQuery,
+    t,
   ]);
 
   // Split filtered models into downloaded (including custom) and available sections
