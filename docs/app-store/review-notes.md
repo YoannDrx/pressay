@@ -73,7 +73,8 @@ in Apple's verification state without a key. Do not remove the encryption
 classification or invent an exemption to bypass this gate.
 
 The older build 2.0.3 (ID `92cac7fa-ca9f-4895-ba23-c2daef7f42b4`) was processed
-and attached earlier, but is superseded and must not be released. Rebuild with
+and attached earlier, but is superseded and has been detached from the draft
+version. Rebuild with
 the approved compliance key, upload and select the new candidate before review.
 No TestFlight installation, native purchase/restore, or App Review submission
 is claimed for either candidate.

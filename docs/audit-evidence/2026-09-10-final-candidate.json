@@ -23,7 +23,9 @@
     "uploadErrorId": "078d88f1-e0e8-42dd-9842-f8b9376504da",
     "appReviewSubmitted": false,
     "published": false,
-    "supersedesBuild": "2.0.3"
+    "supersedesBuild": "2.0.3",
+    "supersededBuildDetachedFromDraft": true,
+    "draftHasNoSelectedBuild": true
   },
   "verification": {
     "rustReleaseTests": {
@@ -47,12 +49,58 @@
       "reason": "Staging-only fixture assumed production endpoint would always need migration",
       "resolution": "Fixture selects the opposite managed endpoint and verifies migration idempotence"
     },
-    "ciCodeCommit": "5740d74affa0d2c5a33cce23dab9ec40d909d2c8",
+    "ciCodeCommit": "bf37b6f51218730be88ecc3a54e611f6037cb4b5",
     "localLogChecksums": {
       "build.log": "4140225edd5aa27687fef16927745f2ae5e268bf89b53331d2f1639dd6cfee96",
       "package.log": "da8bf07cd0d743c91ef6c76538c0794a0c168f2f9a6bbd47354b8683a5da7203",
       "rust-tests-final.log": "1a980385391dd20930dda00af36bcab245d73a84457dc737003891517fd7a467",
       "clippy.log": "74dfb197d553968709a1f52e4e5531b16e3d2e79cbe130a2892b82c4065a2e70"
+    },
+    "macosCi": {
+      "runUrl": "https://github.com/YoannDrx/pressay/actions/runs/34471664981",
+      "configurations": {
+        "updater": {
+          "clippy": "passed",
+          "rustTestsPassed": 334
+        },
+        "mas": {
+          "clippy": "passed",
+          "rustTestsPassed": 334
+        },
+        "storekit-purchases": {
+          "clippy": "passed",
+          "rustTestsPassed": 334
+        }
+      }
+    },
+    "unsignedMacBuildCi": {
+      "result": "passed",
+      "runUrl": "https://github.com/YoannDrx/pressay/actions/runs/34471664762"
+    },
+    "linuxRustCi": {
+      "runUrl": "https://github.com/YoannDrx/pressay/actions/runs/34471664856",
+      "passed": 328,
+      "failed": 1,
+      "failure": "beta_build_defaults_to_isolated_staging assumed non-MAS always meant beta",
+      "correction": "Test expectation now distinguishes stable and prerelease versions while honoring the declared build environment; no production code change",
+      "correctedRegressionTestOnStableDirectMacBuild": "passed",
+      "logSha256": "82de50d2b0b733b36077900590824bd3f993e657d4ebb1dec9e0f7e27f479ba5",
+      "followUp": "CI is retriggered by the final test-only correction; previous Linux failure is retained transparently."
+    },
+    "nixCi": {
+      "result": "passed",
+      "runUrl": "https://github.com/YoannDrx/pressay/actions/runs/34471665315",
+      "sourceCommit": "bf37b6f51218730be88ecc3a54e611f6037cb4b5"
+    },
+    "finalStableDirectVerification": {
+      "rustTestsPassed": 334,
+      "rustTestsFailed": 0,
+      "clippyAllTargetsDenyWarnings": "passed",
+      "productionCodeChangedSinceMacosCi": false,
+      "logChecksums": {
+        "pressay-release-default-suite.log": "165a43719c70428376d122d5f49d3ad387881b4d01d10dd54bfb2bf3469c2aef",
+        "pressay-release-default-clippy.log": "2e56b46e22f9932b194a49da43207698457f2151cbc50421af1381ad5156eda6"
+      }
     }
   },
   "address": {
@@ -60,10 +108,15 @@
     "postalCode": "95130",
     "city": "Franconville",
     "confirmedByOwner": true,
-    "obsoleteChangeRequest": "20000144124147"
+    "obsoleteChangeRequest": "20000144124147",
+    "appleBusinessAccountMatches": true,
+    "dsaFormPreviouslyPrefilledWith": "11 rue de la Chine, Paris 75020",
+    "dsaFormCorrectedButNotSubmitted": true,
+    "dsaAddressProofRequired": true
   },
   "pending": [
     "Apple export-compliance approval and issued key",
+    "Address proof to complete separate DSA correction to Franconville",
     "Rebuild with approved key and upload replacement",
     "Native Apple-delivered sign-in, purchases and restore QA",
     "Microphone/permissions/macOS release matrix and two-Mac sync",

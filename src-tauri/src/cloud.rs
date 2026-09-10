@@ -2262,13 +2262,14 @@ mod tests {
     }
 
     #[test]
-    fn beta_build_defaults_to_isolated_staging() {
-        let expected =
-            option_env!("PRESSAY_RESOLVED_CLOUD_API_URL").unwrap_or(if cfg!(feature = "mas") {
-                "https://api.press-say.app"
-            } else {
+    fn build_defaults_use_the_declared_environment_or_release_channel() {
+        let expected = option_env!("PRESSAY_RESOLVED_CLOUD_API_URL").unwrap_or(
+            if !cfg!(feature = "mas") && env!("CARGO_PKG_VERSION").contains('-') {
                 "https://pressay-cloud-staging.vercel.app"
-            });
+            } else {
+                "https://api.press-say.app"
+            },
+        );
         assert_eq!(
             crate::settings::get_default_settings().pressay_cloud_api_url,
             expected

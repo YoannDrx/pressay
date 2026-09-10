@@ -9,7 +9,8 @@ avec « Invalid Export Compliance Code » (identifiant Apple de l’erreur :
 
 Le build précédent 2.0.3 avait été traité et associé à la version ; sa tentative
 « Ajouter pour vérification » était déjà refusée pour attestations manquantes.
-Il est désormais dépassé par le code du candidat 2.0.4 et ne doit pas être publié.
+Il est désormais dépassé par le code du candidat 2.0.4. Il a été détaché de la
+version App Store en préparation et la fiche a été sauvegardée sans build associé.
 
 ## Corrections livrées
 
@@ -101,13 +102,22 @@ pas terminés. Les produits mensuel et annuel restent à soumettre avec l’appl
   `production-mac-app-store`, le 10 septembre. Un test auparavant lié au staging
   a été corrigé pour vérifier les migrations dans les deux environnements et
   leur idempotence. **Clippy release, toutes cibles, avertissements refusés : réussi**.
-  La CI multi-configuration est distincte de ces validations locales.
+  CI macOS du commit `bf37b6f` : Clippy et 334 tests réussis pour chacune des
+  configurations `updater`, `mas` et `storekit-purchases`. Le build Apple Silicon
+  complet de GitHub est également réussi.
 - Détection de secrets : trois faux positifs d’empreintes SHA-256 de fichier
   sont exclus par leur fingerprint exact ; les autres contrôles restent actifs.
+- CI Rust Linux : 328 tests réussis, un test supposait encore une bêta même pour
+  une version stable. Son attente a été corrigée et le cas de régression passe
+  localement en build stable direct, sans changer le code de production. La suite
+  directe complète repasse avec **334 tests réussis**, et Clippy avec `-D warnings`
+  réussit également. Le push de cette correction de test relance la CI ; le
+  résultat Linux précédent n’est pas présenté comme vert.
 - Nix : le téléchargement API d’une crate renvoyait HTTP 403. Le téléchargement
   utilise maintenant le CDN officiel avec les checksums inchangés de Cargo.lock ;
-  l’archive concernée a été vérifiée contre son checksum. Le build Linux reste
-  un contrôle de compatibilité, pas une cible de distribution.
+  l’archive concernée a été vérifiée contre son checksum. **Le build Nix complet
+  du commit `bf37b6f` a réussi** (run `34471665315`). Linux reste un contrôle
+  de compatibilité, pas une cible de distribution.
 
 Le moteur du build 2.0.3 a été mesuré avec un extrait anglais synthétique
 de 7,707 s, trois passages par modèle, sur le Mac M2 16 Go sous macOS 26.3.1.
@@ -134,11 +144,18 @@ problème d’inférence n’a subsisté après fourniture des modèles au répe
    puis 36 € par médiation à distance, selon leur tarif public. L’éligibilité de
    l’activité et la convention doivent être confirmées avant signature/paiement
    et avant de publier ses coordonnées comme médiateur de YoDev.
-4. **Adresse professionnelle confirmée, point clos.** Le propriétaire confirme
-   le 10 septembre que l’adresse actuelle est 7 allée des Jonquilles,
-   95130 Franconville. Elle correspond au site et au compte Apple. La demande
-   Developer Support `20000144124147` de remplacement par Paris est obsolète ;
-   aucun justificatif ni changement d’adresse ne doit être transmis.
+4. **Adresse confirmée ; correction DSA à valider.** Le propriétaire confirme
+   7 allée des Jonquilles, 95130 Franconville. Le site et le compte professionnel
+   Apple indiquent cette adresse. Le formulaire DSA distinct reprenait néanmoins
+   Paris ; il a été rempli avec Franconville, Gmail et le numéro autorisés. Apple
+   demande un justificatif d’adresse (PDF/JPEG/PNG, 10 Mo maximum) avant de
+   finaliser cette correction. Aucun document ni changement DSA n’a été soumis.
+   La recherche publique du SIREN 803272590 ne fournit pas de justificatif
+   utilisable : les données sont non diffusibles et la commune du siège renvoyée
+   reste Paris. Cette donnée administrative ne remplace pas l’adresse actuelle
+   confirmée par le propriétaire ; son document permettra de vérifier la cohérence.
+   Le dossier Developer Support `20000144124147` de changement vers Paris reste
+   obsolète : ne pas lui transmettre de justificatif pour cet ancien changement.
 5. **Revue du code natif.** L’AGENTS.md du dépôt exige une revue et une approbation
    humaines avant fusion. La préparation, les tests et le build n’y substituent pas
    une approbation. Ne pas fusionner automatiquement la PR native.
@@ -151,6 +168,8 @@ puis publier et remplacer le lien de téléchargement par le lien Store effectif
 
 ## Sources et suite prête à utiliser
 
+- Apple DSA et justificatifs : https://developer.apple.com/help/app-store-connect/manage-compliance-information/manage-european-union-digital-services-act-trader-requirements/
+- Registre public consulté : https://recherche-entreprises.api.gouv.fr/search?q=803272590&per_page=1
 - Apple Sandbox : https://developer.apple.com/documentation/storekit/testing-in-app-purchases-with-sandbox
 - Remboursement Apple : https://support.apple.com/118223
 - Obligations de médiation : https://www.economie.gouv.fr/mediation-conso/vous-etes-un-professionnel/vos-principales-obligations-0
