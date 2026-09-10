@@ -2432,9 +2432,11 @@ mod tests {
     #[test]
     fn entitlement_from_another_release_channel_is_rejected() {
         let signing_key = SigningKey::from_bytes(&[11_u8; 32]);
-        let mut settings = AppSettings::default();
-        settings.pressay_cloud_account_id = Some("account-id".to_string());
-        settings.pressay_cloud_device_id = Some("device-id".to_string());
+        let settings = AppSettings {
+            pressay_cloud_account_id: Some("account-id".to_string()),
+            pressay_cloud_device_id: Some("device-id".to_string()),
+            ..AppSettings::default()
+        };
         let staging = default_entitlement_verifier_config("2.0.0-beta.3");
         let production = default_entitlement_verifier_config("2.0.0");
         let token = signed_entitlement_fixture_with_config(
