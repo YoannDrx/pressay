@@ -102,6 +102,9 @@
               # updated every time a git dependency changed in Cargo.lock.
               # Safe for standalone flakes (not allowed in nixpkgs, it is needed something like crate2nix).
               allowBuiltinFetchGit = true;
+              # Use the official CDN when the API redirect returns 403 in CI.
+              # Cargo.lock checksums still authenticate each immutable archive.
+              extraRegistries."https://github.com/rust-lang/crates.io-index" = "https://static.crates.io/crates";
             };
 
             postPatch = ''
