@@ -2122,7 +2122,12 @@ mod tests {
     fn build_channel_replaces_managed_cloud_url_even_after_schema_migrations() {
         let mut stored = default_settings_json();
         stored["settings_schema_version"] = serde_json::json!(CURRENT_SETTINGS_SCHEMA_VERSION);
-        stored["pressay_cloud_api_url"] = serde_json::json!("https://api.press-say.app");
+        let previous_channel_url = if default_pressay_cloud_api_url() == "https://api.press-say.app" {
+            "https://pressay-cloud-staging.vercel.app"
+        } else {
+            "https://api.press-say.app"
+        };
+        stored["pressay_cloud_api_url"] = serde_json::json!(previous_channel_url);
         let mut settings: AppSettings = serde_json::from_value(stored.clone()).unwrap();
 
         assert!(apply_settings_migrations(&mut settings, &stored));
@@ -2134,6 +2139,8 @@ mod tests {
             settings.settings_schema_version,
             CURRENT_SETTINGS_SCHEMA_VERSION
         );
+        let migrated = serde_json::to_value(&settings).unwrap();
+        assert!(!apply_settings_migrations(&mut settings, &migrated));
     }
 
     #[test]
