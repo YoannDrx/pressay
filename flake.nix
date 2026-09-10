@@ -95,16 +95,22 @@
             buildAndTestSubdir = "src-tauri";
             tauriBundleType = "deb";
 
-            cargoLock = {
+            # Only change the archive URL used by this lockfile importer. Adding
+            # crates.io to extraRegistries would duplicate Cargo's built-in source.
+            cargoDeps = (pkgs.rustPlatform.importCargoLock.override {
+              fetchurl = args: pkgs.fetchurl (args // {
+                url = lib.replaceStrings
+                  [ "https://crates.io/api/v1/crates/" ]
+                  [ "https://static.crates.io/crates/" ]
+                  args.url;
+              });
+            }) {
               lockFile = ./src-tauri/Cargo.lock;
               # Automatically fetch git dependencies using builtins.fetchGit.
               # This eliminates the need for manual outputHashes that had to be
               # updated every time a git dependency changed in Cargo.lock.
               # Safe for standalone flakes (not allowed in nixpkgs, it is needed something like crate2nix).
               allowBuiltinFetchGit = true;
-              # Use the official CDN when the API redirect returns 403 in CI.
-              # Cargo.lock checksums still authenticate each immutable archive.
-              extraRegistries."https://github.com/rust-lang/crates.io-index" = "https://static.crates.io/crates";
             };
 
             postPatch = ''

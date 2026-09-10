@@ -1,0 +1,73 @@
+{
+  "date": "2026-09-10",
+  "candidate": {
+    "version": "2.0.0",
+    "build": "2.0.4",
+    "compiledSourceCommit": "6d2fd4f1f7eeb30c30332bb2e289dd558747dd15",
+    "includesMainCommit": "f5d06c67f7dbdee8cefd381ab3137f10b87070ee",
+    "environment": "production-mac-app-store",
+    "features": ["storekit-purchases"],
+    "package": {
+      "version": "2.0.0",
+      "build": "2.0.4",
+      "bundleId": "fr.yodev.pressay",
+      "localPackageSha256": "1e639d98c623cc064d624d9e1937cf3cd26acf05cd1f1681c076c7f4fc87491b",
+      "symbolsMatch": true,
+      "uploaded": false
+    },
+    "dSYMUuid": "38A3A387-0F8C-3916-9ED1-2C0A98D49EAE",
+    "nonExemptEncryptionDeclared": true,
+    "uploadAttempted": true,
+    "uploadSucceeded": false,
+    "uploadError": "Invalid Export Compliance Code",
+    "uploadErrorId": "078d88f1-e0e8-42dd-9842-f8b9376504da",
+    "appReviewSubmitted": false,
+    "published": false,
+    "supersedesBuild": "2.0.3"
+  },
+  "verification": {
+    "rustReleaseTests": {
+      "passed": 334,
+      "failed": 0,
+      "features": "storekit-purchases",
+      "environment": "production-mac-app-store"
+    },
+    "clippyReleaseAllTargetsDenyWarnings": "passed",
+    "frontendPlaywright": {
+      "passed": 16
+    },
+    "unitTests": {
+      "passed": 10,
+      "assertions": 14
+    },
+    "storekitCatalogue": "passed",
+    "priorFailedRustRun": {
+      "passed": 333,
+      "failed": 1,
+      "reason": "Staging-only fixture assumed production endpoint would always need migration",
+      "resolution": "Fixture selects the opposite managed endpoint and verifies migration idempotence"
+    },
+    "ciCodeCommit": "5740d74affa0d2c5a33cce23dab9ec40d909d2c8",
+    "localLogChecksums": {
+      "build.log": "4140225edd5aa27687fef16927745f2ae5e268bf89b53331d2f1639dd6cfee96",
+      "package.log": "da8bf07cd0d743c91ef6c76538c0794a0c168f2f9a6bbd47354b8683a5da7203",
+      "rust-tests-final.log": "1a980385391dd20930dda00af36bcab245d73a84457dc737003891517fd7a467",
+      "clippy.log": "74dfb197d553968709a1f52e4e5531b16e3d2e79cbe130a2892b82c4065a2e70"
+    }
+  },
+  "address": {
+    "street": "7 allée des Jonquilles",
+    "postalCode": "95130",
+    "city": "Franconville",
+    "confirmedByOwner": true,
+    "obsoleteChangeRequest": "20000144124147"
+  },
+  "pending": [
+    "Apple export-compliance approval and issued key",
+    "Rebuild with approved key and upload replacement",
+    "Native Apple-delivered sign-in, purchases and restore QA",
+    "Microphone/permissions/macOS release matrix and two-Mac sync",
+    "Confirmed consumer-mediator contract",
+    "Human native PR review and approval"
+  ]
+}

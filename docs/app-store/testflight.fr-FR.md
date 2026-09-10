@@ -1,4 +1,4 @@
-# Éléments à tester — candidat 2.0.0 (2.0.3)
+# Éléments à tester — candidat 2.0.0 (2.0.4)
 
 Candidat utilisant le service de production Pressay et les achats Sandbox Apple,
 isolés des abonnements réels. La distribution de test attend la validation Apple

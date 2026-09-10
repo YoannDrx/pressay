@@ -1,10 +1,15 @@
 # Préparation commerciale — 10 septembre 2026
 
-Pressay n’est pas encore publié sur le Mac App Store. Le build 2.0.0 (2.0.3)
-a été construit, signé, validé et envoyé à Apple, qui a terminé son traitement.
-Il est associé à la version 2.0.0. La tentative « Ajouter pour vérification »
-est refusée : « Les attestations pour l’exportation de ce build sont manquantes. »
-Le document déposé le 23 août est toujours « Vérification », sans valeur de clé.
+Pressay n’est pas encore publié sur le Mac App Store. Le candidat actuel est
+**2.0.0 (2.0.4)** : compilé, signé et empaqueté, mais son envoi Xcode a été refusé
+avec « Invalid Export Compliance Code » (identifiant Apple de l’erreur :
+`078d88f1-e0e8-42dd-9842-f8b9376504da`). Il conserve la déclaration correcte
+`ITSAppUsesNonExemptEncryption=true`. Le document déposé le 23 août est toujours
+« Vérification », sans valeur de clé disponible.
+
+Le build précédent 2.0.3 avait été traité et associé à la version ; sa tentative
+« Ajouter pour vérification » était déjà refusée pour attestations manquantes.
+Il est désormais dépassé par le code du candidat 2.0.4 et ne doit pas être publié.
 
 ## Corrections livrées
 
@@ -58,12 +63,20 @@ un expéditeur externe n’a pas été simulée.
 
 ### Candidat natif et review
 
-Archive conservée dans
-`/Users/yoannandrieux/Projets/Pressay-release-candidates/2.0.0-2.0.3/packaged/Pressay.xcarchive`.
+Archive actuelle conservée dans
+`/Users/yoannandrieux/Projets/Pressay-release-candidates/2.0.0-2.0.4/packaged/Pressay.xcarchive`.
 Le build utilise `production-mac-app-store`, `storekit-purchases`, le service de
-production et les mises à jour Apple. Il a été envoyé via le canal App Store Connect,
-pas « TestFlight Internal Only ». Son identifiant Apple est
-`92cac7fa-ca9f-4895-ba23-c2daef7f42b4`.
+production et les mises à jour Apple. Il intègre le main `f5d06c6` : relais OAuth
+Apple dans le navigateur, annulation de session, état du compte et diagnostics
+expurgés, plus les corrections de l’audit. Le commit source de construction est
+`6d2fd4f`. Les changements ultérieurs concernent les tests, la CI et la documentation.
+
+Le paquet signé a pour SHA-256
+`1e639d98c623cc064d624d9e1937cf3cd26acf05cd1f1681c076c7f4fc87491b` ;
+son dSYM correspond à l’exécutable (`38A3A387-0F8C-3916-9ED1-2C0A98D49EAE`).
+L’envoi via App Store Connect a été tenté et refusé pour conformité chiffrement.
+Il n’existe donc pas de build 2.0.4 traité à sélectionner dans App Store Connect.
+L’identifiant `92cac7fa-ca9f-4895-ba23-c2daef7f42b4` appartient au précédent 2.0.3.
 
 Les notes de review sauvegardées expliquent le téléchargement initial du modèle,
 le parcours local sans compte, la connexion Apple, l’achat et la restauration.
@@ -84,11 +97,19 @@ pas terminés. Les produits mensuel et annuel restent à soumettre avec l’appl
   lint et cohérence des 24 langues (anglais inclus) réussis le 10 septembre.
 - Application frontend : 16 scénarios Playwright réussis le 10 septembre, avec
   captures synthétiques des écrans Compte et Historique ; Prettier et Rustfmt réussis.
-- Tests Rust/Clippy : résultats du 7 septembre conservés dans les preuves précédentes ;
-  pas présentés comme une nouvelle exécution le 10 septembre. Les modifications natives de cette journée
-  concernent la version stable et la construction de distribution.
+- Tests Rust : **334 réussis** en release avec `storekit-purchases` et
+  `production-mac-app-store`, le 10 septembre. Un test auparavant lié au staging
+  a été corrigé pour vérifier les migrations dans les deux environnements et
+  leur idempotence. **Clippy release, toutes cibles, avertissements refusés : réussi**.
+  La CI multi-configuration est distincte de ces validations locales.
+- Détection de secrets : trois faux positifs d’empreintes SHA-256 de fichier
+  sont exclus par leur fingerprint exact ; les autres contrôles restent actifs.
+- Nix : le téléchargement API d’une crate renvoyait HTTP 403. Le téléchargement
+  utilise maintenant le CDN officiel avec les checksums inchangés de Cargo.lock ;
+  l’archive concernée a été vérifiée contre son checksum. Le build Linux reste
+  un contrôle de compatibilité, pas une cible de distribution.
 
-Le moteur du binaire de release a été mesuré avec un extrait anglais synthétique
+Le moteur du build 2.0.3 a été mesuré avec un extrait anglais synthétique
 de 7,707 s, trois passages par modèle, sur le Mac M2 16 Go sous macOS 26.3.1.
 Médianes : Fast 288 ms, Polyglot 499 ms, Precise 3 570 ms, backend Metal MTL0.
 Le processus a été isolé en mode portable avec des copies des modèles installés.
@@ -113,11 +134,11 @@ problème d’inférence n’a subsisté après fourniture des modèles au répe
    puis 36 € par médiation à distance, selon leur tarif public. L’éligibilité de
    l’activité et la convention doivent être confirmées avant signature/paiement
    et avant de publier ses coordonnées comme médiateur de YoDev.
-4. **Adresse professionnelle.** Apple affiche encore Franconville. Le dossier
-   Developer Support `20000144124147` demande un justificatif pour le changement
-   vers Paris. Les contrats sont actifs ; aucun blocage automatique supplémentaire
-   lié à l’adresse n’est affiché. L’adresse finale et le justificatif restent à
-   confirmer. Aucune donnée juridique incertaine n’a été remplacée.
+4. **Adresse professionnelle confirmée, point clos.** Le propriétaire confirme
+   le 10 septembre que l’adresse actuelle est 7 allée des Jonquilles,
+   95130 Franconville. Elle correspond au site et au compte Apple. La demande
+   Developer Support `20000144124147` de remplacement par Paris est obsolète ;
+   aucun justificatif ni changement d’adresse ne doit être transmis.
 5. **Revue du code natif.** L’AGENTS.md du dépôt exige une revue et une approbation
    humaines avant fusion. La préparation, les tests et le build n’y substituent pas
    une approbation. Ne pas fusionner automatiquement la PR native.

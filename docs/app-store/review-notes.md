@@ -1,4 +1,4 @@
-# App Review notes — candidate 2.0.0 (2.0.3), not yet submitted
+# App Review notes — candidate 2.0.0 (2.0.4), not yet submitted
 
 ## Product boundary
 
@@ -40,7 +40,7 @@ Native sign-in and purchases on the Apple-delivered candidate remain release gat
 - After a Sandbox purchase, relaunch, restore and verify Pro. Also exercise
   interrupted purchases, renewal, expiration and refund with the Apple test tools.
 
-Build 2.0.3 uses the production Pressay backend. Since 10 September 2026 it verifies
+Build 2.0.4 uses the production Pressay backend. Since 10 September 2026 it verifies
 both Apple Production and Sandbox transactions against the corresponding Apple
 server. Sandbox records are isolated, cannot overwrite real purchases and expire
 at Apple's verified expiration without the commercial offline grace period.
@@ -65,9 +65,15 @@ purchase/restore and the copy-only fallback if that fallback ships.
 
 ## Current submission gate (10 September 2026)
 
-Apple completed processing build 2.0.3 (ID
-`92cac7fa-ca9f-4895-ba23-c2daef7f42b4`). Its export-compliance information is
-missing because `pressay-anssi-declaration-signed.pdf`, uploaded 23 August, remains
-in Apple's verification state without a key. Do not mark encryption exempt to
-bypass this review. No TestFlight installation, native purchase/restore, or App
-Review submission is claimed for this build.
+The current 2.0.4 archive includes main `f5d06c6` and the audited recovery fixes.
+It declares `ITSAppUsesNonExemptEncryption=true`. Xcode rejected its upload with
+`Invalid Export Compliance Code` (ID `078d88f1-e0e8-42dd-9842-f8b9376504da`).
+The document `pressay-anssi-declaration-signed.pdf`, uploaded 23 August, remains
+in Apple's verification state without a key. Do not remove the encryption
+classification or invent an exemption to bypass this gate.
+
+The older build 2.0.3 (ID `92cac7fa-ca9f-4895-ba23-c2daef7f42b4`) was processed
+and attached earlier, but is superseded and must not be released. Rebuild with
+the approved compliance key, upload and select the new candidate before review.
+No TestFlight installation, native purchase/restore, or App Review submission
+is claimed for either candidate.
