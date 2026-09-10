@@ -1,0 +1,5 @@
+# Verified false positives: SHA-256 of src-tauri/src/secrets.rs in audit evidence.
+# Exact historical findings only; no file, rule, or real credential is excluded.
+88d9341b556f533ce0c055523771c3e58cd3f401:docs/audit-evidence/2026-09-10.json:generic-api-key:42
+88d9341b556f533ce0c055523771c3e58cd3f401:docs/audit-evidence/2026-09-07.json:generic-api-key:38
+88d9341b556f533ce0c055523771c3e58cd3f401:docs/audit-evidence/2026-09-06.json:generic-api-key:21

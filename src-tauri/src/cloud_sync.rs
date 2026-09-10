@@ -23,6 +23,7 @@ use crate::settings::{get_settings, write_settings, AppSettings};
 const STATE_SCHEMA_VERSION: u32 = 1;
 const ENVELOPE_VERSION: u8 = 1;
 const MAX_ENVELOPE_BYTES: usize = 1_048_576;
+static SYNC_LOCK: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
 
 #[derive(Serialize, Deserialize, Debug, Clone, Default)]
 struct SyncEntryState {
@@ -531,6 +532,10 @@ async fn pull_changes(
     let mut conflicts = 0_u64;
     loop {
         let page = cloud::fetch_sync_changes(settings, device_id, state.cursor).await?;
+        // The user may edit settings or sign out while the request is in flight.
+        // Merge into the current settings, never the pre-request snapshot.
+        *settings = current_sync_settings(get_settings(app), &state.account_id, device_id)?;
+        let downloaded_before_page = downloaded;
         for change in &page.changes {
             if uuid::Uuid::parse_str(&change.source_device_id).is_err()
                 || uuid::Uuid::parse_str(&change.object_id).is_err()
@@ -547,15 +552,33 @@ async fn pull_changes(
             state.cursor = state.cursor.max(change.sequence_id);
         }
         state.cursor = state.cursor.max(page.next_cursor);
+        if downloaded != downloaded_before_page {
+            write_settings(app, settings.clone());
+        }
         if !page.has_more {
             break;
         }
     }
-    write_settings(app, settings.clone());
     Ok((downloaded, conflicts))
 }
 
+fn current_sync_settings(
+    current: AppSettings,
+    account_id: &str,
+    device_id: &str,
+) -> Result<AppSettings, CloudFailure> {
+    if current.pressay_cloud_account_id.as_deref() != Some(account_id)
+        || current.pressay_cloud_device_id.as_deref() != Some(device_id)
+    {
+        return Err(CloudFailure::from_code("cloud_account_mismatch"));
+    }
+    Ok(current)
+}
+
 pub async fn run_cloud_sync(app: &AppHandle) -> Result<CloudSyncRunReport, CloudFailure> {
+    // Concurrent runs otherwise race on revision/cursor state and overwrite
+    // each other's atomic state files despite each individual rename being safe.
+    let _sync = SYNC_LOCK.lock().await;
     let mut settings = get_settings(app);
     let account_id = settings
         .pressay_cloud_account_id
@@ -605,6 +628,42 @@ pub async fn run_cloud_sync(app: &AppHandle) -> Result<CloudSyncRunReport, Cloud
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn settings_changed_during_download_are_preserved() {
+        let current = AppSettings {
+            pressay_cloud_account_id: Some("account".into()),
+            pressay_cloud_device_id: Some("device".into()),
+            audio_feedback_volume: 0.17,
+            selected_language: "fr".into(),
+            ..AppSettings::default()
+        };
+        let merged = current_sync_settings(current, "account", "device").unwrap();
+        assert_eq!(merged.audio_feedback_volume, 0.17);
+        assert_eq!(merged.selected_language, "fr");
+    }
+
+    #[test]
+    fn in_flight_sync_cannot_restore_a_signed_out_or_different_account() {
+        for (account, device) in [
+            (None, None),
+            (Some("other"), Some("device")),
+            (Some("account"), Some("other")),
+        ] {
+            let current = AppSettings {
+                pressay_cloud_account_id: account.map(str::to_owned),
+                pressay_cloud_device_id: device.map(str::to_owned),
+                ..AppSettings::default()
+            };
+            assert_eq!(
+                current_sync_settings(current, "account", "device")
+                    .err()
+                    .unwrap()
+                    .code,
+                "cloud_account_mismatch"
+            );
+        }
+    }
 
     #[test]
     fn deterministic_ids_do_not_reveal_original_ids() {

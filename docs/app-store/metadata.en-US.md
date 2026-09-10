@@ -24,7 +24,7 @@ Hold your shortcut, speak, then release. Pressay transcribes locally and inserts
 LOCAL DICTATION, NO ACCOUNT REQUIRED
 
 • Unlimited local dictation on Apple silicon
-• Works offline
+• Works offline after downloading a model
 • No account required to get started
 • Downloadable Fast, Polyglot, and Precise models
 
@@ -45,6 +45,13 @@ PRESSAY PRO
 Pro unlocks advanced transformation commands, custom modes, per-app profiles, Apple Intelligence/BYOK, encrypted sync, and a Pressay Cloud allowance. Local dictation remains available on Free.
 
 Some features require Microphone and Accessibility permissions. Pressay explains why before requesting them. Apple Intelligence availability depends on your Mac, macOS version, language, and region.
+
+SUBSCRIPTIONS
+
+Pressay Pro is available as a monthly or annual auto-renewable subscription. The price and duration are displayed before confirmation in the App Store. You can manage or cancel your subscription in your Apple account settings.
+
+Privacy policy: https://press-say.app/en/privacy
+Terms of Use (EULA): https://www.apple.com/legal/internet-services/itunes/dev/stdeula/
 
 ## Keywords
 

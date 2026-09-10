@@ -64,6 +64,8 @@ export function AccountSettings() {
   const [syncError, setSyncError] = useState<string | null>(null);
   const [storeProducts, setStoreProducts] = useState<StoreKitProduct[]>([]);
   const [storeError, setStoreError] = useState<string | null>(null);
+  const [isAppStore, setIsAppStore] = useState(false);
+  const [purchasesEnabled, setPurchasesEnabled] = useState(false);
 
   const refresh = useCallback(
     async (silent = false) => {
@@ -105,20 +107,40 @@ export function AccountSettings() {
   useEffect(() => {
     if (!account.connected) {
       setStoreProducts([]);
+      setIsAppStore(false);
       return;
     }
     let active = true;
-    void commands.getAppStoreProducts().then(async (result) => {
-      if (!active || result.status === "error") return;
-      setStoreProducts(result.data);
-      const reconciliation = await commands.reconcileAppStorePurchases();
+    setPurchasesEnabled(false);
+    void commands
+      .getCapabilities()
+      .then((capabilities) => {
+        if (active)
+          setPurchasesEnabled(capabilities.appStorePurchase === "enabled");
+      })
+      .catch(() => {
+        if (active) setPurchasesEnabled(false);
+      });
+    void commands.getAppStoreProducts().then((result) => {
+      if (!active) return;
+      const available =
+        result.status === "ok" ||
+        result.error !== "storekit_distribution_unavailable";
+      setIsAppStore(available);
+      setStoreProducts(result.status === "ok" ? result.data : []);
+      setStoreError(
+        available && result.status === "error" ? result.error : null,
+      );
+    });
+    // Restoration must work even when Product.products is empty or offline.
+    void commands.reconcileAppStorePurchases().then((reconciliation) => {
       if (!active || reconciliation.status === "error") return;
       setAccount(reconciliation.data);
     });
     return () => {
       active = false;
     };
-  }, [account.connected]);
+  }, [account.connected, account.accountId]);
 
   useEffect(() => {
     const interval = window.setInterval(() => void refresh(true), 30_000);
@@ -413,7 +435,7 @@ export function AccountSettings() {
             </div>
           </SettingsGroup>
 
-          {storeProducts.length > 0 ? (
+          {isAppStore ? (
             <SettingsGroup title={t("cloud.appStore.title")}>
               <div className="space-y-3 p-4">
                 <div className="flex items-start gap-3">
@@ -445,7 +467,7 @@ export function AccountSettings() {
                         className="mt-4 w-full"
                         size="sm"
                         onClick={() => void purchaseAppStoreProduct(product.id)}
-                        disabled={pendingAction !== null}
+                        disabled={pendingAction !== null || !purchasesEnabled}
                       >
                         {pendingAction === `store-purchase-${product.id}` ? (
                           <LoaderCircle className="mr-1.5 h-3.5 w-3.5 animate-spin" />

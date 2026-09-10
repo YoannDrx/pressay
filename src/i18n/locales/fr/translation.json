@@ -609,7 +609,7 @@
       "deleteAllError": "Impossible de supprimer l’historique local.",
       "openFolder": "Ouvrir le dossier des enregistrements",
       "loading": "Chargement de l'historique...",
-      "loadError": "Impossible de déverrouiller l’historique. Autorisez Pressay dans le Trousseau macOS, puis réessayez.",
+      "loadError": "L’historique est indisponible. Vos fichiers sont conservés et la dictée reste utilisable. Autorisez l’accès au Trousseau macOS, puis réessayez. Si le problème persiste, contactez le support avant de modifier la base.",
       "empty": "Pas encore de transcriptions. Commencez à enregistrer pour créer votre historique !",
       "copyToClipboard": "Copier la transcription dans le presse-papiers",
       "save": "Enregistrer la transcription",
@@ -629,7 +629,8 @@
       "reprocessSuccess": "Une nouvelle entrée retraitée a été ajoutée à votre historique privé.",
       "reprocessError": "Impossible de retraiter cette transcription. Vérifiez la route choisie dans Fournisseurs.",
       "transcribing": "Transcription en cours...",
-      "transcriptionFailed": "La transcription a échoué. Vous pouvez re-transcrire en utilisant l'icône de réessai."
+      "transcriptionFailed": "La transcription a échoué. Vous pouvez re-transcrire en utilisant l'icône de réessai.",
+      "loadMore": "Charger la suite"
     },
     "debug": {
       "title": "Débogage",

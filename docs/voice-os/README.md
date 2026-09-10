@@ -28,6 +28,7 @@ Avec cette définition stricte, aucune grande capacité de dictée n'est encore 
 
 ## Livrables
 
+- [Audit production du 6 septembre 2026](../PRODUCTION_READINESS_AUDIT_2026-09-06.md) — nouveaux défauts, corrections, preuves locales et conditions de commercialisation.
 - [Feature ledger](FEATURE_LEDGER.md) — inventaire des capacités et niveau de preuve.
 - [Architecture produit](PRODUCT_ARCHITECTURE.md) — benchmark, Free/Pro, routes et fonctionnalités locales.
 - [Direction Signal OS](SIGNAL_OS_DESIGN.md) — explorations, tokens, motion, onboarding et landing.

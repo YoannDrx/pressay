@@ -17,13 +17,18 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  native-checks:
+    uses: ./.github/workflows/macos-tests.yml
   archive:
+    needs: native-checks
     runs-on: macos-26
     environment: app-store-production
     permissions:
       contents: read
     env:
       VITE_DISTRIBUTION_CHANNEL: app-store
+      PRESSAY_BUILD_ENVIRONMENT: production-mac-app-store
+      CMAKE_POLICY_VERSION_MINIMUM: "3.5"
     steps:
       - uses: actions/checkout@v5
 
@@ -169,7 +174,7 @@ jobs:
           bun run tauri build \
             --config src-tauri/tauri.appstore.conf.json \
             --target aarch64-apple-darwin \
-            --features mas \
+            --features storekit-purchases \
             --bundles app
 
       - name: Stamp a monotonic App Store build number
@@ -213,7 +218,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          graph=$(cd src-tauri && cargo tree -e features --no-default-features --features mas)
+          graph=$(cd src-tauri && cargo tree -e features --no-default-features --features storekit-purchases)
           if grep -Eq 'tauri feature "macos-private-api"|tauri-nspanel|tauri-plugin-updater|(^| )stripe v' <<<"$graph"; then
             echo "A Direct-only dependency entered the Mac App Store graph" >&2
             exit 1
@@ -287,6 +292,13 @@ jobs:
           echo "app=$app" >> "$GITHUB_OUTPUT"
           echo "package=$package" >> "$GITHUB_OUTPUT"
 
+      - name: Verify macOS release crash symbols
+        shell: bash
+        run: |
+          bash scripts/check-macos-symbols.sh \
+            src-tauri/target/aarch64-apple-darwin/release/pressay \
+            src-tauri/target/aarch64-apple-darwin/release/pressay.dSYM
+
       - name: Prepare App Store Connect API key
         if: inputs.upload
         shell: bash
@@ -327,6 +339,7 @@ jobs:
           path: |
             ${{ steps.package.outputs.package }}
             ${{ steps.package.outputs.package }}.sha256
+            src-tauri/target/aarch64-apple-darwin/release/pressay.dSYM
           if-no-files-found: error
           retention-days: 30
 

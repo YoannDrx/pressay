@@ -1,0 +1,567 @@
+{
+  "schemaVersion": 1,
+  "capturedAt": "2026-09-06T21:26:25.798532+00:00",
+  "decision": "NO_GO",
+  "source": {
+    "baseCommit": "3e755f060fba668777b5d18dd686ff883ce4027e",
+    "version": "2.0.0-beta.2",
+    "branch": "codex/production-readiness-audit",
+    "includesUncommittedChanges": true,
+    "changedSourceSha256": {
+      ".github/workflows/app-store-spike.yml": "cb4b8ed53bbe32c833d8b8e1bfbb158b25d1d1b5db51a9b3a3ee2977eef9de89",
+      ".nix/bun-lock-hash": "265b37032b5b0e8d72973603b796e58a7b0603fe918b7e5e700e2ae5ef080b16",
+      ".nix/bun.nix": "9a8f0c6d55f5792047dcf7e60fe5ccda5d4f5e1f4c256a3e69e9aeb0f3ac3d7a",
+      "bun.lock": "12224d85adaf85d45fe236a80f03b44e76748a834e5ddc9149b4da12cf827f6c",
+      "package.json": "ba4de49e9b9bbec98ab151146c429e6f45ad7d7b6b1163bff63d69f662aed6d8",
+      "src-tauri/Cargo.lock": "a48e5bf8efdf36093c2b2099c68dc18b55a2f4d21c6074dd5adfd14cc1b119bd",
+      "src-tauri/src/cli.rs": "71b742fae2d362cd476b4701872a19dfb0c3439545c6ac0e633e406464219773",
+      "src-tauri/src/cloud.rs": "a7c6cf29af43b9ff73eb5445ac8d23c82c61eb627b22937d528ea6675d5a6316",
+      "src-tauri/src/cloud_sync.rs": "86e4b9904ae45ce9e76605617b979d23b22ca906400c2abb20914d7556200891",
+      "src-tauri/src/lib.rs": "7bb0a404a3cf166183e8a1900aec50750de3ed69abe2949211bd3961872c4b2e",
+      "src-tauri/src/secrets.rs": "e61ba18aa0865217c10e925cd5ca3be91341a3451798ea817ea946a2d42b3635",
+      "src-tauri/tauri.conf.json": "b55261597e1ec9f8fe0aba732c847f5062118cea06067381e2721f78eed64007",
+      "src/components/settings/account/AccountSettings.tsx": "5a7adc112094623204625262c683403c47bb70e7aa81c6806d2019a846dafaeb",
+      "scripts/voice-os/benchmark-local.ts": "7ff42da2c84672e8b57a805b3a2d3e6170e85407f0ae401fd39e065ab6bc26d0",
+      ".github/workflows/macos-tests.yml": "cc5f3a1910a5b554c130b1fafbc35f18d07c077270b9c8f456cc0b25d11c19ef",
+      "tests/account.spec.ts": "3c057c972c9dcf8284575862e7a607b2fd26a391b86725bdb77cb236f940bc21",
+      "tests/fixtures/account.html": "666da9df405aa12917098d9029fef251b878c3c8830eefdbc13cfb6f2122b3a3",
+      "tests/fixtures/account.tsx": "24a7c161db69c8917f7f22a8087140b94deb3a81ec790b244b643c811cd633da"
+    }
+  },
+  "host": {
+    "architecture": "arm64",
+    "macosVersion": "26.3.1",
+    "buildVersion": "25D771280a",
+    "chip": "Apple M2",
+    "memoryBytes": 17179869184
+  },
+  "buildEnvironment": {
+    "CMAKE_POLICY_VERSION_MINIMUM": "3.5",
+    "rustc": "1.97.1 (8bab26f4f 2026-07-14)",
+    "bun": "1.2.19",
+    "finalMasAndBinaryBuild": {
+      "CARGO_INCREMENTAL": "0",
+      "jobs": 1
+    }
+  },
+  "checks": [
+    {
+      "command": "bun run format:check",
+      "status": "passed",
+      "logSha256": "edac3ee65e0d7b363a9cd8a1ead04606f61697c1e8f4f0344da1419d4f4a76ab"
+    },
+    {
+      "command": "bun run lint",
+      "status": "passed",
+      "logSha256": "dd1bf47cbb2da617b6ddb7cf1a7d8d01728f9ef51cf35d7bc2540dd5dd63bfea"
+    },
+    {
+      "command": "bun run build",
+      "status": "passed",
+      "logSha256": "3d3c81ae990f81e73916710fa45ab3d25b639553f2cd928e472f60f1d1865efd"
+    },
+    {
+      "command": "bun run test:playwright",
+      "status": "passed",
+      "logSha256": "d12530fa0163e10f5da9df8c03edb5904f19c00744081b236b60e07da685a8af",
+      "testsPassed": 11,
+      "coverage": {
+        "productPreview": 8,
+        "productionAccountWithMockIPC": 3
+      }
+    },
+    {
+      "command": "bun src/components/update-checker/portableInstaller.test.ts",
+      "status": "passed",
+      "logSha256": "914d40c7db4083927eb0bb7bfd899d41c6f75ed624b1927f14bde85aafd6a208"
+    },
+    {
+      "command": "bun run check:translations",
+      "status": "passed",
+      "logSha256": "b0cc0b63d450b722b54084f86055e98ca8a13fcd70122cbbb4681e31665e7539",
+      "nonEnglishLocales": 23,
+      "sourceKeys": 802,
+      "limit": "Key presence only; translation quality is not proven"
+    },
+    {
+      "command": "cargo test --locked --features updater",
+      "status": "passed",
+      "logSha256": "eaf2b85745e5280bbf9f6e017204efa2c171f4510674c37cf965ad851f811a5f",
+      "workingDirectory": "src-tauri",
+      "testsPassed": 322
+    },
+    {
+      "command": "cargo clippy --locked --lib --bins --features updater -- -D warnings",
+      "status": "passed",
+      "logSha256": "23973c7ca35c971b0e8726a176ccc2cf643d3878654e7eeef01964608411c800",
+      "workingDirectory": "src-tauri"
+    },
+    {
+      "command": "cargo test --locked --jobs 1 --no-default-features --features mas",
+      "status": "passed",
+      "logSha256": "0d2574eaa3ffb154c28ed00f3d7402675917e80ac54170de43b2e4b0ec2c3bb9",
+      "workingDirectory": "src-tauri",
+      "testsPassed": 322
+    },
+    {
+      "command": "cargo clippy --locked --lib --bins --jobs 1 --no-default-features --features mas -- -D warnings",
+      "status": "passed",
+      "logSha256": "055d8cf619c84646205392318a1eb0e95c2cf03ece7dc0ec2e8e528e3c96d0c7",
+      "workingDirectory": "src-tauri"
+    },
+    {
+      "command": "cargo build --locked --jobs 1 --features updater --bin pressay",
+      "status": "passed",
+      "logSha256": "b17aad90ffbbc34c12cf40bd0c278ad0fcd8ad81055f55a9e6c1babc102f167e",
+      "workingDirectory": "src-tauri"
+    }
+  ],
+  "dependencyAudit": {
+    "javascript": {
+      "command": "bun audit --json",
+      "advisories": 0
+    },
+    "rust": {
+      "command": "cargo audit --ignore RUSTSEC-2026-0235 --json",
+      "advisoryDatabase": {
+        "advisory-count": 1239,
+        "last-commit": "5a0ebedfe8bdd2e295b171f4162f8c977bcad9a5",
+        "last-updated": "2026-09-02T11:13:32+02:00"
+      },
+      "vulnerabilitiesAfterExistingException": 0,
+      "ignored": ["RUSTSEC-2026-0235"],
+      "ignoredDependencyNotActiveOnHostChannels": ["updater", "mas"],
+      "remainingWarnings": {
+        "unmaintained": [
+          {
+            "package": "atk",
+            "version": "0.18.2",
+            "advisory": "RUSTSEC-2024-0413"
+          },
+          {
+            "package": "atk-sys",
+            "version": "0.18.2",
+            "advisory": "RUSTSEC-2024-0416"
+          },
+          {
+            "package": "bincode",
+            "version": "2.0.1",
+            "advisory": "RUSTSEC-2025-0141"
+          },
+          {
+            "package": "fxhash",
+            "version": "0.2.1",
+            "advisory": "RUSTSEC-2025-0057"
+          },
+          {
+            "package": "gdk",
+            "version": "0.18.2",
+            "advisory": "RUSTSEC-2024-0412"
+          },
+          {
+            "package": "gdk-sys",
+            "version": "0.18.2",
+            "advisory": "RUSTSEC-2024-0418"
+          },
+          {
+            "package": "gdkwayland-sys",
+            "version": "0.18.2",
+            "advisory": "RUSTSEC-2024-0411"
+          },
+          {
+            "package": "gdkx11",
+            "version": "0.18.2",
+            "advisory": "RUSTSEC-2024-0417"
+          },
+          {
+            "package": "gdkx11-sys",
+            "version": "0.18.2",
+            "advisory": "RUSTSEC-2024-0414"
+          },
+          {
+            "package": "gtk",
+            "version": "0.18.2",
+            "advisory": "RUSTSEC-2024-0415"
+          },
+          {
+            "package": "gtk-layer-shell",
+            "version": "0.8.2",
+            "advisory": "RUSTSEC-2024-0422"
+          },
+          {
+            "package": "gtk-layer-shell-sys",
+            "version": "0.7.2",
+            "advisory": "RUSTSEC-2024-0423"
+          },
+          {
+            "package": "gtk-sys",
+            "version": "0.18.2",
+            "advisory": "RUSTSEC-2024-0420"
+          },
+          {
+            "package": "gtk3-macros",
+            "version": "0.18.2",
+            "advisory": "RUSTSEC-2024-0419"
+          },
+          {
+            "package": "paste",
+            "version": "1.0.15",
+            "advisory": "RUSTSEC-2024-0436"
+          },
+          {
+            "package": "proc-macro-error",
+            "version": "1.0.4",
+            "advisory": "RUSTSEC-2024-0370"
+          },
+          {
+            "package": "unic-char-property",
+            "version": "0.9.0",
+            "advisory": "RUSTSEC-2025-0081"
+          },
+          {
+            "package": "unic-char-range",
+            "version": "0.9.0",
+            "advisory": "RUSTSEC-2025-0075"
+          },
+          {
+            "package": "unic-common",
+            "version": "0.9.0",
+            "advisory": "RUSTSEC-2025-0080"
+          },
+          {
+            "package": "unic-ucd-ident",
+            "version": "0.9.0",
+            "advisory": "RUSTSEC-2025-0100"
+          },
+          {
+            "package": "unic-ucd-version",
+            "version": "0.9.0",
+            "advisory": "RUSTSEC-2025-0098"
+          }
+        ],
+        "unsound": [
+          {
+            "package": "glib",
+            "version": "0.18.5",
+            "advisory": "RUSTSEC-2024-0429"
+          },
+          {
+            "package": "rand",
+            "version": "0.7.3",
+            "advisory": "RUSTSEC-2026-0097"
+          }
+        ]
+      }
+    }
+  },
+  "models": {
+    "installedIntegrity": [
+      {
+        "model": "pressay/parakeet-v3",
+        "sha256Matches": true
+      },
+      {
+        "model": "pressay/whisper-small",
+        "sha256Matches": true
+      },
+      {
+        "model": "pressay/whisper-large",
+        "sha256Matches": true
+      }
+    ],
+    "downloadRouteProbes": [
+      {
+        "model": "pressay/parakeet-v3",
+        "route": "primary",
+        "ok": true,
+        "status": 200,
+        "elapsedMs": 951,
+        "advertisedBytes": 739508576,
+        "expectedBytes": 739508576,
+        "finalHost": "us.aws.cdn.hf.co"
+      },
+      {
+        "model": "pressay/parakeet-v3",
+        "route": "fallback",
+        "ok": true,
+        "status": 200,
+        "elapsedMs": 291,
+        "advertisedBytes": 739508576,
+        "expectedBytes": 739508576,
+        "finalHost": "us.aws.cdn.hf.co"
+      },
+      {
+        "model": "pressay/whisper-small",
+        "route": "primary",
+        "ok": true,
+        "status": 200,
+        "elapsedMs": 444,
+        "advertisedBytes": 269751136,
+        "expectedBytes": 269751136,
+        "finalHost": "us.aws.cdn.hf.co"
+      },
+      {
+        "model": "pressay/whisper-small",
+        "route": "fallback",
+        "ok": true,
+        "status": 200,
+        "elapsedMs": 249,
+        "advertisedBytes": 269751136,
+        "expectedBytes": 269751136,
+        "finalHost": "us.aws.cdn.hf.co"
+      },
+      {
+        "model": "pressay/whisper-large",
+        "route": "primary",
+        "ok": true,
+        "status": 200,
+        "elapsedMs": 527,
+        "advertisedBytes": 1161143008,
+        "expectedBytes": 1161143008,
+        "finalHost": "us.aws.cdn.hf.co"
+      },
+      {
+        "model": "pressay/whisper-large",
+        "route": "fallback",
+        "ok": true,
+        "status": 200,
+        "elapsedMs": 219,
+        "advertisedBytes": 1161143008,
+        "expectedBytes": 1161143008,
+        "finalHost": "us.aws.cdn.hf.co"
+      }
+    ]
+  },
+  "publicEndpoints": [
+    {
+      "url": "https://api.press-say.app/v1/desktop-auth/config",
+      "status": 200
+    },
+    {
+      "url": "https://api.press-say.app/v1/me",
+      "status": 401
+    },
+    {
+      "url": "https://api.press-say.app/v1/entitlements",
+      "status": 401
+    },
+    {
+      "url": "https://pressay-cloud-staging.vercel.app/v1/desktop-auth/config",
+      "status": 200
+    },
+    {
+      "url": "https://pressay-cloud-staging.vercel.app/v1/me",
+      "status": 401
+    },
+    {
+      "url": "https://pressay-cloud-staging.vercel.app/v1/entitlements",
+      "status": 401
+    },
+    {
+      "url": "https://api.press-say.app/health",
+      "status": 404,
+      "finalUrl": "https://api.press-say.app/health",
+      "contentType": "application/json"
+    },
+    {
+      "url": "https://api.press-say.app/ready",
+      "status": 404,
+      "finalUrl": "https://api.press-say.app/ready",
+      "contentType": "application/json"
+    },
+    {
+      "url": "https://pressay-cloud-staging.vercel.app/health",
+      "status": 404,
+      "finalUrl": "https://pressay-cloud-staging.vercel.app/health",
+      "contentType": "application/json"
+    },
+    {
+      "url": "https://pressay-cloud-staging.vercel.app/ready",
+      "status": 404,
+      "finalUrl": "https://pressay-cloud-staging.vercel.app/ready",
+      "contentType": "application/json"
+    },
+    {
+      "url": "https://updates.press-say.app/latest.json",
+      "error": "Error"
+    },
+    {
+      "url": "https://press-say.app/privacy",
+      "status": 200,
+      "finalUrl": "https://press-say.app/en/privacy",
+      "contentType": "text/html; charset=utf-8"
+    },
+    {
+      "url": "https://press-say.app/terms",
+      "status": 200,
+      "finalUrl": "https://press-say.app/en/terms",
+      "contentType": "text/html; charset=utf-8"
+    },
+    {
+      "url": "https://press-say.app/support",
+      "status": 200,
+      "finalUrl": "https://press-say.app/en/support",
+      "contentType": "text/html; charset=utf-8"
+    }
+  ],
+  "updaterDns": {
+    "host": "updates.press-say.app",
+    "status": "failed_to_resolve",
+    "independentClients": ["fetch", "curl"],
+    "curlExitCode": 6,
+    "scope": "From this audit host; not a global availability measurement"
+  },
+  "privacyManifest": {
+    "debugAppBundleIncludesManifest": true,
+    "matchesSource": true,
+    "plistValidation": "passed",
+    "distributionSigning": "not_performed",
+    "requiredApiDeclarationCompleteness": "not_certified"
+  },
+  "localTranscription": {
+    "profile": "debug",
+    "languages": ["en", "fr"],
+    "fixture": "Synthetic WAVs from macOS say: Samantha (en), Thomas (fr), mono 16 kHz PCM16",
+    "repeats": 5,
+    "commandTemplate": "/usr/bin/time -l src-tauri/target/debug/pressay --transcribe-file <synthetic.wav> --model <installed-model-id> --language <en|fr> --repeat 5 --json",
+    "results": [
+      {
+        "audio_secs": 7.811875,
+        "bound_backend": "MTL0",
+        "language": "en",
+        "load_ms": 1793,
+        "model": "pressay/parakeet-v3/parakeet-tdt-0.6b-v3-Q8_0.gguf",
+        "requested_device": "settings",
+        "transcribe_ms": [1086, 668, 504, 1327, 1357],
+        "systemLoadAtStart": [18.23876953125, 31.16845703125, 39.623046875],
+        "preset": "fast",
+        "medianTranscribeMs": 1086,
+        "maxTranscribeMs": 1357,
+        "maximumResidentBytes": 426344448,
+        "peakMemoryFootprintBytes": 992102032
+      },
+      {
+        "audio_secs": 7.811875,
+        "bound_backend": "MTL0",
+        "language": "en",
+        "load_ms": 412,
+        "model": "pressay/whisper-small/whisper-small-Q8_0.gguf",
+        "requested_device": "settings",
+        "transcribe_ms": [886, 745, 805, 812, 679],
+        "systemLoadAtStart": [26.7646484375, 32.521484375, 39.96337890625],
+        "preset": "polyglot",
+        "medianTranscribeMs": 805,
+        "maxTranscribeMs": 886,
+        "maximumResidentBytes": 394133504,
+        "peakMemoryFootprintBytes": 456869136
+      },
+      {
+        "audio_secs": 7.811875,
+        "bound_backend": "MTL0",
+        "language": "en",
+        "load_ms": 1166,
+        "model": "pressay/whisper-large/whisper-large-v3-Q5_K_M.gguf",
+        "requested_device": "settings",
+        "transcribe_ms": [5457, 3305, 3501, 3839, 3460],
+        "systemLoadAtStart": [25.7421875, 32.2138671875, 39.81103515625],
+        "preset": "precise",
+        "medianTranscribeMs": 3501,
+        "maxTranscribeMs": 5457,
+        "maximumResidentBytes": 870727680,
+        "peakMemoryFootprintBytes": 1632864320
+      },
+      {
+        "audio_secs": 8.239125,
+        "bound_backend": "MTL0",
+        "language": "fr",
+        "load_ms": 359,
+        "model": "pressay/parakeet-v3/parakeet-tdt-0.6b-v3-Q8_0.gguf",
+        "requested_device": "settings",
+        "transcribe_ms": [370, 551, 595, 619, 625],
+        "systemLoadAtStart": [21.3525390625, 30.8037109375, 39.12890625],
+        "preset": "fast",
+        "medianTranscribeMs": 595,
+        "maxTranscribeMs": 625,
+        "maximumResidentBytes": 1098514432,
+        "peakMemoryFootprintBytes": 995395216
+      },
+      {
+        "audio_secs": 8.239125,
+        "bound_backend": "MTL0",
+        "language": "fr",
+        "load_ms": 145,
+        "model": "pressay/whisper-small/whisper-small-Q8_0.gguf",
+        "requested_device": "settings",
+        "transcribe_ms": [686, 668, 652, 661, 650],
+        "systemLoadAtStart": [21.083984375, 30.5908203125, 39.0048828125],
+        "preset": "polyglot",
+        "medianTranscribeMs": 661,
+        "maxTranscribeMs": 686,
+        "maximumResidentBytes": 558530560,
+        "peakMemoryFootprintBytes": 454296872
+      },
+      {
+        "audio_secs": 8.239125,
+        "bound_backend": "MTL0",
+        "language": "fr",
+        "load_ms": 930,
+        "model": "pressay/whisper-large/whisper-large-v3-Q5_K_M.gguf",
+        "requested_device": "settings",
+        "transcribe_ms": [3580, 3347, 3388, 3413, 3606],
+        "systemLoadAtStart": [21.083984375, 30.5908203125, 39.0048828125],
+        "preset": "precise",
+        "medianTranscribeMs": 3413,
+        "maxTranscribeMs": 3606,
+        "maximumResidentBytes": 891764736,
+        "peakMemoryFootprintBytes": 1635829896
+      }
+    ],
+    "accuracyObservations": {
+      "scope": "Only the last output of each five-repeat process was retained and inspected",
+      "english": "All three final outputs matched the intended sentence semantically",
+      "french": "Fast and Precise matched the intended sentence semantically; Polyglot replaced test with Tesla",
+      "representativeWordErrorRateMeasured": false
+    },
+    "harnessValidation": [
+      {
+        "schemaVersion": 1,
+        "capturedAt": "2026-09-06T21:21:47.552Z",
+        "preset": "fast",
+        "profile": "debug",
+        "model": "pressay/parakeet-v3/parakeet-tdt-0.6b-v3-Q8_0.gguf",
+        "language": "fr",
+        "bound_backend": "MTL0",
+        "audio_secs": 8.239125,
+        "load_ms": 2305,
+        "transcribe_ms": [1910, 1484],
+        "medianTranscribeMs": 1697,
+        "afterFirstMedianMs": 1484,
+        "p95TranscribeMs": null,
+        "realTimeFactor": 0.20596847359397993,
+        "maximumResidentBytes": 375472128,
+        "peakMemoryFootprintBytes": 996820624,
+        "systemLoadAtStart": [23.09521484375, 29.62109375, 38.1181640625],
+        "limitation": "Model-only process measurement; excludes microphone, insertion, accuracy and total system/GPU memory. Profile is declared by the operator. Other saved engine settings still apply."
+      }
+    ],
+    "limitations": [
+      "One synthetic sentence per language; no representative accuracy corpus",
+      "No microphone, VAD-to-paste latency, UI interaction, energy or M1 8 GB measurement",
+      "Debug process timings on a heavily loaded host are not release SLO or p95 evidence",
+      "Other saved engine settings remain applicable",
+      "Peak process footprint does not measure all system/GPU allocations"
+    ]
+  },
+  "verificationCaveats": [
+    "Dependency block 0.1.6 emits a future Rust incompatibility warning",
+    "One MAS build was interrupted below 300 MB free disk; the repository incremental cache was removed and validation rerun with CARGO_INCREMENTAL=0 and one job",
+    "Strict Clippy for all targets failed on seven pre-existing test-style lints; production lib/bins checked separately",
+    "Tauri bundle modified Cargo.toml to add macos-private-api; this generated change was removed before final native tests",
+    "Initial uncontrolled Whisper language followed saved fr preference; final language en explicitly selected",
+    "A bundled executable launch failed during earlier measurement; rebuilt executable is used for final measurements",
+    "No complete signed native interaction matrix, TestFlight or real purchase validation",
+    "No private Cloud/billing backend source review, paid provider calls, real OAuth session or two-device sync validation",
+    "No production release archive, notarization, deployment or App Store submission"
+  ],
+  "privacy": "No user transcription, audio, credential, account ID, serial number or username is included. Synthetic transcript text is omitted from this aggregate evidence."
+}

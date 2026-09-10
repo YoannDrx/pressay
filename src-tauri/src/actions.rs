@@ -2303,8 +2303,10 @@ mod tests {
     #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
     #[test]
     fn voice_route_distinguishes_apple_intelligence_from_byok() {
-        let mut settings = AppSettings::default();
-        settings.post_process_provider_id = APPLE_INTELLIGENCE_PROVIDER_ID.to_string();
+        let settings = AppSettings {
+            post_process_provider_id: APPLE_INTELLIGENCE_PROVIDER_ID.to_string(),
+            ..AppSettings::default()
+        };
 
         assert_eq!(
             voice_transform_route(&settings, None),

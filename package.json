@@ -1,7 +1,7 @@
 {
   "name": "pressay-app",
   "private": true,
-  "version": "2.0.0-beta.4",
+  "version": "2.0.0",
   "type": "module",
   "scripts": {
     "dev": "vite",
@@ -21,6 +21,7 @@
     "models:sign": "bash scripts/sign-model-catalog.sh",
     "storekit:validate": "bun scripts/validate-storekit-config.ts",
     "voice-os:native-baseline": "bun scripts/voice-os/native-baseline.ts",
+    "voice-os:benchmark-local": "bun scripts/voice-os/benchmark-local.ts",
     "voice-os:probe-models": "bun scripts/voice-os/probe-model-cdn.ts",
     "voice-os:probe-byok": "bun scripts/voice-os/probe-byok.ts",
     "voice-os:render-tray-icons": "bun scripts/voice-os/render-tray-icons.ts",
@@ -71,6 +72,8 @@
     "vite": "^6.4.3"
   },
   "overrides": {
+    "@humanfs/node": "0.16.8",
+    "browserslist": "4.28.9",
     "@babel/core": "7.29.7",
     "flatted": "3.4.4",
     "nanoid": "3.3.18",

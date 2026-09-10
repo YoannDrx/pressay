@@ -113,13 +113,9 @@ export const HistorySettings: React.FC = () => {
   const [filter, setFilter] = useState<HistoryFilter>("all");
   const [modes, setModes] = useState<PressayMode[]>([]);
   const sentinelRef = useRef<HTMLDivElement>(null);
-  const entriesRef = useRef<HistoryEntry[]>([]);
+  const [nextCursor, setNextCursor] = useState<number | null>(null);
+  const requestGeneration = useRef(0);
   const loadingRef = useRef(false);
-
-  // Keep ref in sync for use in IntersectionObserver callback
-  useEffect(() => {
-    entriesRef.current = entries;
-  }, [entries]);
 
   const loadPage = useCallback(
     async (cursor?: number) => {
@@ -127,6 +123,7 @@ export const HistorySettings: React.FC = () => {
         setLoading(false);
         return;
       }
+      const generation = requestGeneration.current;
       const isFirstPage = cursor === undefined;
       if (!isFirstPage && loadingRef.current) return;
       loadingRef.current = true;
@@ -138,35 +135,69 @@ export const HistorySettings: React.FC = () => {
 
       try {
         const result = await withTimeout(
-          commands.getHistoryEntries(cursor ?? null, PAGE_SIZE),
+          query.trim() || filter !== "all"
+            ? commands.searchHistoryEntries(cursor ?? null, query, filter)
+            : commands.getHistoryEntries(cursor ?? null, PAGE_SIZE),
           HISTORY_LOAD_TIMEOUT_MS,
         );
+        if (generation !== requestGeneration.current) return;
         if (result.status === "ok") {
           const { entries: newEntries, has_more } = result.data;
           setEntries((prev) =>
-            isFirstPage ? newEntries : [...prev, ...newEntries],
+            isFirstPage
+              ? newEntries
+              : [
+                  ...prev,
+                  ...newEntries.filter(
+                    (entry) =>
+                      !prev.some((existing) => existing.id === entry.id),
+                  ),
+                ],
           );
+          const cursor =
+            "next_cursor" in result.data
+              ? result.data.next_cursor
+              : newEntries[newEntries.length - 1]?.id;
+          setNextCursor(typeof cursor === "number" ? cursor : null);
           setHasMore(has_more);
         } else {
           setLoadError(result.error);
         }
       } catch (error) {
+        if (generation !== requestGeneration.current) return;
         console.error("Failed to load history entries:", error);
         setLoadError(
           error instanceof Error ? error.message : "history_load_failed",
         );
       } finally {
-        setLoading(false);
-        loadingRef.current = false;
+        if (generation === requestGeneration.current) {
+          setLoading(false);
+          loadingRef.current = false;
+        }
       }
     },
-    [historyEnabled],
+    [historyEnabled, query, filter],
   );
 
   // Initial load
   useEffect(() => {
-    if (historyEnabled) void loadPage();
-  }, [historyEnabled, loadPage]);
+    requestGeneration.current += 1;
+    loadingRef.current = false;
+    setEntries([]);
+    setNextCursor(null);
+    setHasMore(false);
+    setLoading(historyEnabled);
+    const timeout = window.setTimeout(
+      () => {
+        if (historyEnabled) void loadPage();
+      },
+      query.trim() || filter !== "all" ? 180 : 0,
+    );
+    return () => {
+      window.clearTimeout(timeout);
+      requestGeneration.current += 1;
+    };
+  }, [historyEnabled, loadPage, query, filter]);
 
   useEffect(() => {
     if (!historyEnabled) return;
@@ -175,36 +206,9 @@ export const HistorySettings: React.FC = () => {
     });
   }, [historyEnabled]);
 
-  useEffect(() => {
-    if (!historyEnabled || (!query.trim() && filter === "all")) return;
-    const timeout = window.setTimeout(() => {
-      void (async () => {
-        try {
-          const result = await withTimeout(
-            commands.getHistoryEntries(null, null),
-            HISTORY_LOAD_TIMEOUT_MS,
-          );
-          if (result.status === "ok") {
-            setEntries(result.data.entries);
-            setHasMore(false);
-            setLoadError(null);
-          } else {
-            setLoadError(result.error);
-          }
-        } catch (error) {
-          console.error("Failed to filter history entries:", error);
-          setLoadError(
-            error instanceof Error ? error.message : "history_load_failed",
-          );
-        }
-      })();
-    }, 180);
-    return () => window.clearTimeout(timeout);
-  }, [filter, historyEnabled, query]);
-
   // Infinite scroll via IntersectionObserver
   useEffect(() => {
-    if (loading) return;
+    if (loading || loadError) return;
 
     const sentinel = sentinelRef.current;
     if (!sentinel || !hasMore) return;
@@ -213,10 +217,7 @@ export const HistorySettings: React.FC = () => {
       (observerEntries) => {
         const first = observerEntries[0];
         if (first.isIntersecting) {
-          const lastEntry = entriesRef.current[entriesRef.current.length - 1];
-          if (lastEntry) {
-            loadPage(lastEntry.id);
-          }
+          if (nextCursor !== null) void loadPage(nextCursor);
         }
       },
       { threshold: 0 },
@@ -224,7 +225,7 @@ export const HistorySettings: React.FC = () => {
 
     observer.observe(sentinel);
     return () => observer.disconnect();
-  }, [loading, hasMore, loadPage]);
+  }, [loading, loadError, hasMore, loadPage, nextCursor]);
 
   // Listen for new entries added from the transcription pipeline
   useEffect(() => {
@@ -480,7 +481,7 @@ export const HistorySettings: React.FC = () => {
   } else if (visibleEntries.length === 0) {
     content = (
       <div className="px-4 py-3 text-center text-text/60">
-        {t("settings.history.empty")}
+        {t(hasMore ? "settings.history.loading" : "settings.history.empty")}
       </div>
     );
   } else {
@@ -509,8 +510,6 @@ export const HistorySettings: React.FC = () => {
             ))}
           </div>
         </AudioPlayerGroup>
-        {/* Sentinel for infinite scroll */}
-        <div ref={sentinelRef} className="h-1" />
       </>
     );
   }
@@ -543,6 +542,7 @@ export const HistorySettings: React.FC = () => {
           <Search size={15} aria-hidden="true" />
           <Input
             value={query}
+            maxLength={256}
             onChange={(event) => setQuery(event.target.value)}
             placeholder={t("settings.history.search")}
             aria-label={t("settings.history.search")}
@@ -589,6 +589,17 @@ export const HistorySettings: React.FC = () => {
       </div>
 
       <div className="history-list">{content}</div>
+      {!loading && !loadError && hasMore && nextCursor !== null && (
+        <div ref={sentinelRef}>
+          <Button
+            variant="secondary"
+            size="sm"
+            onClick={() => void loadPage(nextCursor)}
+          >
+            {t("settings.history.loadMore")}
+          </Button>
+        </div>
+      )}
     </div>
   );
 };

@@ -64,6 +64,64 @@ pub struct PaginatedHistory {
     pub has_more: bool,
 }
 
+#[derive(Clone, Debug, Serialize, Deserialize, Type)]
+pub struct HistorySearchPage {
+    pub entries: Vec<HistoryEntry>,
+    pub next_cursor: Option<i64>,
+    pub has_more: bool,
+}
+
+fn filter_history_page(page: PaginatedHistory, query: &str, filter: &str) -> HistorySearchPage {
+    let next_cursor = page.entries.last().map(|entry| entry.id);
+    let query = query.trim().to_lowercase();
+    let entries = page
+        .entries
+        .into_iter()
+        .filter(|entry| history_matches(entry, &query, filter))
+        .collect();
+    HistorySearchPage {
+        entries,
+        next_cursor,
+        has_more: page.has_more,
+    }
+}
+
+fn initialize_history_once(
+    initialized: &Mutex<bool>,
+    initialize: impl FnOnce() -> Result<()>,
+) -> Result<()> {
+    let mut ready = initialized
+        .lock()
+        .map_err(|_| anyhow!("history_unavailable"))?;
+    if !*ready {
+        initialize().map_err(|_| anyhow!("history_unavailable"))?;
+        *ready = true;
+    }
+    Ok(())
+}
+
+fn history_matches(entry: &HistoryEntry, query: &str, filter: &str) -> bool {
+    let selected = match filter {
+        "saved" => entry.saved,
+        "derived" => entry.metadata.parent_entry_id.is_some(),
+        "failed" => entry.metadata.status == HistoryEntryStatus::Failed,
+        _ => true,
+    };
+    selected
+        && (query.is_empty()
+            || [
+                Some(entry.title.as_str()),
+                Some(entry.transcription_text.as_str()),
+                entry.post_processed_text.as_deref(),
+                entry.metadata.mode_id.as_deref(),
+                entry.metadata.application_name.as_deref(),
+            ]
+            .into_iter()
+            .flatten()
+            .chain(entry.metadata.tags.iter().map(String::as_str))
+            .any(|value| value.to_lowercase().contains(query)))
+}
+
 #[derive(Clone, Debug, Serialize, Deserialize, Type, tauri_specta::Event)]
 #[serde(tag = "action")]
 pub enum HistoryUpdatePayload {
@@ -140,6 +198,7 @@ pub struct HistoryManager {
     recordings_dir: PathBuf,
     db_path: PathBuf,
     master_key: Mutex<Option<[u8; crate::history_crypto::MASTER_KEY_LEN]>>,
+    initialized: Mutex<bool>,
 }
 
 impl HistoryManager {
@@ -149,27 +208,32 @@ impl HistoryManager {
         let recordings_dir = app_data_dir.join("recordings");
         let db_path = app_data_dir.join("history.db");
 
-        // Ensure recordings directory exists
-        if !recordings_dir.exists() {
-            fs::create_dir_all(&recordings_dir)?;
-            debug!("Created recordings directory: {:?}", recordings_dir);
-        }
-
         let manager = Self {
             app_handle: app_handle.clone(),
             recordings_dir,
             db_path,
             master_key: Mutex::new(None),
+            initialized: Mutex::new(false),
         };
 
         // Initialize database and run migrations synchronously
-        manager.init_database()?;
-        manager.cleanup_old_entries()?;
+        if manager.ensure_initialized().is_err() {
+            // Preserve the database and key. History is optional: a failed
+            // migration must not prevent local dictation or access to settings.
+            log::warn!("History is unavailable; the next history request can retry initialization");
+        } else if manager.cleanup_old_entries().is_err() {
+            log::warn!("History retention cleanup needs to be retried");
+        }
 
         Ok(manager)
     }
 
+    fn ensure_initialized(&self) -> Result<()> {
+        initialize_history_once(&self.initialized, || self.init_database())
+    }
+
     fn init_database(&self) -> Result<()> {
+        fs::create_dir_all(&self.recordings_dir)?;
         info!("Initializing database at {:?}", self.db_path);
 
         let mut conn = Connection::open(&self.db_path)?;
@@ -275,6 +339,7 @@ impl HistoryManager {
     }
 
     fn get_connection(&self) -> Result<Connection> {
+        self.ensure_initialized()?;
         Ok(Connection::open(&self.db_path)?)
     }
 
@@ -559,6 +624,7 @@ impl HistoryManager {
     }
 
     pub fn save_audio(&self, file_name: &str, samples: &[f32]) -> Result<()> {
+        self.ensure_initialized()?;
         let wav_bytes = crate::audio_toolkit::encode_wav_samples(samples)?;
         self.save_encrypted_audio_bytes(file_name, &wav_bytes)
     }
@@ -860,16 +926,16 @@ impl HistoryManager {
         Ok(())
     }
 
-    pub async fn get_history_entries(
-        &self,
+    fn load_stored_page(
+        conn: &Connection,
         cursor: Option<i64>,
         limit: Option<usize>,
-    ) -> Result<PaginatedHistory> {
-        let conn = self.get_connection()?;
-        let limit = limit.map(|l| l.min(100));
+    ) -> Result<(Vec<StoredHistoryEntry>, usize)> {
+        let limit = limit.unwrap_or(30).clamp(1, 100);
 
-        let stored_entries: Vec<StoredHistoryEntry> = match (cursor, limit) {
-            (Some(cursor_id), Some(lim)) => {
+        let stored_entries = match cursor {
+            Some(cursor_id) => {
+                let lim = limit;
                 let fetch_count = (lim + 1) as i64;
                 let sql = format!(
                     "SELECT {HISTORY_COLUMNS} FROM transcription_history
@@ -881,7 +947,8 @@ impl HistoryManager {
                     .collect::<std::result::Result<Vec<_>, _>>()?;
                 result
             }
-            (None, Some(lim)) => {
+            None => {
+                let lim = limit;
                 let fetch_count = (lim + 1) as i64;
                 let sql = format!(
                     "SELECT {HISTORY_COLUMNS} FROM transcription_history
@@ -893,28 +960,42 @@ impl HistoryManager {
                     .collect::<std::result::Result<Vec<_>, _>>()?;
                 result
             }
-            (_, None) => {
-                let sql =
-                    format!("SELECT {HISTORY_COLUMNS} FROM transcription_history ORDER BY id DESC");
-                let mut stmt = conn.prepare(&sql)?;
-                let result = stmt
-                    .query_map([], Self::map_stored_entry)?
-                    .collect::<std::result::Result<Vec<_>, _>>()?;
-                result
-            }
         };
 
-        let mut entries = stored_entries
+        Ok((stored_entries, limit))
+    }
+
+    pub fn get_history_entries(
+        &self,
+        cursor: Option<i64>,
+        limit: Option<usize>,
+    ) -> Result<PaginatedHistory> {
+        let conn = self.get_connection()?;
+        let (mut stored_entries, limit) = Self::load_stored_page(&conn, cursor, limit)?;
+        let has_more = stored_entries.len() > limit;
+        stored_entries.truncate(limit);
+
+        let entries = stored_entries
             .into_iter()
             .map(|entry| self.decrypt_entry(entry))
             .collect::<Result<Vec<_>>>()?;
 
-        let has_more = limit.is_some_and(|lim| entries.len() > lim);
-        if has_more {
-            entries.pop();
-        }
-
         Ok(PaginatedHistory { entries, has_more })
+    }
+
+    /// Scan one bounded encrypted page. The cursor advances even when no
+    /// matches are found, allowing callers to cancel between requests.
+    pub fn search_history_entries(
+        &self,
+        cursor: Option<i64>,
+        query: &str,
+        filter: &str,
+    ) -> Result<HistorySearchPage> {
+        if query.chars().count() > 256 || !["all", "saved", "derived", "failed"].contains(&filter) {
+            return Err(anyhow!("history_search_invalid"));
+        }
+        let page = self.get_history_entries(cursor, Some(100))?;
+        Ok(filter_history_page(page, query, filter))
     }
 
     /// Get the latest entry with non-empty transcription text.
@@ -923,11 +1004,9 @@ impl HistoryManager {
         let sql =
             format!("SELECT {HISTORY_COLUMNS} FROM transcription_history ORDER BY timestamp DESC");
         let mut statement = conn.prepare(&sql)?;
-        let stored = statement
-            .query_map([], Self::map_stored_entry)?
-            .collect::<std::result::Result<Vec<_>, _>>()?;
+        let stored = statement.query_map([], Self::map_stored_entry)?;
         for entry in stored {
-            let entry = self.decrypt_entry(entry)?;
+            let entry = self.decrypt_entry(entry?)?;
             if !entry.transcription_text.is_empty() {
                 return Ok(Some(entry));
             }
@@ -1123,6 +1202,94 @@ impl HistoryManager {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn corrupt_history_can_retry_without_destroying_the_database() {
+        let root =
+            std::env::temp_dir().join(format!("pressay-history-test-{}", uuid::Uuid::new_v4()));
+        fs::create_dir_all(&root).unwrap();
+        let path = root.join("history.db");
+        let original = b"synthetic corrupt SQLite database";
+        fs::write(&path, original).unwrap();
+        let ready = Mutex::new(false);
+        let initialize = || -> Result<()> {
+            let mut conn = Connection::open(&path)?;
+            Migrations::new(MIGRATIONS.to_vec()).to_latest(&mut conn)?;
+            Ok(())
+        };
+        assert!(initialize_history_once(&ready, initialize).is_err());
+        assert_eq!(fs::read(&path).unwrap(), original);
+        assert!(!*ready.lock().unwrap());
+        // Simulate restoring a valid backup outside the application.
+        fs::remove_file(&path).unwrap();
+        initialize_history_once(&ready, initialize).unwrap();
+        initialize_history_once(&ready, || panic!("must not initialize twice")).unwrap();
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn large_history_pages_are_bounded_and_cursors_do_not_skip_rows() {
+        let mut conn = Connection::open_in_memory().unwrap();
+        Migrations::new(MIGRATIONS.to_vec())
+            .to_latest(&mut conn)
+            .unwrap();
+        conn.execute_batch("WITH RECURSIVE numbers(n) AS (SELECT 1 UNION ALL SELECT n+1 FROM numbers WHERE n<10000) INSERT INTO transcription_history (file_name, timestamp, title, transcription_text) SELECT 'synthetic', n, '', '' FROM numbers").unwrap();
+        let (default_page, limit) = HistoryManager::load_stored_page(&conn, None, None).unwrap();
+        assert_eq!(limit, 30);
+        assert_eq!(default_page.len(), 31);
+        let (page, limit) =
+            HistoryManager::load_stored_page(&conn, None, Some(usize::MAX)).unwrap();
+        assert_eq!(limit, 100);
+        assert_eq!(page.len(), 101);
+        assert_eq!(page[0].id, 10000);
+        let (next, _) =
+            HistoryManager::load_stored_page(&conn, Some(page[99].id), Some(100)).unwrap();
+        assert_eq!(next[0].id, 9900);
+        let (last, _) = HistoryManager::load_stored_page(&conn, Some(2), Some(100)).unwrap();
+        assert_eq!(last.len(), 1);
+    }
+
+    #[test]
+    fn encrypted_search_cursor_advances_through_empty_matches() {
+        let entry = HistoryEntry {
+            id: 42,
+            file_name: String::new(),
+            timestamp: 0,
+            saved: false,
+            title: String::new(),
+            transcription_text: "synthetic".into(),
+            post_processed_text: None,
+            post_process_prompt: None,
+            post_process_requested: false,
+            audio_available: false,
+            audio_saved: false,
+            metadata: HistoryMetadata {
+                tags: vec!["Équipe".into()],
+                ..HistoryMetadata::default()
+            },
+        };
+        let empty = filter_history_page(
+            PaginatedHistory {
+                entries: vec![entry.clone()],
+                has_more: true,
+            },
+            "absent",
+            "all",
+        );
+        assert!(empty.entries.is_empty());
+        assert!(empty.has_more);
+        assert_eq!(empty.next_cursor, Some(42));
+        let matched = filter_history_page(
+            PaginatedHistory {
+                entries: vec![entry.clone()],
+                has_more: false,
+            },
+            "ÉQUIPE",
+            "all",
+        );
+        assert_eq!(matched.entries.len(), 1);
+        assert!(!history_matches(&entry, "", "saved"));
+    }
 
     #[test]
     fn migrations_create_encrypted_history_columns() {

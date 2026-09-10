@@ -95,7 +95,16 @@
             buildAndTestSubdir = "src-tauri";
             tauriBundleType = "deb";
 
-            cargoLock = {
+            # Only change the archive URL used by this lockfile importer. Adding
+            # crates.io to extraRegistries would duplicate Cargo's built-in source.
+            cargoDeps = (pkgs.rustPlatform.importCargoLock.override {
+              fetchurl = args: pkgs.fetchurl (args // {
+                url = lib.replaceStrings
+                  [ "https://crates.io/api/v1/crates/" ]
+                  [ "https://static.crates.io/crates/" ]
+                  args.url;
+              });
+            }) {
               lockFile = ./src-tauri/Cargo.lock;
               # Automatically fetch git dependencies using builtins.fetchGit.
               # This eliminates the need for manual outputHashes that had to be

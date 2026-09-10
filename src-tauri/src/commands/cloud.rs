@@ -225,6 +225,10 @@ pub async fn purchase_app_store_product(
     product_id: String,
 ) -> Result<CloudAccountSnapshot, String> {
     require_app_store_distribution()?;
+    if !cfg!(feature = "storekit-purchases") {
+        return Err("storekit_release_gate".to_string());
+    }
+
     if !storekit::is_known_product(&product_id) {
         return Err("storekit_product_invalid".to_string());
     }
@@ -243,6 +247,8 @@ async fn restore_or_reconcile(
     app: &AppHandle,
     force_sync: bool,
 ) -> Result<CloudAccountSnapshot, String> {
+    static RECONCILIATION_LOCK: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
+    let _reconciliation = RECONCILIATION_LOCK.lock().await;
     require_app_store_distribution()?;
     if get_settings(app).pressay_cloud_account_id.is_none() {
         return Err("cloud_account_required".to_string());
@@ -252,8 +258,17 @@ async fn restore_or_reconcile(
             .await
             .map_err(|_| "storekit_restore_failed".to_string())??;
     let mut snapshot = None;
+    let mut failure = None;
     for transaction in transactions {
-        snapshot = Some(reconcile_transaction(app, transaction).await?);
+        match reconcile_transaction(app, transaction).await {
+            Ok(value) => snapshot = Some(value),
+            Err(error) => failure = Some(error),
+        }
+    }
+    if let Some(error) = failure {
+        // One undeliverable transaction must not starve the rest of the queue.
+        // It stays unfinished in StoreKit and is retried on the next wake.
+        return Err(error);
     }
     match snapshot {
         Some(snapshot) => Ok(snapshot),
@@ -269,6 +284,7 @@ pub fn start_app_store_reconciliation(app: AppHandle) {
     if !cfg!(feature = "mas") {
         return;
     }
+    storekit::observe_transactions();
     tauri::async_runtime::spawn(async move {
         loop {
             if get_settings(&app).pressay_cloud_account_id.is_some() {
@@ -276,7 +292,11 @@ pub fn start_app_store_reconciliation(app: AppHandle) {
                     log::warn!("App Store entitlement reconciliation failed: {error}");
                 }
             }
-            tokio::time::sleep(std::time::Duration::from_secs(15 * 60)).await;
+            let _ = tokio::time::timeout(
+                std::time::Duration::from_secs(15 * 60),
+                storekit::TRANSACTION_UPDATES.notified(),
+            )
+            .await;
         }
     });
 }
