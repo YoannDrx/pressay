@@ -80,7 +80,11 @@ impl Capabilities {
             pressay_cloud: pro,
             // Kept closed until their respective end-to-end payment matrices pass.
             direct_checkout: CapabilityAccess::ReleaseGate,
-            app_store_purchase: CapabilityAccess::ReleaseGate,
+            app_store_purchase: if cfg!(feature = "storekit-purchases") {
+                CapabilityAccess::Enabled
+            } else {
+                CapabilityAccess::ReleaseGate
+            },
         }
     }
 
@@ -222,7 +226,11 @@ mod tests {
         assert_eq!(capabilities.encrypted_sync, CapabilityAccess::Enabled);
         assert_eq!(
             capabilities.app_store_purchase,
-            CapabilityAccess::ReleaseGate
+            if cfg!(feature = "storekit-purchases") {
+                CapabilityAccess::Enabled
+            } else {
+                CapabilityAccess::ReleaseGate
+            }
         );
     }
 }

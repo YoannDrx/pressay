@@ -609,7 +609,7 @@
       "deleteAllError": "The local history could not be deleted.",
       "openFolder": "Open Recordings Folder",
       "loading": "Loading history...",
-      "loadError": "History could not be unlocked. Allow Pressay access in macOS Keychain, then try again.",
+      "loadError": "History is unavailable. Your files are preserved and dictation remains available. Allow macOS Keychain access, then retry. If the problem persists, contact support before modifying the database.",
       "empty": "No transcriptions yet. Start recording to build your history!",
       "copyToClipboard": "Copy transcription to clipboard",
       "save": "Save transcription",
@@ -629,7 +629,8 @@
       "reprocessSuccess": "A new derived entry was added to your private history.",
       "reprocessError": "This transcription could not be reprocessed. Check the selected processing route in Providers.",
       "transcribing": "Transcribing...",
-      "transcriptionFailed": "Transcription failed. You can re-transcribe using the retry icon."
+      "transcriptionFailed": "Transcription failed. You can re-transcribe using the retry icon.",
+      "loadMore": "Load more"
     },
     "debug": {
       "title": "Debug",
@@ -1000,7 +1001,11 @@
       "defaultModel": "Default model",
       "defaultMicrophone": "Default microphone",
       "deleteLabel": "Delete {{name}} profile",
-      "outputs": { "paste": "Paste", "copy": "Copy", "type": "Type" }
+      "outputs": {
+        "paste": "Paste",
+        "copy": "Copy",
+        "type": "Type"
+      }
     },
     "transfer": {
       "exported": "Configuration exported",

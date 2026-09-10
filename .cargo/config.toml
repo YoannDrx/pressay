@@ -1,1 +1,6 @@
 [build]
+
+[env]
+# Distributed binaries must not inherit instructions detected on the build host.
+# Keep Metal acceleration; use the compiler's portable target CPU baseline.
+TRANSCRIBE_CMAKE_ARGS = { value = "-DGGML_NATIVE=OFF", force = false }

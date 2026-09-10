@@ -629,7 +629,8 @@
       "reprocessing": "Reprocessing…",
       "reprocessMode": "Mode used to reprocess this transcription",
       "reprocessSuccess": "A new derived entry was added to your private history.",
-      "reprocessError": "This transcription could not be reprocessed. Check the selected processing route in Providers."
+      "reprocessError": "This transcription could not be reprocessed. Check the selected processing route in Providers.",
+      "loadMore": "थप लोड गर्नुहोस्"
     },
     "debug": {
       "title": "डिबग",

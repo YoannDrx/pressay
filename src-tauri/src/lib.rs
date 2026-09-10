@@ -1,3 +1,6 @@
+#[cfg(all(feature = "mas", feature = "direct"))]
+compile_error!("The mas distribution cannot include direct/private APIs or the updater. Build each channel separately.");
+
 mod actions;
 #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
 mod apple_intelligence;
@@ -405,21 +408,6 @@ where
     }
 }
 
-#[cfg(test)]
-mod headless_guard_tests {
-    use super::run_headless_guarded;
-
-    #[test]
-    fn preserves_normal_exit_codes() {
-        assert_eq!(run_headless_guarded(|| 2), 2);
-    }
-
-    #[test]
-    fn converts_worker_panics_to_runtime_failures() {
-        assert_eq!(run_headless_guarded(|| panic!("simulated failure")), 1);
-    }
-}
-
 /// Headless one-shot transcription for the `--transcribe-file` / `--list-devices`
 /// path. Drives the same `TranscriptionManager::transcribe` the app uses; no
 /// mic, no VAD, no download. Returns a process exit code (0 ok, 1 runtime
@@ -565,7 +553,7 @@ fn run_headless_transcription(app: &AppHandle, args: &CliArgs) -> i32 {
             }
         }
         let t = Instant::now();
-        match tm.transcribe(samples.clone()) {
+        match tm.transcribe_with_language(samples.clone(), args.language.as_deref()) {
             Ok(out) => text = out,
             Err(e) => {
                 eprintln!("error: transcribe failed: {}", e);
@@ -587,6 +575,7 @@ fn run_headless_transcription(app: &AppHandle, args: &CliArgs) -> i32 {
             serde_json::json!({
                 "model": model_id,
                 "requested_device": requested_device,
+                "language": args.language.as_deref().unwrap_or(&get_settings(app).selected_language),
                 "bound_backend": bound_backend,
                 "audio_secs": audio_secs,
                 "load_ms": load_ms,
@@ -767,6 +756,7 @@ pub fn run(cli_args: CliArgs) {
             commands::transcription::get_model_load_status,
             commands::transcription::unload_model_manually,
             commands::history::get_history_entries,
+            commands::history::search_history_entries,
             commands::history::toggle_history_entry_saved,
             commands::history::update_history_entry_tags,
             commands::history::reprocess_history_entry,
@@ -1129,4 +1119,19 @@ pub fn run(cli_args: CliArgs) {
             }
             _ => {}
         });
+}
+
+#[cfg(test)]
+mod headless_guard_tests {
+    use super::run_headless_guarded;
+
+    #[test]
+    fn preserves_normal_exit_codes() {
+        assert_eq!(run_headless_guarded(|| 2), 2);
+    }
+
+    #[test]
+    fn converts_worker_panics_to_runtime_failures() {
+        assert_eq!(run_headless_guarded(|| panic!("simulated failure")), 1);
+    }
 }

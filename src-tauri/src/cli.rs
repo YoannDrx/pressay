@@ -38,6 +38,11 @@ pub struct CliArgs {
     #[arg(long)]
     pub model: Option<String>,
 
+    /// Recognition language for --transcribe-file (e.g. en, fr, auto).
+    /// Overrides this invocation only; does not change saved preferences.
+    #[arg(long, requires = "transcribe_file")]
+    pub language: Option<String>,
+
     /// Hard-select the compute device for --transcribe-file by its registry
     /// index (see --list-devices). Omit to use the persisted accelerator
     /// setting. transcribe-cpp (whisper-family) models only.
@@ -60,4 +65,23 @@ pub struct CliArgs {
     /// Emit --transcribe-file results as JSON.
     #[arg(long)]
     pub json: bool,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn file_language_override_requires_a_file() {
+        assert!(CliArgs::try_parse_from(["pressay", "--language", "en"]).is_err());
+        let args = CliArgs::try_parse_from([
+            "pressay",
+            "--transcribe-file",
+            "synthetic.wav",
+            "--language",
+            "en",
+        ])
+        .unwrap();
+        assert_eq!(args.language.as_deref(), Some("en"));
+    }
 }

@@ -4,6 +4,24 @@ import StoreKit
 
 private typealias ResponsePointer = UnsafeMutablePointer<PressayStoreKitResponse>
 
+// StoreKit retains unfinished transactions across launches. The observer only
+// wakes reconciliation; signed payloads never cross the frontend event bus.
+private let observerLock = NSLock()
+private var transactionObserver: Task<Void, Never>?
+
+@_cdecl("pressay_storekit_observe_transactions")
+public func observeStoreKitTransactions(_ callback: @escaping @convention(c) () -> Void) {
+    observerLock.lock()
+    defer { observerLock.unlock() }
+    guard transactionObserver == nil else { return }
+    transactionObserver = Task.detached(priority: .utility) {
+        for await result in Transaction.updates {
+            guard case .verified = result else { continue }
+            callback()
+        }
+    }
+}
+
 private struct ProductPayload: Codable {
     let id: String
     let displayName: String
@@ -204,21 +222,32 @@ public func storeKitCurrentEntitlements(
             // Apple requires this prompt to be initiated by an explicit Restore action.
             try await AppStore.sync()
         }
-        var transactions: [TransactionPayload] = []
+        var transactions: [UInt64: TransactionPayload] = [:]
+        // Retry delivery after a network failure, interrupted purchase, or
+        // launch. Only server-confirmed transactions are finished by Rust.
+        for await result in Transaction.unfinished {
+            guard case .verified(let transaction) = result, ids.contains(transaction.productID) else {
+                continue
+            }
+            transactions[transaction.id] = TransactionPayload(
+                status: "purchased",
+                productId: transaction.productID,
+                transactionId: String(transaction.id),
+                signedTransaction: result.jwsRepresentation
+            )
+        }
         for await result in Transaction.currentEntitlements {
             guard case .verified(let transaction) = result, ids.contains(transaction.productID) else {
                 continue
             }
-            transactions.append(
-                TransactionPayload(
+            transactions[transaction.id] = TransactionPayload(
                     status: "purchased",
                     productId: transaction.productID,
                     transactionId: String(transaction.id),
                     signedTransaction: result.jwsRepresentation
-                )
             )
         }
-        return try encode(EntitlementsPayload(transactions: transactions))
+        return try encode(EntitlementsPayload(transactions: transactions.sorted { $0.key < $1.key }.map(\.value)))
     }
 }
 

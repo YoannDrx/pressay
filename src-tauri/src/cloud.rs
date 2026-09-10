@@ -29,12 +29,49 @@ const REQUEST_TIMEOUT: Duration = Duration::from_secs(45);
 const MAX_ERROR_CODE_LEN: usize = 80;
 const ENTITLEMENT_KEY_ID: &str = "pressay-entitlement-2026-01";
 const ENTITLEMENT_PUBLIC_KEY: &str = "gj3woVSEMEiNemiZKdA28oEvMrLL9iQPbiMPr_B-plQ";
+const PRODUCTION_ENTITLEMENT_KEY_ID: &str = "pressay-entitlement-production-2026-01";
+const PRODUCTION_ENTITLEMENT_PUBLIC_KEY: &str = "Xm5Rqwpjhv85nc7Y_Lrf3S7M40iCozJCrFh1UCXeoF0";
+
+// Public trust anchors verified against each canonical deployment's JWKS.
+// Never fetch and trust replacement keys from a transaction or at runtime.
+fn entitlement_trust_anchor(settings: &AppSettings) -> (&'static str, &'static str) {
+    if settings.pressay_cloud_api_url.trim_end_matches('/') == "https://api.press-say.app" {
+        (
+            PRODUCTION_ENTITLEMENT_KEY_ID,
+            PRODUCTION_ENTITLEMENT_PUBLIC_KEY,
+        )
+    } else {
+        (ENTITLEMENT_KEY_ID, ENTITLEMENT_PUBLIC_KEY)
+    }
+}
+
 const ENTITLEMENT_ISSUER: &str = "https://api.press-say.app";
 const OAUTH_ISSUER: &str = "https://press-say.app";
 const OAUTH_CLIENT_ID: &str = "w9ckUgrcFp7H7wNV";
 const OAUTH_RESOURCE: &str = "https://api.press-say.app";
 const OAUTH_REDIRECT_URI: &str = "pressay://oauth/callback";
 const OAUTH_SCOPE: &str = "openid profile email offline_access";
+
+// A rotating refresh token can only be used once. Account refresh, sync and
+// transcription share this lock and read Keychain after acquiring it.
+static OAUTH_SESSION_LOCK: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
+static SESSION_REVISION: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+
+fn session_revision() -> u64 {
+    SESSION_REVISION.load(std::sync::atomic::Ordering::SeqCst)
+}
+
+fn require_session_revision(expected: u64) -> Result<(), CloudFailure> {
+    if session_revision() == expected {
+        Ok(())
+    } else {
+        Err(CloudFailure::new("cloud_session_changed"))
+    }
+}
+
+fn advance_session_revision() {
+    SESSION_REVISION.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+}
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct CloudFailure {
@@ -401,7 +438,7 @@ struct OAuthMetadata {
     token_endpoint: Url,
 }
 
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize, Deserialize, Clone)]
 #[serde(rename_all = "camelCase")]
 struct OAuthTokenSet {
     access_token: String,
@@ -843,6 +880,7 @@ async fn request_oauth_tokens(
 }
 
 async fn exchange_oauth_code(code: &str, verifier: &str) -> Result<(), CloudFailure> {
+    let _session = OAUTH_SESSION_LOCK.lock().await;
     if code.is_empty() || code.len() > 4096 || verifier.len() < 43 || verifier.len() > 128 {
         return Err(CloudFailure::new("cloud_auth_token_invalid"));
     }
@@ -859,16 +897,23 @@ async fn exchange_oauth_code(code: &str, verifier: &str) -> Result<(), CloudFail
         access_token: response.access_token,
         refresh_token: response.refresh_token,
         expires_at: chrono::Utc::now().timestamp() + response.expires_in,
-    })
+    })?;
+    advance_session_revision();
+    Ok(())
 }
 
 async fn access_token() -> Result<String, CloudFailure> {
-    let Some(current) = stored_oauth_token_set()? else {
-        return legacy_bearer();
-    };
-    if current.expires_at > chrono::Utc::now().timestamp() + 60 {
-        return Ok(current.access_token);
-    }
+    access_token_with(
+        &OAUTH_SESSION_LOCK,
+        stored_oauth_token_set,
+        legacy_bearer,
+        persist_oauth_token_set,
+        refresh_oauth_tokens,
+    )
+    .await
+}
+
+async fn refresh_oauth_tokens(current: OAuthTokenSet) -> Result<OAuthTokenSet, CloudFailure> {
     let refresh_token = current
         .refresh_token
         .as_deref()
@@ -880,13 +925,36 @@ async fn access_token() -> Result<String, CloudFailure> {
         ("resource", OAUTH_RESOURCE),
     ])
     .await?;
-    let refreshed = OAuthTokenSet {
+    Ok(OAuthTokenSet {
         access_token: response.access_token,
         refresh_token: response.refresh_token.or(current.refresh_token),
         expires_at: chrono::Utc::now().timestamp() + response.expires_in,
+    })
+}
+
+// Keep the whole read/refresh/write operation serialized, including Keychain
+// migration, so waiters see the token persisted by the previous request.
+async fn access_token_with<F, Fut>(
+    session_lock: &tokio::sync::Mutex<()>,
+    read: impl FnOnce() -> Result<Option<OAuthTokenSet>, CloudFailure>,
+    legacy: impl FnOnce() -> Result<String, CloudFailure>,
+    persist: impl FnOnce(&OAuthTokenSet) -> Result<(), CloudFailure>,
+    refresh: F,
+) -> Result<String, CloudFailure>
+where
+    F: FnOnce(OAuthTokenSet) -> Fut,
+    Fut: std::future::Future<Output = Result<OAuthTokenSet, CloudFailure>>,
+{
+    let _session = session_lock.lock().await;
+    let Some(current) = read()? else {
+        return legacy();
     };
+    if current.expires_at > chrono::Utc::now().timestamp() + 60 {
+        return Ok(current.access_token);
+    }
+    let refreshed = refresh(current).await?;
     let access_token = refreshed.access_token.clone();
-    persist_oauth_token_set(&refreshed)?;
+    persist(&refreshed)?;
     Ok(access_token)
 }
 
@@ -902,7 +970,7 @@ fn verify_entitlement_token(
     now_seconds: i64,
 ) -> Result<(EntitlementSnapshot, UsageSnapshot), CloudFailure> {
     let public_key_bytes: [u8; 32] = URL_SAFE_NO_PAD
-        .decode(ENTITLEMENT_PUBLIC_KEY)
+        .decode(entitlement_trust_anchor(settings).1)
         .map_err(|_| CloudFailure::new("cloud_entitlement_invalid"))?
         .try_into()
         .map_err(|_| CloudFailure::new("cloud_entitlement_invalid"))?;
@@ -935,7 +1003,10 @@ fn verify_entitlement_token_with_key(
             .map_err(|_| CloudFailure::new("cloud_entitlement_invalid"))?,
     )
     .map_err(|_| CloudFailure::new("cloud_entitlement_invalid"))?;
-    if header.alg != "EdDSA" || header.kid != ENTITLEMENT_KEY_ID || header.typ != "JWT" {
+    if header.alg != "EdDSA"
+        || header.kid != entitlement_trust_anchor(settings).0
+        || header.typ != "JWT"
+    {
         return Err(CloudFailure::new("cloud_entitlement_invalid"));
     }
 
@@ -1183,6 +1254,7 @@ async fn exchange_one_time_token(settings: &AppSettings, token: &str) -> Result<
 }
 
 async fn bootstrap_device(app: &AppHandle) -> Result<(), CloudFailure> {
+    let revision = session_revision();
     let mut settings = get_settings(app);
     if settings.pressay_cloud_device_identifier.is_empty() {
         settings.pressay_cloud_device_identifier =
@@ -1210,9 +1282,15 @@ async fn bootstrap_device(app: &AppHandle) -> Result<(), CloudFailure> {
     if bootstrap.entitlement.revision == 0 {
         return Err(CloudFailure::new("cloud_entitlement_invalid"));
     }
-    settings.pressay_cloud_account_id = Some(bootstrap.account_id);
-    settings.pressay_cloud_device_id = Some(bootstrap.device.id);
-    write_settings(app, settings);
+    let _session = OAUTH_SESSION_LOCK.lock().await;
+    require_session_revision(revision)?;
+    let mut latest = get_settings(app);
+    if latest.pressay_cloud_api_url != settings.pressay_cloud_api_url {
+        return Err(CloudFailure::new("cloud_session_changed"));
+    }
+    latest.pressay_cloud_account_id = Some(bootstrap.account_id);
+    latest.pressay_cloud_device_id = Some(bootstrap.device.id);
+    write_settings(app, latest);
     Ok(())
 }
 
@@ -1578,12 +1656,15 @@ pub async fn fetch_sync_changes(
 }
 
 pub async fn account_snapshot(app: &AppHandle) -> Result<CloudAccountSnapshot, CloudFailure> {
+    let revision = session_revision();
     let mut settings = get_settings(app);
     if settings.pressay_cloud_device_id.is_none() {
+        let session = OAUTH_SESSION_LOCK.lock().await;
         let has_session = stored_oauth_token_set()?.is_some()
             || get_cloud_bearer_token()
                 .map_err(|_| CloudFailure::new("cloud_keychain_unavailable"))?
                 .is_some();
+        drop(session);
         if !has_session {
             clear_account_snapshot_cache();
             return Ok(CloudAccountSnapshot {
@@ -1628,7 +1709,7 @@ pub async fn account_snapshot(app: &AppHandle) -> Result<CloudAccountSnapshot, C
                 .pressay_cloud_account_id
                 .as_deref()
                 .unwrap_or_default()
-            || entitlements.signed_snapshot.key_id != ENTITLEMENT_KEY_ID
+            || entitlements.signed_snapshot.key_id != entitlement_trust_anchor(&settings).0
         {
             return Err(CloudFailure::new("cloud_account_mismatch"));
         }
@@ -1647,6 +1728,8 @@ pub async fn account_snapshot(app: &AppHandle) -> Result<CloudAccountSnapshot, C
             return Err(CloudFailure::new("cloud_entitlement_invalid"));
         }
         let _ = &entitlements.signed_snapshot.expires_at;
+        let _session = OAUTH_SESSION_LOCK.lock().await;
+        require_session_revision(revision)?;
         set_cloud_entitlement_snapshot(&entitlements.signed_snapshot.token)
             .map_err(|_| CloudFailure::new("cloud_keychain_unavailable"))?;
         let _ = me.entitlement;
@@ -1661,6 +1744,8 @@ pub async fn account_snapshot(app: &AppHandle) -> Result<CloudAccountSnapshot, C
     }
     .await;
 
+    let _session = OAUTH_SESSION_LOCK.lock().await;
+    require_session_revision(revision)?;
     match online {
         Ok(snapshot) => {
             remember_account_snapshot(&snapshot);
@@ -1714,6 +1799,7 @@ pub async fn restore_app_store_transaction(
 }
 
 pub async fn sign_out(app: &AppHandle) -> Result<(), CloudFailure> {
+    let revision = session_revision();
     let settings = get_settings(app);
     if let Ok(token) = access_token().await {
         let _ = client()
@@ -1722,8 +1808,11 @@ pub async fn sign_out(app: &AppHandle) -> Result<(), CloudFailure> {
             .send()
             .await;
     }
-    delete_cloud_bearer_token().map_err(|_| CloudFailure::new("cloud_keychain_unavailable"))?;
+    let _session = OAUTH_SESSION_LOCK.lock().await;
+    require_session_revision(revision)?;
+    advance_session_revision();
     delete_cloud_oauth_token_set().map_err(|_| CloudFailure::new("cloud_keychain_unavailable"))?;
+    delete_cloud_bearer_token().map_err(|_| CloudFailure::new("cloud_keychain_unavailable"))?;
     delete_cloud_entitlement_snapshot()
         .map_err(|_| CloudFailure::new("cloud_keychain_unavailable"))?;
     let mut settings = get_settings(app);
@@ -1901,7 +1990,9 @@ pub fn handle_deep_link(app: AppHandle, url: Url) {
                         return Err(CloudFailure::new("cloud_auth_state_mismatch"));
                     }
                     let settings = get_settings(&app);
+                    let _session = OAUTH_SESSION_LOCK.lock().await;
                     exchange_one_time_token(&settings, &token).await?;
+                    advance_session_revision();
                 }
             }
             let _ = app.emit(
@@ -1911,11 +2002,9 @@ pub fn handle_deep_link(app: AppHandle, url: Url) {
                     error_code: None,
                 },
             );
-            if let Err(error) = bootstrap_device(&app).await {
-                let _ = delete_cloud_bearer_token();
-                let _ = delete_cloud_oauth_token_set();
-                return Err(error);
-            }
+            // Keep the valid session after a transient bootstrap failure so
+            // the account page can retry without another browser login.
+            bootstrap_device(&app).await?;
             Ok::<(), CloudFailure>(())
         }
         .await;
@@ -1942,6 +2031,105 @@ mod tests {
     use super::*;
     use ed25519_dalek::{Signer, SigningKey};
 
+    #[tokio::test]
+    async fn concurrent_requests_rotate_an_expired_token_only_once() {
+        use std::sync::atomic::{AtomicUsize, Ordering};
+        let session = tokio::sync::Mutex::new(());
+        let stored = Mutex::new(OAuthTokenSet {
+            access_token: "synthetic-expired-access".into(),
+            refresh_token: Some("synthetic-single-use-refresh".into()),
+            expires_at: 0,
+        });
+        let refreshes = AtomicUsize::new(0);
+        let requests = (0..8).map(|_| {
+            access_token_with(
+                &session,
+                || Ok(Some(stored.lock().unwrap().clone())),
+                || panic!("OAuth must not fall back to the legacy bearer"),
+                |token| {
+                    *stored.lock().unwrap() = token.clone();
+                    Ok(())
+                },
+                |_| async {
+                    assert_eq!(refreshes.fetch_add(1, Ordering::SeqCst), 0);
+                    tokio::task::yield_now().await;
+                    Ok(OAuthTokenSet {
+                        access_token: "synthetic-fresh-access".into(),
+                        refresh_token: Some("synthetic-rotated-refresh".into()),
+                        expires_at: chrono::Utc::now().timestamp() + 3600,
+                    })
+                },
+            )
+        });
+        for result in futures_util::future::join_all(requests).await {
+            assert_eq!(result.unwrap(), "synthetic-fresh-access");
+        }
+        assert_eq!(refreshes.load(Ordering::SeqCst), 1);
+    }
+
+    #[tokio::test]
+    async fn refresh_failure_does_not_overwrite_the_stored_session() {
+        let result = access_token_with(
+            &tokio::sync::Mutex::new(()),
+            || {
+                Ok(Some(OAuthTokenSet {
+                    access_token: "synthetic-expired-access".into(),
+                    refresh_token: Some("synthetic-refresh".into()),
+                    expires_at: 0,
+                }))
+            },
+            || panic!("must not use legacy bearer"),
+            |_| panic!("must not persist a failed refresh"),
+            |_| async { Err(CloudFailure::new("cloud_network_unavailable")) },
+        )
+        .await;
+        assert_eq!(result.unwrap_err().code, "cloud_network_unavailable");
+    }
+
+    #[test]
+    fn session_changes_reject_late_responses() {
+        let started = session_revision();
+        assert!(require_session_revision(started).is_ok());
+        advance_session_revision();
+        assert_eq!(
+            require_session_revision(started).unwrap_err().code,
+            "cloud_session_changed"
+        );
+        assert!(require_session_revision(session_revision()).is_ok());
+    }
+
+    #[test]
+    fn production_and_staging_use_distinct_pinned_entitlement_keys() {
+        let production = AppSettings {
+            pressay_cloud_api_url: "https://api.press-say.app/".into(),
+            ..AppSettings::default()
+        };
+        let staging = AppSettings {
+            pressay_cloud_api_url: "https://pressay-cloud-staging.vercel.app".into(),
+            ..AppSettings::default()
+        };
+        assert_eq!(
+            entitlement_trust_anchor(&production).0,
+            "pressay-entitlement-production-2026-01"
+        );
+        assert_eq!(
+            entitlement_trust_anchor(&staging).0,
+            "pressay-entitlement-2026-01"
+        );
+        assert_ne!(
+            entitlement_trust_anchor(&production).1,
+            entitlement_trust_anchor(&staging).1
+        );
+        for settings in [&production, &staging] {
+            let bytes: [u8; 32] = URL_SAFE_NO_PAD
+                .decode(entitlement_trust_anchor(settings).1)
+                .unwrap()
+                .try_into()
+                .unwrap();
+            assert!(VerifyingKey::from_bytes(&bytes).is_ok());
+        }
+    }
+
     #[test]
     fn api_error_body_accepts_modern_and_legacy_envelopes() {
         let modern: ApiErrorBody =
@@ -1963,7 +2151,7 @@ mod tests {
         let header = URL_SAFE_NO_PAD.encode(
             serde_json::to_vec(&serde_json::json!({
                 "alg": "EdDSA",
-                "kid": ENTITLEMENT_KEY_ID,
+                "kid": entitlement_trust_anchor(&crate::settings::get_default_settings()).0,
                 "typ": "JWT"
             }))
             .unwrap(),
@@ -1998,8 +2186,12 @@ mod tests {
 
     #[test]
     fn beta_build_defaults_to_isolated_staging() {
-        let expected = option_env!("PRESSAY_CLOUD_API_URL")
-            .unwrap_or("https://pressay-cloud-staging.vercel.app");
+        let expected =
+            option_env!("PRESSAY_RESOLVED_CLOUD_API_URL").unwrap_or(if cfg!(feature = "mas") {
+                "https://api.press-say.app"
+            } else {
+                "https://pressay-cloud-staging.vercel.app"
+            });
         assert_eq!(
             crate::settings::get_default_settings().pressay_cloud_api_url,
             expected
@@ -2111,9 +2303,11 @@ mod tests {
     #[test]
     fn signed_entitlement_is_bound_to_account_device_audience_and_expiry() {
         let signing_key = SigningKey::from_bytes(&[7_u8; 32]);
-        let mut settings = AppSettings::default();
-        settings.pressay_cloud_account_id = Some("account-id".to_string());
-        settings.pressay_cloud_device_id = Some("device-id".to_string());
+        let settings = AppSettings {
+            pressay_cloud_account_id: Some("account-id".to_string()),
+            pressay_cloud_device_id: Some("device-id".to_string()),
+            ..AppSettings::default()
+        };
         let token =
             signed_entitlement_fixture(&signing_key, "account-id", "device-id", 1_000, 2_000);
 
@@ -2149,9 +2343,11 @@ mod tests {
     #[test]
     fn signed_entitlement_rejects_tampering() {
         let signing_key = SigningKey::from_bytes(&[9_u8; 32]);
-        let mut settings = AppSettings::default();
-        settings.pressay_cloud_account_id = Some("account-id".to_string());
-        settings.pressay_cloud_device_id = Some("device-id".to_string());
+        let settings = AppSettings {
+            pressay_cloud_account_id: Some("account-id".to_string()),
+            pressay_cloud_device_id: Some("device-id".to_string()),
+            ..AppSettings::default()
+        };
         let token =
             signed_entitlement_fixture(&signing_key, "account-id", "device-id", 1_000, 2_000);
         let (unsigned, signature) = token.rsplit_once('.').unwrap();

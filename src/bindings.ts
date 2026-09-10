@@ -990,6 +990,14 @@ async getHistoryEntries(cursor: number | null, limit: number | null) : Promise<R
     else return { status: "error", error: e  as any };
 }
 },
+async searchHistoryEntries(cursor: number | null, query: string, filter: string) : Promise<Result<HistorySearchPage, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("search_history_entries", { cursor, query, filter }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e as string };
+}
+},
 async toggleHistoryEntrySaved(id: number) : Promise<Result<null, string>> {
     try {
     return { status: "ok", data: await TAURI_INVOKE("toggle_history_entry_saved", { id }) };
@@ -1346,6 +1354,7 @@ export type EntitlementSource = "none" | "trial" | "stripe" | "app_store" | "sup
 export type EntitlementState = "local_free" | "verified" | "unavailable"
 export type EntitlementTier = "free" | "pro"
 export type GpuDeviceOption = { id: number; name: string; total_vram_mb: number }
+export type HistorySearchPage = { entries: HistoryEntry[]; next_cursor: number | null; has_more: boolean }
 export type HistoryEntry = { id: number; file_name: string; timestamp: number; saved: boolean; title: string; transcription_text: string; post_processed_text: string | null; post_process_prompt: string | null; post_process_requested: boolean; audio_available: boolean; audio_saved: boolean; metadata: HistoryMetadata }
 export type HistoryEntryStatus = "completed" | "failed"
 export type HistoryMetadata = { tags?: string[]; mode_id?: string | null; processing_route?: string | null; application_name?: string | null; application_bundle_id?: string | null; parent_entry_id?: number | null; status?: HistoryEntryStatus }

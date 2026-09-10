@@ -1,0 +1,275 @@
+{
+  "schemaVersion": 1,
+  "recordedAt": "2026-09-06T22:27:32.025601+00:00",
+  "dateLocal": "2026-09-07",
+  "timezone": "Europe/Paris",
+  "releaseDecision": "not_cleared_for_commercial_launch",
+  "source": {
+    "desktop": {
+      "baseCommit": "3e755f060fba668777b5d18dd686ff883ce4027e",
+      "branch": "codex/production-readiness-audit",
+      "dirty": true,
+      "filesSha256": {
+        ".github/workflows/app-store-spike.yml": "fa20ede82fedfc441e2cd78be101bbdda8c08dbaf406a8dea77e4b13555f714d",
+        ".github/workflows/build.yml": "063c85b1a7c70be99901a2f027badf172c55e828ac45ab8cffa5fecd4b880563",
+        ".github/workflows/macos-tests.yml": "8d625bf9c4c7d71d26fc0acc1eb7ad89bf6524689f02133c82bb9a2cb012f4ef",
+        ".github/workflows/release.yml": "901ae0f0f7374058d82f2c5b57daadc5f64accf3ca0694af944b33c909b4d41a",
+        "config/build-environments.json": "fcccb209b76a29d79aff72ae6af476a7d9594b5b5bac25428fed56f8ca46421f",
+        "config/build-environments.schema.json": "dcf571d321e5d486d36ac86423d90f9a778a804401758a949939fe6263d6b79b",
+        "scripts/check-updater-manifest.test.ts": "8ac9fbe4d5609580d2770bc9e3f91e18f667054b9309bd7410aa71f020f8922e",
+        "scripts/check-updater-manifest.ts": "e947b2c998ccb81541193fb89f85b48813a3a8c13ec0a1c0d7081a3e7bccac0f",
+        "scripts/voice-os/benchmark-local.ts": "7ff42da2c84672e8b57a805b3a2d3e6170e85407f0ae401fd39e065ab6bc26d0",
+        "src-tauri/Cargo.lock": "a48e5bf8efdf36093c2b2099c68dc18b55a2f4d21c6074dd5adfd14cc1b119bd",
+        "src-tauri/Cargo.toml": "e99160ce5c2db842ef1e99bbd486f7a2f5cb22daee315c530787ea5e5d41040c",
+        "src-tauri/build.rs": "56a97f6608459e9d64268f31f5e01d13321f6181c9549212f707529a18c1d12c",
+        "src-tauri/src/actions.rs": "f1b77de3f81977f4640ba79b28b5dfac2449553eb2cd158e6e89b8a2d3b29e0f",
+        "src-tauri/src/audio_toolkit/audio/mod.rs": "59bb073ca3dc31daa81f645dc64c3c3c0740c81e8d06840eebc62a3e9cf7be31",
+        "src-tauri/src/audio_toolkit/audio/recorder.rs": "b026123202b35fb1e9e814b1295f79e14054bdb21d31503090aa50f5d6ec81ff",
+        "src-tauri/src/capabilities.rs": "179698c3864362eb56e648c0b49b7280cd956bdd3d24f14b055a1951f42ed18f",
+        "src-tauri/src/cli.rs": "71b742fae2d362cd476b4701872a19dfb0c3439545c6ac0e633e406464219773",
+        "src-tauri/src/cloud.rs": "7895b56e4d5c353b0322bc419c1c5eed58252f2c9131131aec2f439ad92e7d36",
+        "src-tauri/src/cloud_sync.rs": "86e4b9904ae45ce9e76605617b979d23b22ca906400c2abb20914d7556200891",
+        "src-tauri/src/commands/cloud.rs": "d9fc767b8bcc2ed2d58a402ebbe716bc9eb9339ade63cf8216140cbbb786e51e",
+        "src-tauri/src/commands/history.rs": "f00ccb3c8ee47fc9d8514b20d7fdc9693803994993f854d59348715c51656c6a",
+        "src-tauri/src/lib.rs": "c14b14ef0a0c16227ca10cb3f5d44340a8314d9b1c927f45ee00bbe0dad6796e",
+        "src-tauri/src/managers/gguf_meta.rs": "363981dbfcaacb2a7c2ac92cf4d9b34c88d72c5f73fcccd9f8a61c9a4ccf149d",
+        "src-tauri/src/managers/history.rs": "f6092f09c50fd04eeb309b83cbe4affd765a5eca85f98cb1935fc3e2c8fe0fcc",
+        "src-tauri/src/managers/transcription.rs": "eddde62592e5254dd6781677747182a1f92e3cdc9c6b7c65f390bb006f8dac32",
+        "src-tauri/src/secrets.rs": "e61ba18aa0865217c10e925cd5ca3be91341a3451798ea817ea946a2d42b3635",
+        "src-tauri/src/settings.rs": "a13af8d43a9b13b51f3bcca39df932ef5fee01364fdf42603ac6b8bf6fc484e3",
+        "src-tauri/src/storekit.rs": "14ca8a3d927255ce3908062c42016fe5eb543d3a80adaa4f7ee9ea006fbba527",
+        "src-tauri/src/transcription_coordinator.rs": "f2f0b993c3da41e6437f7dd126ffd6e9ffe047eaecb0d81dab3bd24d8b8ff9fc",
+        "src-tauri/swift/storekit.swift": "5fc30dcfe4f0d698fe011b5856ab2a2576bc15db16d513ec5a564b5426771040",
+        "src-tauri/swift/storekit_bridge.h": "f13261d9eee4a30132dede0af20a06c2ea4e4280790e0d2eadf2e233142e7bd7",
+        "src-tauri/tauri.conf.json": "689ea709e690b52aee425e51142b4a0c3b41785fd49675b79d76f97c3b5480df",
+        "src/bindings.ts": "1b834b98ea229704f0475cb3c871a8672eb060a7effba0ec543489122af9dc38",
+        "src/components/settings/account/AccountSettings.tsx": "90ee1f5a0aca29d17f901edb0d5bece264fd588dbbeb993f3af428e4a6d0e500",
+        "src/components/settings/history/HistorySettings.tsx": "6f813fe620b1be4c4dedfc839539f56ceb5549b9ea5567a91f22f1e5c4038bdb",
+        "src/i18n/locales/ar/translation.json": "ffdd26126ea19c8868f642980be57cf548616a71dcaeb26ac6e96a0e0750b603",
+        "src/i18n/locales/bg/translation.json": "290e94939974701fed9a5d02ed00fbbcd6643c0509d5f28daeabbd7f5b39b57b",
+        "src/i18n/locales/cs/translation.json": "2874e8e0ee8ea0bc0e70bc221fad373554aee5bc89aa4f631aa6fe652a8ae090",
+        "src/i18n/locales/da/translation.json": "7fbdfbe78f5fe3da8639ccb1558bdf860c24fa6fa58122ce7e6473df94b36443",
+        "src/i18n/locales/de/translation.json": "42eef23283d89200650a8349b1d222481ea843ac7430363e1295b386ec461d5c",
+        "src/i18n/locales/en/translation.json": "951d7b80063b60dea3f844dcf7b001d01f5ebb0583879f793b12c8eb0b50fcee",
+        "src/i18n/locales/es/translation.json": "e380d33817d42097fcf44ad26257a69cef5c1cce34ff713f1f987ddbaf79733a",
+        "src/i18n/locales/fr/translation.json": "3123606bd59cdb78c8d3ec2db47d49848635630d26ab0e0ed3e177e31ef01767",
+        "src/i18n/locales/he/translation.json": "b65d412284506cdcdb08478a7c62da4b15d291e33279b4684dccff55802936ee",
+        "src/i18n/locales/hi/translation.json": "65e6e3fb5bf7dc9dd485937a74e86b451142d25dab007781cb75b63873c24da5",
+        "src/i18n/locales/it/translation.json": "0559140c1208efdda5940c7aa7661c7b8d179d2bd96cd0c055458bb42bdca7b3",
+        "src/i18n/locales/ja/translation.json": "315ae7fbed4500fbd0c9caf2542a5581bf15ba9b63748bf35d8351c11429b8fd",
+        "src/i18n/locales/ko/translation.json": "0fbacefed1b5ba7bca9a8b3c447b60738488f34e959cb0a11dae05355a51a343",
+        "src/i18n/locales/ne/translation.json": "3411880409e3eeae733dedb33d6566b24a1ba15689626f24c937ba156a6bb034",
+        "src/i18n/locales/nl/translation.json": "fc1037dfb452ed743d9e3215854889aaa0bf21a99470fba19cd4e0d3f3c3eba6",
+        "src/i18n/locales/pl/translation.json": "88441f0f71ec7842889aab4f95980a0241f86e1949b545a6a569f8838689f9f9",
+        "src/i18n/locales/pt/translation.json": "1fbce504736bf209d4c1b8e6aa2a0cfc86896ae498faadd5399554bb8f2915b5",
+        "src/i18n/locales/ru/translation.json": "41bb8181da4c557d492c0ef9c5bbc8831185f639f87ce6673ac1d9cda358a976",
+        "src/i18n/locales/sv/translation.json": "37595c26e3c34d81680f32ef0017125797f8f4af03f39e8b41f0eda4c319975c",
+        "src/i18n/locales/tr/translation.json": "93fa5011bca89e512afd4a9861af3d9e0f1dec2b2878edf35456d9bc9fe12d5c",
+        "src/i18n/locales/uk/translation.json": "10f18a05101cfc7432f3dae83e72c462cbd89206de8ef4ab087d03ab7273a4cb",
+        "src/i18n/locales/vi/translation.json": "e6f20c237543e76f5961a15ab03b487b903e51ac6c712c59b26598c169b954dc",
+        "src/i18n/locales/zh-TW/translation.json": "fd4b47066bed307d8196ee59896f166ba4dab3308b2b1d6a8050f29f0b8fa9ce",
+        "src/i18n/locales/zh/translation.json": "596ed9fa6fa6088627b5e4507866511331e88022aaacec8fc4f5f192f3afa6d6",
+        "tests/account.spec.ts": "8e13d832037559c0f962dfe778a3ef84b16c09e468cf66df5245b220530f895e",
+        "tests/fixtures/account.html": "666da9df405aa12917098d9029fef251b878c3c8830eefdbc13cfb6f2122b3a3",
+        "tests/fixtures/account.tsx": "f9a8751511b90b637d6b175071968db208d8b7c1ee4b34a602dba5fa5b91288e",
+        "tests/fixtures/history.html": "4586b4ab3305ae56385acc97b5d71cdd5af5b9135bfca90392ab9cd84d4f79a6",
+        "tests/fixtures/history.tsx": "efef3f20d9aee4df3a5d75b3bf37bcc50c931f6fee9ebd656465c2edf09d6246",
+        "tests/history.spec.ts": "0a21e5de286d30e021b7ff36a7a7cc4822412f58174789577055a06a8546acc8"
+      }
+    },
+    "cloud": {
+      "path": "/Users/yoannandrieux/Projets/pressay-cloud-pre-sale",
+      "baseCommit": "e6fc44b167218b7a2dc2f71a5879a918a1e55c3e",
+      "dirty": true,
+      "modifiedFiles": [
+        "package.json",
+        "bun.lock",
+        "scripts/validate-staging.ts"
+      ],
+      "filesSha256": {
+        "package.json": "2ec6ef1c36e902e3304086419419c981acaf4a471ae82a95b46c77904edeb37e",
+        "bun.lock": "6ebf45da9d0a271973b8f9b472949d09ffaceadca723ef3a71b7ade160d280f4",
+        "scripts/validate-staging.ts": "4570d3ffacac80cb16f2088d3ec02f19c4dbffe6262137306355ce2b114bed3d"
+      }
+    },
+    "web": {
+      "baseCommit": "577b6ef",
+      "path": "/tmp/pressay-release-web",
+      "dirty": false
+    }
+  },
+  "checks": [
+    {
+      "id": "frontend-build",
+      "status": "passed",
+      "log": "/tmp/pressay-audit-20260906/frontend-build-final.log",
+      "logSha256": "9e90d2a8990af6e5a30f9f55cda49555557e72603b756707e84cebdc2641aabb"
+    },
+    {
+      "id": "frontend-lint",
+      "status": "passed",
+      "log": "/tmp/pressay-audit-20260906/frontend-lint-final.log",
+      "logSha256": "dd1bf47cbb2da617b6ddb7cf1a7d8d01728f9ef51cf35d7bc2540dd5dd63bfea"
+    },
+    {
+      "id": "frontend-ui",
+      "status": "passed",
+      "log": "/tmp/pressay-audit-20260906/all-ui-final.log",
+      "logSha256": "9901ca5a8c0d0b93b2def89d531027e284af5662e26d02e0229fdcfa75742910"
+    },
+    {
+      "id": "translations",
+      "status": "passed",
+      "log": "/tmp/pressay-audit-20260906/translations-followup.log",
+      "logSha256": "fb707dd891924799d53fff99e7a13f8e46c538bdad09feb030493f3a588a73f2"
+    },
+    {
+      "id": "updater-manifest",
+      "status": "passed",
+      "log": "/tmp/pressay-audit-20260906/updater-test.log",
+      "logSha256": "eeb1dbeb78b600f3979ae1fc9dea11a7260ac5b2887022e2d8ab10183afff779"
+    },
+    {
+      "id": "rust-clippy-direct-all-targets",
+      "status": "passed",
+      "log": "/tmp/pressay-audit-20260906/clippy-validated.log",
+      "logSha256": "25d82c3e789f0d369bcc874b695666380a68d46b2a3fdcf768b8e26e1a322205"
+    },
+    {
+      "id": "rust-tests-direct",
+      "status": "passed",
+      "log": "/tmp/pressay-audit-20260906/rust-tests-validated.log",
+      "logSha256": "60f68c65dbb1dc6dc7c9a82efe7350ce7d6e2fd4df2b085893da9a7c922cb317"
+    },
+    {
+      "id": "rust-clippy-storekit-candidate",
+      "status": "passed",
+      "log": "/tmp/pressay-audit-20260906/clippy-store-candidate.log",
+      "logSha256": "c7a4b77402dd09dccd890799460b1dbfaabae254e0312d7d96a47ef2530ee626"
+    },
+    {
+      "id": "rust-tests-storekit-candidate",
+      "status": "passed",
+      "log": "/tmp/pressay-audit-20260906/rust-store-candidate.log",
+      "logSha256": "61d34df4b610b684c9d7b06b8349d14782f307eadd641046f137391a182d6497"
+    },
+    {
+      "id": "cloud-source",
+      "status": "passed",
+      "log": "/tmp/pressay-audit-20260906/cloud-current-followup.log",
+      "logSha256": "07353334dda6541f1701a7f2fe2c448620075c667c39c94c500da2773ce3a41d"
+    },
+    {
+      "id": "cloud-production-public-contract",
+      "status": "passed",
+      "log": "/tmp/pressay-audit-20260906/production-contract-final.log",
+      "logSha256": "e8e574698c6cc3311d35dfe15b73ef5337c502fbcd27aa022318bb4c2868e1ee"
+    },
+    {
+      "id": "web-lint",
+      "status": "passed",
+      "log": "/tmp/pressay-audit-20260906/web-lint-current.log",
+      "logSha256": "d8ca7de5bbab25eed87fb9444b3f0ee1b93b12fa3ae9adf851f1b9cca351ac59"
+    },
+    {
+      "id": "web-types",
+      "status": "passed",
+      "log": "/tmp/pressay-audit-20260906/web-types-current.log",
+      "logSha256": "01591dc4ae1d17ca4060b456d48e0610f3e6f143676edc97959f506642a67768"
+    },
+    {
+      "id": "web-production-public-ui",
+      "status": "passed",
+      "log": "/tmp/pressay-audit-20260906/web-public-production.log",
+      "logSha256": "b48a95df0bcf7315cf323de50256b6e1d6bc0eb8a66f9a444d03872719d5b278"
+    },
+    {
+      "id": "swift-native-typecheck",
+      "status": "passed",
+      "log": "/tmp/pressay-audit-20260906/storekit-smoke-build.log",
+      "logSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "id": "storekit-local-signed-experiment",
+      "status": "failed",
+      "log": "/tmp/pressay-audit-20260906/storekit-smoke-signed.log",
+      "logSha256": "fd113cf9267f4cf934bf98bddb1076a3d09b97d904ea74e2c502b9f974c9db15"
+    },
+    {
+      "id": "commercial-build-negative-guards",
+      "status": "passed",
+      "log": "/tmp/pressay-audit-20260906/build-guards.json",
+      "logSha256": "9b430f0dbe87b2329591b178486a7ec03a481c213b266b9e0b0cd2964e176774"
+    },
+    {
+      "id": "mas-feature-graph",
+      "status": "passed",
+      "log": "/tmp/pressay-audit-20260906/store-candidate-features.txt",
+      "logSha256": "1cc923bc0f3007c4d2731f8eb93aecb24e3716a8af057c2ca78c29227eb31900"
+    },
+    {
+      "id": "cloud-frozen-install",
+      "status": "passed",
+      "log": "/tmp/pressay-audit-20260906/cloud-frozen-final.log",
+      "logSha256": "83f93a55cf5a18da1ce75a547b863389ca63ebefcbbd8179dfc146f4ac88493a"
+    },
+    {
+      "id": "cloud-final-script-lint",
+      "status": "passed",
+      "log": "/tmp/pressay-audit-20260906/cloud-lint-final.log",
+      "logSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "id": "cloud-final-types",
+      "status": "passed",
+      "log": "/tmp/pressay-audit-20260906/cloud-types-final.log",
+      "logSha256": "8366207267355d3e3d5bf3bf6e8c94c5f93f6078c34f08973fa2b38cdda6cc92"
+    }
+  ],
+  "counts": {
+    "rustDirect": 328,
+    "desktopBrowser": 16,
+    "desktopProductionComponentsWithMockedIPC": 8,
+    "desktopPreview": 8,
+    "cloudTests": 114,
+    "publicCloudChecks": 8,
+    "publicWebTests": 5,
+    "updaterManifestTests": 2,
+    "commercialBuildNegativeGuards": 4,
+    "rustStoreKitCandidate": 328
+  },
+  "liveReadOnly": {
+    "productionAPI": "https://api.press-say.app",
+    "schemaVersion": "0015_free_bootstrap_and_web_accounts.sql",
+    "stripe": {
+      "accountName": "Pressay",
+      "chargesEnabled": true,
+      "payoutsEnabled": true,
+      "currentlyDueCount": 0,
+      "activePrices": [
+        {
+          "currency": "eur",
+          "unitAmount": 799,
+          "interval": "month"
+        },
+        {
+          "currency": "eur",
+          "unitAmount": 6900,
+          "interval": "year"
+        }
+      ]
+    },
+    "financialTransactionsExecuted": 0,
+    "productionChangesMade": false
+  },
+  "limitations": [
+    "No signed Sandbox/TestFlight transaction completed.",
+    "App Store Connect login requested; contracts and submission state not verified.",
+    "Local StoreKit experiment failed: unbundled configuration error, ad-hoc notEntitled, development-signed purchase did not return the expected JWS.",
+    "No new signed release bundle or installation update verified in this follow-up.",
+    "No macOS 14/M1 or second-device recovery test.",
+    "No new performance claim: prior benchmarks concern previous source and synthetic speech.",
+    "Full native permission, paste, Keychain migration, long capture and VoiceOver matrix remains open.",
+    "Cloud audit reports one advisory below high severity."
+  ]
+}

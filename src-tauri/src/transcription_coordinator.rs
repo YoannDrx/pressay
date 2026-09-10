@@ -268,14 +268,42 @@ impl TranscriptionCoordinator {
                 let mut pipeline = PipelineState::default();
                 let mut last_press: Option<Instant> = None;
                 let mut pending_release: Option<PendingRelease> = None;
+                let mut recording_limit: Option<PendingRelease> = None;
 
                 loop {
-                    let cmd = if let Some(pending) = &pending_release {
-                        match rx.recv_timeout(
-                            pending.deadline.saturating_duration_since(Instant::now()),
-                        ) {
+                    if pipeline.recording_binding().is_none() {
+                        recording_limit = None;
+                    }
+                    let deadline = pending_release
+                        .as_ref()
+                        .map(|p| p.deadline)
+                        .into_iter()
+                        .chain(recording_limit.as_ref().map(|p| p.deadline))
+                        .min();
+                    let cmd = if let Some(deadline) = deadline {
+                        match rx.recv_timeout(deadline.saturating_duration_since(Instant::now())) {
                             Ok(cmd) => cmd,
                             Err(mpsc::RecvTimeoutError::Timeout) => {
+                                if recording_limit
+                                    .as_ref()
+                                    .is_some_and(|p| p.deadline <= Instant::now())
+                                {
+                                    if let Some(limit) = recording_limit.take() {
+                                        pending_release = None;
+                                        if pipeline.recording_binding()
+                                            == Some(limit.binding_id.as_str())
+                                        {
+                                            begin_stop(
+                                                &app,
+                                                &shared_state,
+                                                &mut pipeline,
+                                                &limit.binding_id,
+                                                &limit.hotkey_string,
+                                            );
+                                        }
+                                    }
+                                    continue;
+                                }
                                 if let Some(pending) = pending_release.take() {
                                     if pipeline.recording_binding()
                                         == Some(pending.binding_id.as_str())
@@ -345,6 +373,7 @@ impl TranscriptionCoordinator {
                                 last_press = Some(now);
                             }
 
+                            let previous_operation = pipeline.operation_id;
                             if push_to_talk {
                                 if is_pressed && pipeline.accepts_start() {
                                     begin_start(
@@ -386,6 +415,16 @@ impl TranscriptionCoordinator {
                                 } else {
                                     debug!("Ignoring press for '{binding_id}': pipeline busy")
                                 }
+                            }
+                            if pipeline.operation_id != previous_operation
+                                && pipeline.recording_binding().is_some()
+                            {
+                                recording_limit = Some(PendingRelease {
+                                    binding_id,
+                                    hotkey_string,
+                                    deadline: Instant::now()
+                                        + crate::audio_toolkit::audio::MAX_RECORDING_DURATION,
+                                });
                             }
                         }
                         Command::Cancel {

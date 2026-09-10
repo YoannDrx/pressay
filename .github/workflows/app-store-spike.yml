@@ -13,6 +13,8 @@ jobs:
       contents: read
     env:
       VITE_DISTRIBUTION_CHANNEL: app-store
+      PRESSAY_BUILD_ENVIRONMENT: staging-mac-app-store
+      CMAKE_POLICY_VERSION_MINIMUM: "3.5"
     steps:
       - uses: actions/checkout@v5
       - uses: oven-sh/setup-bun@v2
@@ -31,13 +33,15 @@ jobs:
           bun run tauri build
           --config src-tauri/tauri.appstore.conf.json
           --target aarch64-apple-darwin
-          --features mas
+          --features storekit-purchases
           --bundles app
       - name: Inspect sandbox and private API entitlements
         shell: bash
         run: |
           app=$(find src-tauri/target/aarch64-apple-darwin/release/bundle/macos -name '*.app' -type d -print -quit)
           test -n "$app"
+          test -f "$app/Contents/Resources/PrivacyInfo.xcprivacy"
+          plutil -lint "$app/Contents/Resources/PrivacyInfo.xcprivacy"
           # The feasibility job intentionally has no distribution certificate. Ad-hoc
           # signing preserves the sandbox entitlements so CI can inspect the bundle;
           # the archive workflow uses the real Apple Distribution identity.
@@ -57,13 +61,20 @@ jobs:
       - name: Reject private API features in the Store dependency graph
         shell: bash
         run: |
-          graph=$(cd src-tauri && cargo tree -e features --no-default-features --features mas)
+          graph=$(cd src-tauri && cargo tree -e features --no-default-features --features storekit-purchases)
           if grep -Eq 'tauri feature "macos-private-api"|tauri-nspanel' <<<"$graph"; then
             echo "Store blocker: private NSPanel support entered the MAS feature graph" >&2
             exit 1
           fi
+      - name: Verify crash symbols match the Store binary
+        run: >-
+          bash scripts/check-macos-symbols.sh
+          src-tauri/target/aarch64-apple-darwin/release/pressay
+          src-tauri/target/aarch64-apple-darwin/release/pressay.dSYM
       - uses: actions/upload-artifact@v7
         with:
           name: pressay-app-store-spike-arm64
-          path: src-tauri/target/aarch64-apple-darwin/release/bundle/macos/*.app
+          path: |
+            src-tauri/target/aarch64-apple-darwin/release/bundle/macos/*.app
+            src-tauri/target/aarch64-apple-darwin/release/pressay.dSYM
           retention-days: 14

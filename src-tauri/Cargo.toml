@@ -1,6 +1,6 @@
 [package]
 name = "pressay"
-version = "2.0.0-beta.2"
+version = "2.0.0"
 description = "Local-first dictation for macOS"
 authors = ["Yoann Andrieux", "CJ Pais and Handy contributors"]
 edition = "2021"
@@ -16,6 +16,8 @@ mas = []
 # compile-time choice prevents an environment variable from silently paywalling
 # a shipped binary.
 commercial-entitlements = []
+# Explicit candidate switch; restore remains available with this switch off.
+storekit-purchases = ["mas", "commercial-entitlements"]
 
 [profile.dev]
 incremental = true # Compile your binary in smaller steps.
@@ -213,5 +215,8 @@ tokio = { version = "1.43.0", features = ["macros", "net", "io-util", "sync", "t
 [profile.release]
 lto = true
 codegen-units = 1
-strip = true
+# Keep crash line information in a separate dSYM for Apple distribution.
+debug = "line-tables-only"
+split-debuginfo = "packed"
+strip = "symbols"
 panic = "unwind"

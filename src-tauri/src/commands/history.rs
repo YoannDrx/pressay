@@ -17,10 +17,28 @@ pub async fn get_history_entries(
     cursor: Option<i64>,
     limit: Option<usize>,
 ) -> Result<PaginatedHistory, String> {
-    history_manager
-        .get_history_entries(cursor, limit)
+    let manager = Arc::clone(&history_manager);
+    tauri::async_runtime::spawn_blocking(move || manager.get_history_entries(cursor, limit))
         .await
-        .map_err(|e| e.to_string())
+        .map_err(|_| "history_load_failed".to_string())?
+        .map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+#[specta::specta]
+pub async fn search_history_entries(
+    history_manager: State<'_, Arc<HistoryManager>>,
+    cursor: Option<i64>,
+    query: String,
+    filter: String,
+) -> Result<crate::managers::history::HistorySearchPage, String> {
+    let manager = Arc::clone(&history_manager);
+    tauri::async_runtime::spawn_blocking(move || {
+        manager.search_history_entries(cursor, &query, &filter)
+    })
+    .await
+    .map_err(|_| "history_load_failed".to_string())?
+    .map_err(|error| error.to_string())
 }
 
 #[tauri::command]

@@ -1,0 +1,230 @@
+{
+  "schemaVersion": 1,
+  "recordedAt": "2026-09-06T22:51:40.093481+00:00",
+  "appId": "6795505605",
+  "bundleId": "fr.yodev.pressay",
+  "observedVia": "Authenticated App Store Connect UI in Google Chrome",
+  "administration": {
+    "paidAgreement": "active",
+    "freeAgreement": "active",
+    "bankAccount": "active",
+    "usTaxForms": "active",
+    "dsa": "active",
+    "dac7": "active"
+  },
+  "subscriptions": {
+    "groupId": "22326134",
+    "monthlyProductId": "app.pressay.desktop.mas.pro.monthly",
+    "annualProductId": "app.pressay.desktop.mas.pro.annual",
+    "monthlyStatus": "prepare_for_submission",
+    "annualStatus": "prepare_for_submission",
+    "beforeLevels": {
+      "monthly": 1,
+      "annual": 2
+    },
+    "savedLevels": {
+      "monthly": 1,
+      "annual": 1
+    },
+    "annualFranceEUR": 69,
+    "introductoryOffers": 0,
+    "familySharingEnabled": false,
+    "monthlyFranceEUR": 7.99
+  },
+  "savedMetadata": {
+    "locales": ["fr-FR", "en-US"],
+    "changes": [
+      "State offline use starts after model download",
+      "Explain subscription renewal and cancellation",
+      "Add privacy policy and existing Apple standard EULA links"
+    ],
+    "publication": "Draft version only; not submitted for review or released"
+  },
+  "serverNotifications": {
+    "productionURL": "https://api.press-say.app/v1/webhooks/apple",
+    "sandboxURL": "https://api-staging.press-say.app/v1/webhooks/apple",
+    "deliveryVerified": false
+  },
+  "privacyLabel": {
+    "alreadyPublished": true,
+    "dataTypes": ["name", "email", "user_id", "device_id", "purchase_history"],
+    "finalBinaryNetworkAuditCompleted": false
+  },
+  "testflight": {
+    "preAuditBuild": {
+      "existingVersion": "2.0.0",
+      "existingBuild": "2.0.0",
+      "uploadedAtLocal": "2026-08-22T02:11:00+02:00",
+      "missingInformation": "Encryption export declaration",
+      "currentFixesIncluded": false
+    },
+    "latestBuild": "2.0.2",
+    "latestAppleBuildId": "cdc6cdb3-bda1-42ae-8cea-64c5e1aa6105",
+    "internalOnly": true,
+    "groupsAdded": 0,
+    "testersInvited": 0,
+    "testNotesSource": "docs/app-store/testflight.fr-FR.md",
+    "testNotesSaved": true
+  },
+  "encryptionDocument": {
+    "fileName": "pressay-anssi-declaration-signed.pdf",
+    "uploadedDate": "2026-08-23",
+    "statusAsDisplayed": "Vérification",
+    "appleKeyAssigned": false
+  },
+  "nativeSigning": {
+    "matchingDistributionProfileFound": true,
+    "profileExpires": "2027-08-21T22:49:45Z",
+    "appleSignInEntitlementPresent": true,
+    "xcodeTeamConnected": true
+  },
+  "pending": [
+    "Review email and phone requested from owner",
+    "Apple encryption-document review",
+    "Sandbox purchase and restore end to end",
+    "Native release acceptance matrix",
+    "Release approval and publication",
+    "Production App Review Sandbox purchase routing with commercial entitlement isolation"
+  ],
+  "localChangesSha256": {
+    ".cargo/config.toml": "9ac1b8dac649115b9483444f77468ac7e688a806aecef1559278151f18545728",
+    ".github/workflows/app-store-spike.yml": "a799560f8008c8c68629f36f5800680562f4131eef11711c4ca90753f3b8cc6d",
+    ".github/workflows/build.yml": "86e873434696403183008b86ac110baa1ca436022f2550d072d705925041555f",
+    "src-tauri/Cargo.toml": "8a6aa6da73fee44334d4dbee788808e521dc887bbfe837e20d8d088d08e0476a",
+    "BUILD.md": "fd403e2397491163cc5a3e27a3c16fea807a6fdcdbd93f42b8363ebd6cfc7ba5",
+    "src-tauri/StoreKit/Pressay.storekit": "46652de90fe9540a5adab5346a2bbf50aa160178a4609770ec541f782d6135ee",
+    "docs/app-store/metadata.fr-FR.md": "df43112f4f589b8094bcef9029d297e46f6768f09aad8bc715004aac9ea2100c",
+    "docs/app-store/metadata.en-US.md": "edf7292abb96432daf7c81ee6c03a4882746dfbc6892a6ea6f71b8e78ceba451",
+    "docs/app-store/review-notes.md": "ca77c1f7e75b8bd67adde4f6ca41fac41c20714371a348ba2e77f286a90e32ea",
+    "docs/app-store/testflight.fr-FR.md": "6c7c5f9c81b5c8d8343a952821169e1ce314297a700dc5a00bcfcf2f406f6745",
+    "scripts/check-macos-symbols.sh": "331e307d57db06e6f1a92728bd8a5f4bfd0cbd48e9e36c6ac80be8796b018a6a",
+    "scripts/package-macos-store.py": "274f7399d3a479d90413b974326740919f7c52bb3f631f643bc69e9c65cdf403",
+    "docs/PRE_SALE_REMEDIATION_2026-09-07.md": "1b3e4005d0d710185aae4211996932a0d07f1cbe98efc2e414af517c9e1198f8"
+  },
+  "symbolGuardVerification": {
+    "matchingMachOAndDsym": "passed",
+    "mismatchedDsymRejected": "passed",
+    "missingDsymRejected": "passed",
+    "fixture": "Two independent temporary clang -g executables; not substituted for the final Rust candidate check"
+  },
+  "nativeCpuBuild": {
+    "initialAttempt": "Stopped after an upstream GGML_NATIVE SVE try_run remained in kernel exit state; no complete candidate produced by that attempt",
+    "repositoryDefault": "TRANSCRIBE_CMAKE_ARGS=-DGGML_NATIVE=OFF",
+    "observedReplacementCmake": {
+      "GGML_NATIVE": "OFF",
+      "GGML_METAL": "ON",
+      "TRANSCRIBE_METAL": "ON",
+      "HAVE_DOTPROD": true,
+      "HAVE_FMA": true,
+      "HAVE_FP16_VECTOR_ARITHMETIC": true,
+      "HAVE_MATMUL_INT8": false,
+      "HAVE_SVE": false
+    },
+    "oldestSupportedHardwareTested": false,
+    "nativeRuntimeSmoke": {
+      "status": "passed",
+      "testType": "Model-only headless invocation of a byte-identical copy of the release executable, using portable test data",
+      "hardware": "Apple M2",
+      "results": {
+        "cpu": {
+          "bound_backend": "CPU",
+          "audio_secs": 7.811875,
+          "load_ms": 153,
+          "transcribe_ms": [2596, 2576],
+          "syntheticPhraseRecognized": true
+        },
+        "metal": {
+          "bound_backend": "MTL0",
+          "audio_secs": 7.811875,
+          "load_ms": 163,
+          "transcribe_ms": [1342, 1141],
+          "syntheticPhraseRecognized": true
+        }
+      },
+      "limitations": [
+        "Not the installed sandbox bundle",
+        "Two repetitions; not a percentile benchmark",
+        "Does not cover microphone, permissions, insertion, StoreKit or M1"
+      ]
+    }
+  },
+  "packagingGuardVerification": {
+    "pythonSyntax": "passed",
+    "existingCandidatePreserved": "passed",
+    "missingSymbolsRejectedBeforeArtifactCreation": "passed"
+  },
+  "priorSourceEvidenceComparison": {
+    "sourceRecord": "2026-09-07.json",
+    "filesCompared": 65,
+    "changedFiles": [
+      ".github/workflows/app-store-spike.yml",
+      ".github/workflows/build.yml",
+      "src-tauri/Cargo.toml"
+    ],
+    "runtimeRustAndFrontendSourcesUnchanged": true,
+    "additionalNewConfiguration": ".cargo/config.toml",
+    "notARerunOfEarlierTests": true
+  },
+  "initialCandidate": {
+    "path": "/Users/yoannandrieux/Projets/Pressay-release-candidates/2.0.0-2.0.1",
+    "version": "2.0.0",
+    "build": "2.0.1",
+    "environment": "staging-mac-app-store",
+    "sourceVersion": "2.0.0-beta.2",
+    "rustReleaseBuild": "passed",
+    "buildDuration": "18m27s",
+    "codesignStrictVerification": "passed",
+    "embeddedProfileCertificateAndEntitlements": "passed",
+    "privacyManifest": "valid",
+    "machOMinOS": "14.0",
+    "sdk": "26.2",
+    "pkgInstallerSignature": "passed",
+    "xcodeArchiveRecognized": true,
+    "appleValidation": "passed_with_warning",
+    "uploaded": true,
+    "appleValidationWarning": "Missing Pressay.app dSYM UUID 400156F4-575E-38ED-9DAC-61E8F0A4B303",
+    "uploadChannel": "TestFlight Internal Only",
+    "appleBuildId": "ac5a4dbc-b8c8-4999-b832-65bda764b8b6",
+    "processingStatus": "completed",
+    "testflightStatus": "missing_export_compliance_information",
+    "localPackageSha256": "255cce19e09a07ebb6e1fc1e09261c8effc2738b08d65ec3f21c17752747cbb5"
+  },
+  "candidate": {
+    "version": "2.0.0",
+    "build": "2.0.2",
+    "bundleId": "fr.yodev.pressay",
+    "localPackageSha256": "c845893c806ee8fd8507fa2c8da79d566789905afc8d91a20bde3d024b025ebf",
+    "symbolsMatch": true,
+    "uploaded": true,
+    "path": "/Users/yoannandrieux/Projets/Pressay-release-candidates/2.0.0-2.0.2",
+    "environment": "staging-mac-app-store",
+    "sourceVersion": "2.0.0-beta.2",
+    "rustReleaseBuild": "passed",
+    "buildDurationAfterPortableCpuCorrection": "15m26s",
+    "codesignStrictVerification": "passed",
+    "embeddedProfileCertificateAndEntitlements": "passed",
+    "privacyManifest": "valid",
+    "machOMinOS": "14.0",
+    "sdk": "26.2",
+    "pkgInstallerSignature": "passed",
+    "dSYMUuid": "19A9E16E-E082-32A0-8255-CBCD01502C0C",
+    "dwarfdumpVerify": "No errors",
+    "xcodeArchiveRecognized": true,
+    "appleValidation": "passed_without_warning",
+    "executableSha256": "4011e88eb9c030fb5f515dfc1eb6b7026f06e1b2e3294a230a923a06e1523ec9",
+    "appleValidationMessage": "Your app successfully passed all validation checks.",
+    "uploadChannel": "TestFlight Internal Only",
+    "appleUploadResult": "completed_without_warning",
+    "appleBuildId": "cdc6cdb3-bda1-42ae-8cea-64c5e1aa6105",
+    "uploadedAtLocal": "2026-09-07T02:08:00+02:00",
+    "processingStatus": "completed",
+    "testflightStatus": "missing_export_compliance_information",
+    "rustBuildWarnings": [
+      "Informational Apple Intelligence support/tray translation messages",
+      "Upstream block 0.1.6 future Rust incompatibility warning; current build passed"
+    ]
+  },
+  "updatedAt": "2026-09-07T00:11:51.842048+00:00",
+  "releaseDecision": "NO_GO_FOR_PUBLIC_SALE",
+  "submittedForAppReview": false
+}

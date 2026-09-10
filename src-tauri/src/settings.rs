@@ -579,10 +579,10 @@ fn default_active_mode_id() -> String {
 }
 
 fn default_pressay_cloud_api_url() -> String {
-    if let Some(configured) = option_env!("PRESSAY_CLOUD_API_URL") {
+    if let Some(configured) = option_env!("PRESSAY_RESOLVED_CLOUD_API_URL") {
         return configured.trim_end_matches('/').to_string();
     }
-    if env!("CARGO_PKG_VERSION").contains('-') {
+    if !cfg!(feature = "mas") && env!("CARGO_PKG_VERSION").contains('-') {
         "https://pressay-cloud-staging.vercel.app".to_string()
     } else {
         "https://api.press-say.app".to_string()
