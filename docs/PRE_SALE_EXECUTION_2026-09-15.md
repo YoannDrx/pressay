@@ -21,6 +21,12 @@
   sous chiffrement des journaux et diagnostics qui doivent exclure ce contenu.
   Il précise Apple pour la connexion native et les fournisseurs configurés pour
   le web. Les déclarations finales restent à confronter à la recette réelle.
+- La nouvelle CI a identifié **RUSTSEC-2026-0285**, publiée le 14 septembre :
+  rustls 0.23.36 est remplacé par 0.23.45 et rustls-webpki 0.103.13 par 0.103.15.
+  Seules ces deux entrées du lockfile changent. La variante Store utilise rustls
+  via `ureq` et `hf-hub`. Aucun nouvel avis de sécurité n'est ignoré. Le workflow
+  construit désormais avec `--locked --no-default-features`, comme son contrôle
+  du graphe de dépendances, pour utiliser le lockfile corrigé.
 
 ## Vérifications exécutées
 
@@ -43,8 +49,14 @@ Les 12 contrôles GitHub de la révision précédente
 Ils incluent les tests Linux précédemment en échec. Les résultats de cette ancienne
 révision ne sont pas présentés comme ceux des nouvelles modifications du workflow.
 Les 334 tests Rust de la variante production avaient été validés lors du lot
-précédent ; ils n'ont pas été relancés localement pour ces changements de scripts
-et de documentation.
+précédent. Après découverte de l'avis rustls, la suite native release complète est
+relancée avec `production-mac-app-store` et `storekit-purchases`, en plus de Clippy
+qui passe avec la dépendance corrigée. Consulter le résultat final attaché à la
+révision de la PR ; les résultats antérieurs ne qualifient pas la nouvelle dépendance.
+`cargo-audit` n'étant pas installé localement, sa validation est confiée au job
+GitHub dédié, avec la même exception préexistante pour l'option rkyv non activée.
+
+Source du correctif : [avis officiel rustls](https://github.com/rustls/rustls/security/advisories/GHSA-2mjx-qc3c-rqvc).
 
 ## État des accès et blocages
 

@@ -1,4 +1,8 @@
-# App Review notes — candidate 2.0.0 (2.0.4), not yet submitted
+# App Review notes — 2.0.0, replacement build required before submission
+
+The last local archive is 2.0.4, whose upload was refused. The next archive must
+include the September 15 rustls security update, an Apple-approved encryption
+code and a new build number. No replacement build is claimed as uploaded here.
 
 ## Product boundary
 
@@ -63,9 +67,9 @@ purchase/restore and the copy-only fallback if that fallback ships.
 - Video URL: `ADD AFTER APPLE-SIGNED SANDBOX VALIDATION`
 - Hardware/macOS versions tested: `ADD FROM NATIVE RELEASE MATRIX`
 
-## Current submission gate (10 September 2026)
+## Last observed Apple submission gate (10 September 2026)
 
-The current 2.0.4 archive includes main `f5d06c6` and the audited recovery fixes.
+The archived 2.0.4 includes main `f5d06c6` and the audited recovery fixes.
 It declares `ITSAppUsesNonExemptEncryption=true`. Xcode rejected its upload with
 `Invalid Export Compliance Code` (ID `078d88f1-e0e8-42dd-9842-f8b9376504da`).
 The document `pressay-anssi-declaration-signed.pdf`, uploaded 23 August, remains

@@ -1,4 +1,4 @@
-# Éléments à tester — candidat 2.0.0 (2.0.4)
+# Éléments à tester — prochain candidat 2.0.0
 
 Candidat utilisant le service de production Pressay et les achats Sandbox Apple,
 isolés des abonnements réels. La distribution de test attend la validation Apple
@@ -7,7 +7,8 @@ Utilisez un compte de test. Ce build ne valide pas encore une ouverture commerci
 
 La recette exhaustive et les critères de performance sont consignés dans
 [la matrice native](native-release-matrix.fr.md). Réactualiser le numéro du candidat
-après son traitement par Apple ; 2.0.4 n'est pas disponible dans TestFlight.
+après son traitement par Apple ; 2.0.4 n'est pas disponible dans TestFlight et ne
+contient pas le correctif de sécurité rustls du 15 septembre.
 
 À vérifier :
 

@@ -194,7 +194,8 @@ jobs:
             --config src-tauri/tauri.appstore.conf.json \
             --target aarch64-apple-darwin \
             --features storekit-purchases \
-            --bundles app
+            --bundles app \
+            -- --locked --no-default-features
 
       - name: Stamp a monotonic App Store build number
         id: build_number
@@ -239,7 +240,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          graph=$(cd src-tauri && cargo tree -e features --no-default-features --features storekit-purchases)
+          graph=$(cd src-tauri && cargo tree --locked -e features --no-default-features --features storekit-purchases)
           if grep -Eq 'tauri feature "macos-private-api"|tauri-nspanel|tauri-plugin-updater|(^| )stripe v' <<<"$graph"; then
             echo "A Direct-only dependency entered the Mac App Store graph" >&2
             exit 1

@@ -3,7 +3,9 @@
 ## Préconditions
 
 1. Le diff a été relu et approuvé par un humain, puis intégré à `main` ; ses
-   contrôles GitHub requis sont réussis.
+   contrôles GitHub requis sont réussis. La source doit intégrer rustls 0.23.45
+   ou une version corrigée ultérieure pour RUSTSEC-2026-0285 ; l'archive 2.0.4
+   ne contient pas ce correctif découvert pendant la CI du 15 septembre.
 2. Apple a validé le chiffrement et délivré son code. L'environnement GitHub
    `app-store-production` contient ce code dans `MAS_EXPORT_COMPLIANCE_CODE`.
    Ne jamais utiliser une valeur de test ni retirer la déclaration de chiffrement.
