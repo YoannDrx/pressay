@@ -1,0 +1,170 @@
+{
+  "version": 1,
+  "purpose": "Synthetic, non-confidential reference text for native dictation acceptance. Record a human reading each item and retain its measured duration before evaluating latency or accuracy.",
+  "languages": {
+    "fr": [
+      {
+        "id": "FR-01",
+        "text": "Bonjour, je vous propose de déplacer notre réunion à jeudi matin pour laisser à chacun le temps de préparer ses questions et de relire le document partagé."
+      },
+      {
+        "id": "FR-02",
+        "text": "Le compte rendu doit présenter les décisions prises, les actions encore ouvertes et la personne responsable de chaque étape, avec une date prévue pour la prochaine vérification."
+      },
+      {
+        "id": "FR-03",
+        "text": "Merci de vérifier que la fenêtre reste accessible après sa fermeture et que les préférences choisies sont toujours présentes lorsque vous ouvrez à nouveau cette application sur le Mac."
+      },
+      {
+        "id": "FR-04",
+        "text": "Pour cette recette, toutes les personnes et les entreprises mentionnées sont fictives. Aucun nom de client, mot de passe ou document confidentiel ne doit être utilisé pendant les essais."
+      },
+      {
+        "id": "FR-05",
+        "text": "La petite bibliothèque du quartier propose un atelier de lecture le samedi matin. Les participants peuvent apporter un livre ou choisir un extrait parmi les ouvrages disponibles sur place."
+      },
+      {
+        "id": "FR-06",
+        "text": "Nous avons commandé vingt trois cahiers, huit stylos bleus et deux grandes enveloppes. Le matériel doit être réparti entre les groupes avant le début de la séance de travail."
+      },
+      {
+        "id": "FR-07",
+        "text": "Le rendez vous est prévu le quinze octobre à neuf heures trente. Si vous arrivez plus tôt, vous pourrez patienter dans le hall situé à côté de la bibliothèque."
+      },
+      {
+        "id": "FR-08",
+        "text": "Le panier contient trois articles pour un montant total de quarante deux euros et cinquante centimes. Ce montant est fictif et sert uniquement à vérifier la transcription des nombres."
+      },
+      {
+        "id": "FR-09",
+        "text": "Je préfère une réponse courte, rédigée dans un français naturel, qui explique clairement le problème rencontré et indique la prochaine action sans ajouter de promesse impossible à tenir."
+      },
+      {
+        "id": "FR-10",
+        "text": "Avant de terminer, vérifiez la ponctuation de cette phrase, les accents sur les mots et la présence des espaces. Le résultat doit rester compréhensible sans correction manuelle importante."
+      },
+      {
+        "id": "FR-11",
+        "text": "Lorsque la connexion Internet est interrompue, la dictée locale doit continuer à fonctionner après le téléchargement du modèle. Le texte produit doit pouvoir être copié dans un document ouvert."
+      },
+      {
+        "id": "FR-12",
+        "text": "Une annulation doit arrêter le traitement en cours et rendre la main à l'utilisateur. Aucun résultat ne doit apparaître plus tard dans une autre fenêtre ou dans un autre document."
+      },
+      {
+        "id": "FR-13",
+        "text": "Le microphone externe a été débranché pendant la préparation. Après avoir choisi le microphone intégré, nous pouvons recommencer la dictée et vérifier que le niveau sonore est correctement détecté."
+      },
+      {
+        "id": "FR-14",
+        "text": "Le dictionnaire de cette démonstration contient le mot fictif Lumivelle. Nous l'utilisons dans plusieurs phrases pour vérifier que la correction personnelle reste cohérente après la fermeture de l'application."
+      },
+      {
+        "id": "FR-15",
+        "text": "Sophie prépare une note pour Martin au sujet du projet imaginaire Rivage. Elle souhaite conserver le ton de son message tout en supprimant les répétitions et les hésitations inutiles."
+      },
+      {
+        "id": "FR-16",
+        "text": "La synchronisation doit retrouver les modes personnalisés, les profils et les entrées du dictionnaire sur le second ordinateur. Les enregistrements audio et l'historique local ne font pas partie de cet essai."
+      },
+      {
+        "id": "FR-17",
+        "text": "Après la mise en veille, ouvrez le même document et dictez une nouvelle phrase. Vérifiez que le raccourci fonctionne encore et que le résultat apparaît une seule fois au bon endroit."
+      },
+      {
+        "id": "FR-18",
+        "text": "Le mode sombre doit conserver un contraste suffisant entre le texte et le fond. Les erreurs doivent aussi être expliquées par des mots, sans dépendre uniquement de la couleur des icônes."
+      },
+      {
+        "id": "FR-19",
+        "text": "Je vous remercie pour votre retour. Nous avons bien reçu vos remarques et nous allons vérifier les étapes indiquées avant de vous communiquer un résultat précis accompagné des éventuelles limites observées."
+      },
+      {
+        "id": "FR-20",
+        "text": "Cette dernière phrase termine le corpus français. Nous conservons le texte attendu, la durée de l'enregistrement et le résultat obtenu afin de comparer les modèles dans les mêmes conditions de test."
+      }
+    ],
+    "en": [
+      {
+        "id": "EN-01",
+        "text": "Hello, I suggest moving our meeting to Thursday morning so that everyone has enough time to prepare their questions and review the shared document before we discuss the next steps."
+      },
+      {
+        "id": "EN-02",
+        "text": "The meeting notes should describe the decisions we made, the actions that remain open, and the person responsible for each step, together with a date for the next review."
+      },
+      {
+        "id": "EN-03",
+        "text": "Please check that the window remains accessible after you close it and that your chosen preferences are still available when you open the application again on the same computer."
+      },
+      {
+        "id": "EN-04",
+        "text": "All people and companies mentioned in this exercise are fictional. Do not use a customer name, password, private recording, or confidential document while preparing or running these acceptance tests."
+      },
+      {
+        "id": "EN-05",
+        "text": "The small neighborhood library is holding a reading workshop on Saturday morning. Participants may bring a book of their own or choose a passage from the books available at the library."
+      },
+      {
+        "id": "EN-06",
+        "text": "We ordered twenty three notebooks, eight blue pens, and two large envelopes. Please divide the materials between the groups before the workshop begins and keep the remaining supplies on the table."
+      },
+      {
+        "id": "EN-07",
+        "text": "The appointment is scheduled for October fifteenth at half past nine in the morning. If you arrive early, you can wait in the entrance hall next to the library."
+      },
+      {
+        "id": "EN-08",
+        "text": "The basket contains three items with a total price of forty two euros and fifty cents. This fictional amount is included only to check how the application transcribes spoken numbers."
+      },
+      {
+        "id": "EN-09",
+        "text": "I would prefer a short reply written in natural English that clearly explains the problem and identifies the next useful action without adding a promise that we cannot reasonably keep."
+      },
+      {
+        "id": "EN-10",
+        "text": "Before finishing, check the punctuation in this sentence and the spaces between the words. The result should be easy to understand without requiring a long series of manual corrections."
+      },
+      {
+        "id": "EN-11",
+        "text": "When the network connection is interrupted, local dictation should continue working after the model has been downloaded. The resulting text should still be available to copy into an open document."
+      },
+      {
+        "id": "EN-12",
+        "text": "Canceling the current operation should stop processing and return control to the user. A delayed result must not appear unexpectedly in another window or in a different document after cancellation."
+      },
+      {
+        "id": "EN-13",
+        "text": "The external microphone was disconnected during preparation. After selecting the built in microphone, we can start dictation again and check that the application detects the sound level and finishes processing correctly."
+      },
+      {
+        "id": "EN-14",
+        "text": "The demonstration dictionary contains the fictional word Lumivelle. We use it in several sentences to check whether the personal correction remains consistent after the application is closed and opened again."
+      },
+      {
+        "id": "EN-15",
+        "text": "Sophie is preparing a note for Martin about the imaginary Riverside project. She wants to preserve the tone of her message while removing unnecessary repetition and making the instructions easier to follow."
+      },
+      {
+        "id": "EN-16",
+        "text": "Synchronization should recover custom modes, application profiles, and dictionary entries on the second computer. Audio recordings and local history are excluded from this exercise and should remain on the original device."
+      },
+      {
+        "id": "EN-17",
+        "text": "After the computer wakes from sleep, open the same document and dictate another sentence. Confirm that the shortcut still works and that the result appears once in the intended location."
+      },
+      {
+        "id": "EN-18",
+        "text": "Dark mode should maintain clear contrast between the text and its background. Errors should also be explained with words so that users do not have to rely on the color of an icon."
+      },
+      {
+        "id": "EN-19",
+        "text": "Thank you for your feedback. We have received your comments and will check the steps you described before providing a precise result with any limitations that we observe during the investigation."
+      },
+      {
+        "id": "EN-20",
+        "text": "This final sentence completes the English corpus. We keep the reference text, the recording duration, and the actual result so that each model can be compared under the same documented test conditions."
+      }
+    ]
+  }
+}

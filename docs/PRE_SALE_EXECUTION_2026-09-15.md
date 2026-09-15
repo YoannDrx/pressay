@@ -15,8 +15,9 @@
 - Une [procédure exécutable](app-store/release-runbook.fr.md) couvre GitHub Actions,
   Xcode, la récupération après un envoi incertain et la sélection du bon candidat.
 - La [matrice native](app-store/native-release-matrix.fr.md) contient 37 cas avec
-  résultats attendus et un protocole de performance. Aucun n'est marqué réussi
-  sans exécution sur le candidat distribué par Apple.
+  résultats attendus et un protocole de performance, ainsi que 40 phrases de
+  référence FR/EN non confidentielles. Aucun cas n'est marqué réussi sans exécution
+  sur le candidat distribué par Apple.
 - Le brouillon de confidentialité distingue le contenu des modes synchronisé
   sous chiffrement des journaux et diagnostics qui doivent exclure ce contenu.
   Il précise Apple pour la connexion native et les fournisseurs configurés pour
@@ -55,6 +56,13 @@ qui passe avec la dépendance corrigée. Consulter le résultat final attaché �
 révision de la PR ; les résultats antérieurs ne qualifient pas la nouvelle dépendance.
 `cargo-audit` n'étant pas installé localement, sa validation est confiée au job
 GitHub dédié, avec la même exception préexistante pour l'option rkyv non activée.
+
+Sur la révision corrigée `69ea74b57a32a20ea47fecf8f3a690107680eb54`,
+[l'audit de sécurité passe](https://github.com/YoannDrx/pressay/actions/runs/34961891500)
+et [les trois variantes macOS passent chacune 334 tests](https://github.com/YoannDrx/pressay/actions/runs/34961891488),
+avec Clippy. Les tests Linux, la qualité du code, Playwright et les scans de secrets
+passent aussi. La compilation locale release et les constructions intégrales
+GitHub sont suivies séparément jusqu'à leur conclusion.
 
 Source du correctif : [avis officiel rustls](https://github.com/rustls/rustls/security/advisories/GHSA-2mjx-qc3c-rqvc).
 

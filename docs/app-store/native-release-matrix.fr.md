@@ -70,8 +70,11 @@ Ces seuils sont des objectifs de recette, pas des performances mesurées ou une
 promesse marketing. Machine de référence : M2, 16 Go, alimentation branchée.
 Mesurer également la machine macOS 14 et expliquer tout écart matériel.
 
-- Corpus fixe : 20 phrases françaises et 20 anglaises de 10 à 15 secondes,
-  transcrites manuellement avant le test ; trois répétitions, sans donnée personnelle.
+- Corpus fixe : [20 phrases françaises et 20 anglaises](fixtures/dictation-corpus.json),
+  sans donnée personnelle. Enregistrer chaque phrase à voix naturelle, viser 10 à
+  15 secondes et conserver sa durée réelle ; trois répétitions. Corriger la référence
+  si le lecteur ne suit pas le texte prévu. Ne pas compter une voix synthétique
+  comme une validation de la précision sur parole naturelle.
 - Mesurer séparément premier chargement et modèle chaud. La latence de bout en bout
   part du relâchement du raccourci et finit à l'insertion ou à la disponibilité de
   la copie. Conserver médiane et 95e percentile par modèle et langue.
@@ -83,6 +86,10 @@ Mesurer également la machine macOS 14 et expliquer tout écart matériel.
   - insertions, divisées par le nombre de mots de référence, après normalisation
     de la casse et de la ponctuation. Consigner séparément nombres et termes du
     dictionnaire ; ne pas les faire disparaître par normalisation.
+- Les phrases 06 à 08 de chaque langue sont les cas numériques ; 14 et 15 testent
+  le vocabulaire et les noms fictifs. En cas de sortie en chiffres, conserver à la
+  fois le résultat brut et l'évaluation séparée des nombres, sans modifier la règle
+  de calcul du score global pour améliorer artificiellement le résultat.
 - Sur 30 captures, pas de crash ni d'accumulation monotone de mémoire après retour
   au repos. Consigner pic mémoire, mémoire au repos et temps de chargement ; comparer
   à modèle identique, car la mémoire du modèle chargé peut rester allouée.

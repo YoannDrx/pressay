@@ -109,10 +109,13 @@ avec l'historique Apple.
 - [ ] Préparer la matrice macOS 14 et une version récente, sur Apple Silicon ;
       identifier l'accès à un second Mac pour la synchronisation. Un environnement
       indisponible reste une couverture manquante, sans résultat inventé.
-- [ ] Préparer un corpus non confidentiel français et anglais, court et long,
+- [x] Préparer un corpus non confidentiel français et anglais, court et long,
       pour mesurer précision, latence après fin de parole, mémoire et stabilité.
       Fixer les seuils d'acceptation par modèle et machine avant la recette ; les
       mesures synthétiques du build 2.0.3 restent une référence partielle.
+      Les 40 phrases de référence et les seuils sont dans la matrice native ;
+      concaténer les phrases pour la capture longue. Les enregistrements naturels
+      et les mesures sur le candidat Apple restent à réaliser.
 - [ ] Relire les métadonnées FR/EN, mots-clés, catégories, territoires, prix,
       captures, URLs de support/confidentialité et déclarations de collecte.
       Confronter les déclarations aux flux réels Free, Pro, synchronisation et
