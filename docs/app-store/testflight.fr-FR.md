@@ -5,6 +5,10 @@ isolés des abonnements réels. La distribution de test attend la validation App
 du dossier de chiffrement.
 Utilisez un compte de test. Ce build ne valide pas encore une ouverture commerciale.
 
+La recette exhaustive et les critères de performance sont consignés dans
+[la matrice native](native-release-matrix.fr.md). Réactualiser le numéro du candidat
+après son traitement par Apple ; 2.0.4 n'est pas disponible dans TestFlight.
+
 À vérifier :
 
 - Premier lancement : téléchargement d’un modèle, autorisation du microphone et

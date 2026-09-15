@@ -3,6 +3,14 @@ name: "Pressay Mac App Store Archive"
 on:
   workflow_dispatch:
     inputs:
+      build_number:
+        description: "New CFBundleVersion, greater than every previous upload (for example 2.0.5)"
+        required: true
+        type: string
+      previous_build_number:
+        description: "Highest build just checked in App Store Connect, across all macOS versions"
+        required: true
+        type: string
       upload:
         description: "Validate and upload the signed package to App Store Connect"
         required: true
@@ -10,7 +18,7 @@ on:
         default: false
 
 run-name: >-
-  MAS archive ${{ github.sha }}${{ inputs.upload && ' + TestFlight upload' || '' }}
+  MAS ${{ inputs.build_number }} at ${{ github.sha }}${{ inputs.upload && ' + TestFlight upload' || '' }}
 
 concurrency:
   group: pressay-app-store-release
@@ -45,6 +53,12 @@ jobs:
         with:
           bun-version-file: ".bun-version"
 
+      - name: Validate the build number before importing signing material
+        env:
+          MAS_BUILD_NUMBER: ${{ inputs.build_number }}
+          MAS_PREVIOUS_BUILD_NUMBER: ${{ inputs.previous_build_number }}
+        run: bun scripts/check-app-store-build.ts "$MAS_BUILD_NUMBER" "$MAS_PREVIOUS_BUILD_NUMBER"
+
       - uses: dtolnay/rust-toolchain@stable
         with:
           targets: aarch64-apple-darwin
@@ -58,6 +72,11 @@ jobs:
 
       - name: Validate StoreKit catalogue
         run: bun run storekit:validate
+
+      - name: Test release guards
+        run: |
+          bun test unit-tests/appStoreBuild.test.ts
+          python3 -m unittest discover -s scripts -p 'test_package_macos_store.py'
 
       - name: Require the protected signing material
         shell: bash
@@ -182,16 +201,18 @@ jobs:
         shell: bash
         env:
           MAS_EXPORT_COMPLIANCE_CODE: ${{ vars.MAS_EXPORT_COMPLIANCE_CODE }}
+          MAS_BUILD_NUMBER: ${{ inputs.build_number }}
+          MAS_PREVIOUS_BUILD_NUMBER: ${{ inputs.previous_build_number }}
         run: |
           set -euo pipefail
           app=$(find src-tauri/target/aarch64-apple-darwin/release/bundle/macos \
             -name '*.app' -type d -print -quit)
           test -n "$app"
 
-          # The public version remains 2.0.0. App Store Connect requires a new,
-          # monotonically increasing CFBundleVersion for every uploaded build.
-          # Including the attempt also keeps an explicitly re-run workflow unique.
-          build_number="${GITHUB_RUN_NUMBER}.${GITHUB_RUN_ATTEMPT}"
+          # GitHub run counters do not account for manual Xcode uploads and can
+          # restart below an existing build. Validate the explicit release number.
+          bun scripts/check-app-store-build.ts "$MAS_BUILD_NUMBER" "$MAS_PREVIOUS_BUILD_NUMBER"
+          build_number="$MAS_BUILD_NUMBER"
           /usr/libexec/PlistBuddy -c "Set :CFBundleVersion $build_number" \
             "$app/Contents/Info.plist"
           test "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleVersion' \
@@ -314,6 +335,19 @@ jobs:
             > "$key_directory/AuthKey_${APP_STORE_CONNECT_KEY_ID}.p8"
           chmod 600 "$key_directory/AuthKey_${APP_STORE_CONNECT_KEY_ID}.p8"
 
+      # Preserve the exact signed package even if Apple's validator or upload
+      # fails, so diagnosis does not require rebuilding different artifacts.
+      - name: Preserve signed package and crash symbols before upload
+        uses: actions/upload-artifact@v7
+        with:
+          name: pressay-mas-${{ inputs.build_number }}-${{ github.sha }}-${{ github.run_attempt }}
+          path: |
+            ${{ steps.package.outputs.package }}
+            ${{ steps.package.outputs.package }}.sha256
+            src-tauri/target/aarch64-apple-darwin/release/pressay.dSYM
+          if-no-files-found: error
+          retention-days: 30
+
       - name: Validate and upload to App Store Connect
         if: inputs.upload
         shell: bash
@@ -331,17 +365,6 @@ jobs:
             -f "$PACKAGE_PATH" -t macos \
             --apiKey "$APP_STORE_CONNECT_KEY_ID" \
             --apiIssuer "$APP_STORE_CONNECT_ISSUER_ID"
-
-      - name: Upload immutable archive evidence
-        uses: actions/upload-artifact@v7
-        with:
-          name: pressay-mas-${{ github.sha }}
-          path: |
-            ${{ steps.package.outputs.package }}
-            ${{ steps.package.outputs.package }}.sha256
-            src-tauri/target/aarch64-apple-darwin/release/pressay.dSYM
-          if-no-files-found: error
-          retention-days: 30
 
       - name: Remove ephemeral signing material
         if: always()

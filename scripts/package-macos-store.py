@@ -12,6 +12,16 @@ import sys
 import tempfile
 
 
+def validate_export_compliance(info, expected_code):
+    """Reject an archive that would repeat the 2.0.4 upload failure."""
+    if not expected_code or not expected_code.strip():
+        raise ValueError("the actual Apple-approved export compliance code is required")
+    if info.get("ITSAppUsesNonExemptEncryption") is not True:
+        raise ValueError("Pressay must declare non-exempt encryption")
+    if info.get("ITSEncryptionExportComplianceCode") != expected_code:
+        raise ValueError("bundle export compliance code does not match the approved value")
+
+
 def run(*args):
     return subprocess.check_output(args, stderr=subprocess.PIPE)
 
@@ -22,6 +32,8 @@ def main():
     parser.add_argument("dsym", type=Path)
     parser.add_argument("output", type=Path)
     parser.add_argument("--installer-identity", required=True)
+    parser.add_argument("--export-compliance-code", required=True)
+    parser.add_argument("--previous-build-number", required=True)
     args = parser.parse_args()
     app, dsym, output = args.app.resolve(), args.dsym.resolve(), args.output.resolve()
     if output.exists():
@@ -30,6 +42,14 @@ def main():
     info = plistlib.loads((app / "Contents/Info.plist").read_bytes())
     if info["CFBundleIdentifier"] != "fr.yodev.pressay":
         parser.error("expected the Pressay Mac App Store bundle")
+    try:
+        validate_export_compliance(info, args.export_compliance_code)
+    except ValueError as error:
+        parser.error(str(error))
+    build_check = Path(__file__).with_name("check-app-store-build.ts")
+    print(run(
+        "bun", str(build_check), info["CFBundleVersion"], args.previous_build_number
+    ).decode().strip())
     run("codesign", "--verify", "--deep", "--strict", str(app))
     signature_details = subprocess.run(
         ["codesign", "-dvv", str(app)], check=True, capture_output=True, text=True
@@ -110,6 +130,8 @@ def main():
         "bundleId": info["CFBundleIdentifier"],
         "localPackageSha256": checksum,
         "symbolsMatch": True,
+        "exportComplianceCodeMatches": True,
+        "previousAppleBuild": args.previous_build_number,
         "uploaded": False,
     }
     (output / "package-evidence.json").write_text(json.dumps(evidence, indent=2) + "\n")
