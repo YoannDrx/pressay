@@ -12,8 +12,10 @@
 3. Relever dans App Store Connect le plus grand numéro de build macOS, y compris
    les versions publiques précédentes. Le compteur GitHub n'est pas cette valeur.
 4. Choisir un nouveau numéro supérieur à cette valeur et à l'archive réservée
-   `2.0.4`. Au dernier état vérifié, `2.0.3` avait été traité et `2.0.4` avait été
-   refusé ; revérifier Apple avant d'utiliser ces valeurs.
+   `2.0.4`. Le 15 septembre, TestFlight affiche aussi **12001** sous l'ancienne
+   version publique 1.2.0 : c'est le plus grand numéro observé. `2.0.3` est le
+   dernier envoi traité de la version 2.0.0, mais ne constitue pas le maximum
+   historique. Choisir **12002** si aucun numéro supérieur n'est apparu depuis.
 
 Le 15 septembre, les noms des huit secrets de signature/API requis sont présents
 dans l'environnement GitHub, autorisé uniquement pour la branche `main`.
@@ -32,10 +34,11 @@ Ouvrir le workflow **Pressay Mac App Store Archive**, choisir `main`, puis rense
 Le contrôle local équivalent est :
 
 ```bash
-bun scripts/check-app-store-build.ts 2.0.5 2.0.3
+bun scripts/check-app-store-build.ts 12002 12001
 ```
 
-Ces nombres illustrent le passage après les archives connues. Le validateur ne
+Le validateur refuse un historique inférieur au build 12001 déjà observé et
+accepte les numéros à cinq chiffres utilisés par Apple pour cette app. Il ne
 consulte pas Apple : la fraîcheur du second paramètre doit être vérifiée dans
 App Store Connect avant chaque envoi, sans téléversement concurrent via Xcode.
 

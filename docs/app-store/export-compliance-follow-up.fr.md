@@ -9,9 +9,9 @@ Le document de chiffrement de Pressay (identifiant Apple 6795505605,
 bundle fr.yodev.pressay, équipe G9WFV7HNV6) a été chargé le 23 août 2026 :
 pressay-anssi-declaration-signed.pdf.
 
-Au 10 septembre, son état reste « Vérification » et aucune valeur de clé
-n’est disponible. Le build 2.0.0 (2.0.3) a été traité avec succès et associé
-à la version. Le candidat suivant 2.0.4 déclare explicitement le chiffrement
+Au 15 septembre, son état reste « Vérification » et aucune valeur de clé
+n’est disponible. Le build 2.0.0 (2.0.3) a été traité, puis détaché du brouillon
+car il a été remplacé par des correctifs. Le candidat 2.0.4 déclare le chiffrement
 non exempté ; Xcode refuse son envoi avec « Invalid Export Compliance Code »
 (ID 078d88f1-e0e8-42dd-9842-f8b9376504da). L’ajout pour vérification est refusé avec le message :
 « Les attestations pour l’exportation de ce build sont manquantes. »
@@ -27,7 +27,9 @@ Yoann Andrieux — YoDev / Pressay
 ---
 
 Ce brouillon ne demande pas d’exemption et ne prétend pas détenir une attestation
-finale. Aucun message n’a été envoyé. Ne pas joindre de justificatif d’identité
+finale. Une version actualisée est remplie dans Chrome, catégorie
+« Configuration d’app > Chiffrement », et attend l’autorisation d’envoi.
+Aucun message n’a été envoyé. Ne pas joindre de justificatif d’identité
 ou d’adresse à cette demande. Le propriétaire confirme l’adresse actuelle
 7 allée des Jonquilles, 95130 Franconville ; l’ancien dossier de changement
 vers Paris (20000144124147) est obsolète.

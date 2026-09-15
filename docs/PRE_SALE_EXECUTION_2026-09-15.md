@@ -6,6 +6,11 @@
   build. Deux entrées explicites portent le nouveau numéro et le plus grand build
   relevé dans Apple. Le contrôle compare les composantes numériques, réserve les
   archives jusqu'à 2.0.4 et refuse les numéros anciens, dupliqués ou invalides.
+  Le contrôle connecté a retrouvé **12001** dans la version 1.2.0 : ce maximum
+  historique est désormais un plancher obligatoire. Le prochain candidat est
+  **12002**, sous réserve d'une nouvelle lecture Apple au moment de construire.
+  Les numéros à cinq chiffres sont acceptés conformément à la documentation Apple
+  actuelle ; la comparaison entière évite tout arrondi JavaScript.
 - Le script local de création d'archive exige le code de conformité approuvé,
   vérifie sa correspondance dans le binaire et conserve la déclaration de
   chiffrement non exempté. Il applique le même contrôle de numéro que le workflow.
@@ -33,7 +38,7 @@
 
 | Contrôle                                                                                          | Résultat                                                        | Limite                                                                                                                        |
 | ------------------------------------------------------------------------------------------------- | --------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------- |
-| `bun run test:unit`                                                                               | 14 tests, 50 assertions réussis                                 | Inclut quatre nouveaux tests de numérotation ; aucune transaction Apple réelle                                                |
+| `bun run test:unit`                                                                               | 15 tests, 49 assertions réussis                                 | Inclut cinq nouveaux tests de numérotation ; aucune transaction Apple réelle                                                  |
 | `python3 -m unittest discover -s scripts -p 'test_package_macos_store.py'`                        | 3 tests réussis                                                 | Reproduit les configurations de chiffrement manquantes/incorrectes ; ne valide pas un code auprès d'Apple                     |
 | `bun run lint` et `bun run build`                                                                 | Réussis                                                         | Frontend compilé ; pas d'installation TestFlight                                                                              |
 | `bun run check:translations`                                                                      | 803 clés cohérentes, anglais et 23 autres langues               | Cohérence des clés, pas une relecture linguistique exhaustive                                                                 |
@@ -49,11 +54,11 @@ Les 12 contrôles GitHub de la révision précédente
 `1fa94587cb8abb5fdc79d9591602143227f2cd15` ont été vérifiés réussis le 15 septembre.
 Ils incluent les tests Linux précédemment en échec. Les résultats de cette ancienne
 révision ne sont pas présentés comme ceux des nouvelles modifications du workflow.
-Les 334 tests Rust de la variante production avaient été validés lors du lot
-précédent. Après découverte de l'avis rustls, la suite native release complète est
-relancée avec `production-mac-app-store` et `storekit-purchases`, en plus de Clippy
-qui passe avec la dépendance corrigée. Consulter le résultat final attaché à la
-révision de la PR ; les résultats antérieurs ne qualifient pas la nouvelle dépendance.
+Après la correction rustls, les **334 tests Rust release** passent à nouveau
+localement avec `production-mac-app-store` et `storekit-purchases`, ainsi que
+Clippy. Le journal est `/tmp/pressay-mas-tests-20260915.log`. Les changements
+ultérieurs concernent les scripts de publication, leurs tests et la documentation ;
+la suite Rust n'est pas présentée comme une recette native TestFlight.
 `cargo-audit` n'étant pas installé localement, sa validation est confiée au job
 GitHub dédié, avec la même exception préexistante pour l'option rkyv non activée.
 
@@ -72,11 +77,25 @@ L'environnement GitHub `app-store-production` est limité à `main`. Les huit no
 de secrets nécessaires à la signature et à l'API Apple sont présents. Leur contenu
 n'a pas été affiché. La variable `MAS_EXPORT_COMPLIANCE_CODE` est absente.
 
-La session App Store Connect Chrome a expiré. La page de connexion a été laissée
-ouverte et une reconnexion a été demandée. Aucun état du chiffrement, du DSA ou
-des produits Apple postérieur au 10 septembre n'est donc affirmé. La recherche
-Gmail ciblée sur les réponses Apple récentes concernant Pressay n'a donné aucun
-résultat ; cela ne remplace pas la consultation du dossier Apple.
+La session Chrome initialement expirée est ensuite redevenue accessible. Le
+**15 septembre**, les contrôles connectés ont confirmé :
+
+- Chiffrement : document du 23 août toujours en « Vérification », valeur de clé « - ».
+- Business : adresse de Franconville correcte ; contrats gratuits/payants, banque,
+  formulaires fiscaux, DSA et DAC7 affichés actifs.
+- Le formulaire DSA séparé contient encore l'ancienne adresse parisienne. La
+  correction vers Franconville et les coordonnées sont préparées ; l'étape
+  « Pièce justificative d'adresse » interdit de continuer sans document.
+  La nouvelle adresse n'est donc pas encore soumise/validée dans ce formulaire.
+- TestFlight : 2.0.3 est le dernier build traité de 2.0.0, avec informations
+  manquantes. L'ancienne version 1.2.0 contient le build **12001**, prêt à soumettre.
+  Aucun groupe de test ni installation de recette n'est constaté.
+- Gmail : le filtre `{to:(@press-say.app) subject:Pressay}` applique uniquement
+  `Apps/Pressay`, sans suppression, archivage ou marquage comme lu.
+
+La relance est remplie dans le formulaire Apple Developer « Configuration d'app >
+Chiffrement », avec le statut du 15 septembre ; elle n'est pas envoyée et attend
+l'accord explicite demandé. Aucun justificatif d'identité ou d'adresse n'y est joint.
 
 Le justificatif de **7 allée des Jonquilles, 95130 Franconville** et l'existence
 d'un contrat de médiation ont été demandés. Aucune pièce d'adresse n'a été inventée
@@ -88,7 +107,7 @@ comme une revue de modifications qui n'existaient pas encore.
 
 ## Prochaine action dépendante
 
-Après reconnexion : vérifier la décision Apple et, si le code est délivré, le
+Après décision Apple : si le code est délivré, le
 configurer, sélectionner un nouveau numéro supérieur aux envois réels et construire
 depuis le code approuvé. Puis distribuer dans TestFlight, exécuter la matrice et
 corriger ses échecs avant App Review. Finaliser le DSA dès réception du justificatif.

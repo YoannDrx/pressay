@@ -4,7 +4,7 @@ on:
   workflow_dispatch:
     inputs:
       build_number:
-        description: "New CFBundleVersion, greater than every previous upload (for example 2.0.5)"
+        description: "New CFBundleVersion, greater than every previous upload (for example 12002)"
         required: true
         type: string
       previous_build_number:

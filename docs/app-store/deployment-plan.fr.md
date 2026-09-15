@@ -7,8 +7,11 @@ constituent pas des validations acquises.
 Exécution commencée le 15 septembre avec l'accord de Yoann. La
 [procédure de publication](release-runbook.fr.md) et la
 [matrice native](native-release-matrix.fr.md) détaillent les commandes et recettes.
-La reconnexion App Store Connect et le justificatif DSA ont été demandés ; aucune
-validation Apple nouvelle n'est présumée pendant cette attente.
+App Store Connect a été consulté en session connectée : le chiffrement attend
+toujours sa validation et le formulaire DSA exige le justificatif demandé.
+L'[état d'exécution](../PRE_SALE_EXECUTION_2026-09-15.md) actualise les observations
+historiques du tableau ci-dessous, notamment le build 12001 retrouvé dans la
+version 1.2.0 et la PR désormais prête pour revue humaine.
 
 ## Résultat attendu
 
@@ -49,7 +52,7 @@ F exige les validations A à E. G dépend de l'acceptation par Apple.
 
 ### A — Fermer les dossiers administratifs et commerciaux
 
-- [ ] Relever l'état actuel du chiffrement, du DSA, des contrats, des données
+- [x] Relever l'état actuel du chiffrement, du DSA, des contrats, des données
       bancaires et fiscales, sans relancer les démarches déjà validées.
 - [ ] Obtenir la décision Apple sur le chiffrement et son code de conformité.
       Utiliser la [relance préparée](export-compliance-follow-up.fr.md) après
