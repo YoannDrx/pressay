@@ -252,6 +252,26 @@ pub fn decrypt_change(account_key: &[u8; KEY_LEN], envelope: &[u8], aad: &[u8]) 
 mod tests {
     use super::*;
 
+    // Fixed synthetic HKDF-SHA256 v1 vectors, independently calculated with
+    // Python hmac/hashlib, protect existing envelopes across dependency upgrades.
+    #[test]
+    fn key_derivation_preserves_v1_envelope_compatibility() {
+        assert_eq!(
+            recovery_wrapping_key(&[7; KEY_LEN]).unwrap(),
+            [
+                198, 242, 184, 169, 226, 249, 220, 21, 17, 6, 226, 255, 53, 167, 97, 124, 209, 131,
+                215, 119, 40, 100, 194, 16, 46, 58, 223, 132, 183, 191, 218, 74
+            ]
+        );
+        assert_eq!(
+            wrapping_key(&[7; KEY_LEN], &[8; PUBLIC_KEY_LEN], &[9; PUBLIC_KEY_LEN]).unwrap(),
+            [
+                1, 182, 193, 111, 253, 115, 94, 208, 45, 152, 170, 144, 201, 235, 0, 65, 236, 186,
+                73, 178, 112, 152, 63, 100, 184, 181, 204, 104, 28, 145, 255, 31
+            ]
+        );
+    }
+
     #[test]
     fn account_key_is_bound_to_the_recipient_device() {
         let account_key = generate_account_key();
