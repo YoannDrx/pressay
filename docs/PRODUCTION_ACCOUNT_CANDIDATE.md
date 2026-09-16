@@ -30,3 +30,9 @@ Le bundle et les symboles sont conservés hors dépôt dans `pressay-builds/2.0.
 - 334 tests Rust de bibliothèque en release, avec `production-direct` et `updater` : réussis, dont les deux contrôles de migration d’environnement.
 - Clippy release `--all-targets --features updater -- -D warnings` : réussi. Cargo signale séparément une incompatibilité avec une future version de Rust dans la dépendance existante `block 0.1.6`.
 - Les essais réels d’OAuth, d’enregistrement du Mac dans la liste web et de relance restent ouverts ; les tests unitaires ne les remplacent pas.
+
+## Candidat notarié par GitHub Actions
+
+Le workflow manuel `Production account candidate` utilise les accès Apple déjà configurés dans GitHub Actions. Il accepte uniquement le commit courant de `main`, sélectionne explicitement `production-direct` sans fonctions commerciales, puis réutilise la compilation signée. L’étape finale notarise aussi le DMG, vérifie les tickets, Gatekeeper et la signature de l’application montée. Elle conserve le DMG vérifié avec son SHA-256 et le commit source dans un artefact de trente jours. Elle ne crée ni release publique ni manifeste de mise à jour.
+
+Après fusion : lancer ce workflow sur `main`, attendre le succès de `verify-and-retain`, télécharger `pressay-production-candidate-verified`, vérifier le SHA-256 puis installer l’application du DMG après vérification de Gatekeeper.
