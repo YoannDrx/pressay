@@ -3,3 +3,8 @@
 88d9341b556f533ce0c055523771c3e58cd3f401:docs/audit-evidence/2026-09-10.json:generic-api-key:42
 88d9341b556f533ce0c055523771c3e58cd3f401:docs/audit-evidence/2026-09-07.json:generic-api-key:38
 88d9341b556f533ce0c055523771c3e58cd3f401:docs/audit-evidence/2026-09-06.json:generic-api-key:21
+
+# Same verified source-file checksums reintroduced by the PR 94 squash commit.
+3b2dbb0c23f2d656b3262eb2af9eb21fb7bac837:docs/audit-evidence/2026-09-10.json:generic-api-key:42
+3b2dbb0c23f2d656b3262eb2af9eb21fb7bac837:docs/audit-evidence/2026-09-07.json:generic-api-key:38
+3b2dbb0c23f2d656b3262eb2af9eb21fb7bac837:docs/audit-evidence/2026-09-06.json:generic-api-key:21
