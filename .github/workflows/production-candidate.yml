@@ -1,0 +1,78 @@
+name: Production account candidate
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  verify-source:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+      - name: Require merged main
+        run: |
+          set -euo pipefail
+          test "$GITHUB_REF" = refs/heads/main
+          git fetch --no-tags origin main
+          test "$(git rev-parse FETCH_HEAD)" = "$GITHUB_SHA"
+
+  build:
+    needs: verify-source
+    permissions:
+      contents: write
+    uses: ./.github/workflows/build.yml
+    with:
+      platform: macos-26
+      target: aarch64-apple-darwin
+      build-args: --target aarch64-apple-darwin --bundles app,dmg --config src-tauri/tauri.updater.conf.json --config src-tauri/tauri.production-candidate.conf.json --features updater
+      build-environment: production-direct
+      asset-prefix: production-candidate
+      upload-artifacts: true
+      sign-binaries: true
+    secrets: inherit
+
+  verify-and-retain:
+    needs: build
+    runs-on: macos-26
+    steps:
+      - uses: actions/download-artifact@v8
+        with:
+          name: production-candidate-aarch64-apple-darwin
+          path: candidate
+      - name: Notarize and verify the installer
+        env:
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
+          APPLE_ID_PASSWORD: ${{ secrets.APPLE_ID_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        run: |
+          set -euo pipefail
+          DMG_PATH="$(find candidate -name '*.dmg' -type f -print -quit)"
+          test -n "$DMG_PATH"
+          NOTARY_PASSWORD="${APPLE_PASSWORD:-$APPLE_ID_PASSWORD}"
+          test -n "$APPLE_ID" && test -n "$NOTARY_PASSWORD" && test -n "$APPLE_TEAM_ID"
+          xcrun notarytool submit "$DMG_PATH" --apple-id "$APPLE_ID" --password "$NOTARY_PASSWORD" --team-id "$APPLE_TEAM_ID" --wait
+          xcrun stapler staple "$DMG_PATH"
+          xcrun stapler validate "$DMG_PATH"
+          spctl -a -vv -t install "$DMG_PATH"
+          MOUNT_DIR="$(mktemp -d)"
+          trap 'hdiutil detach "$MOUNT_DIR" >/dev/null 2>&1 || true; rmdir "$MOUNT_DIR" 2>/dev/null || true' EXIT
+          hdiutil attach -readonly -nobrowse -mountpoint "$MOUNT_DIR" "$DMG_PATH" >/dev/null
+          APP_PATH="$MOUNT_DIR/Pressay.app"
+          codesign --verify --deep --strict --verbose=2 "$APP_PATH"
+          xcrun stapler validate "$APP_PATH"
+          spctl -a -vv "$APP_PATH"
+          mkdir verified
+          cp "$DMG_PATH" verified/Pressay.dmg
+          (cd verified && shasum -a 256 Pressay.dmg > Pressay.dmg.sha256)
+          printf '%s\n' "$GITHUB_SHA" > verified/source-commit.txt
+      - uses: actions/upload-artifact@v7
+        with:
+          name: pressay-production-candidate-verified
+          path: verified/
+          if-no-files-found: error
+          retention-days: 30
