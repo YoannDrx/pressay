@@ -1822,6 +1822,10 @@ fn apply_settings_migrations(
         && settings.pressay_cloud_api_url.trim_end_matches('/') != build_cloud_api_url
     {
         settings.pressay_cloud_api_url = build_cloud_api_url;
+        // Account/device IDs belong to one server database. Keep the installation
+        // identifier, but bootstrap it again when moving between test and production.
+        settings.pressay_cloud_account_id = None;
+        settings.pressay_cloud_device_id = None;
         updated = true;
     }
 
@@ -2129,6 +2133,9 @@ mod tests {
             "https://api.press-say.app"
         };
         stored["pressay_cloud_api_url"] = serde_json::json!(previous_channel_url);
+        stored["pressay_cloud_account_id"] = serde_json::json!("previous-account");
+        stored["pressay_cloud_device_id"] = serde_json::json!("previous-device");
+        stored["pressay_cloud_device_identifier"] = serde_json::json!("same-installation");
         let mut settings: AppSettings = serde_json::from_value(stored.clone()).unwrap();
 
         assert!(apply_settings_migrations(&mut settings, &stored));
@@ -2140,8 +2147,20 @@ mod tests {
             settings.settings_schema_version,
             CURRENT_SETTINGS_SCHEMA_VERSION
         );
+        assert!(settings.pressay_cloud_account_id.is_none());
+        assert!(settings.pressay_cloud_device_id.is_none());
+        assert_eq!(
+            settings.pressay_cloud_device_identifier,
+            "same-installation"
+        );
+        settings.pressay_cloud_account_id = Some("production-account".into());
+        settings.pressay_cloud_device_id = Some("production-device".into());
         let migrated = serde_json::to_value(&settings).unwrap();
         assert!(!apply_settings_migrations(&mut settings, &migrated));
+        assert_eq!(
+            settings.pressay_cloud_device_id.as_deref(),
+            Some("production-device")
+        );
     }
 
     #[test]
