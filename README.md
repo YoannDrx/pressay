@@ -108,3 +108,7 @@ test fixtures. See [SECURITY.md](SECURITY.md) for reporting and handling rules.
 The Handy-derived desktop code retains the upstream MIT license and copyright.
 Pressay branding, services, infrastructure, and commercial assets are not
 granted by that license. See [LICENSE](LICENSE) and [NOTICE](NOTICE).
+
+L'[étude des anciens Mac et d’Intel](docs/OLDER_MAC_FEASIBILITY_2026-09-16.md)
+précise les dépendances bloquantes, le prototype proposé, les estimations et la
+recette nécessaire avant tout élargissement du support.
