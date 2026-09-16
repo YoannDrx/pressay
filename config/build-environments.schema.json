@@ -37,6 +37,7 @@
               "disabled",
               "stripe_test",
               "stripe_live",
+              "storekit_sandbox",
               "storekit_production"
             ]
           },

@@ -24,7 +24,7 @@ Maintenez votre raccourci, parlez, puis relâchez : Pressay transcrit localement
 DICTÉE LOCALE, SANS COMPTE
 
 • Dictée locale illimitée sur Apple Silicon
-• Fonctionnement hors ligne
+• Fonctionnement hors ligne après téléchargement du modèle
 • Aucun compte nécessaire pour commencer
 • Modèles Fast, Polyglot et Precise téléchargeables
 
@@ -45,6 +45,13 @@ PRESSAY PRO
 Pro débloque les commandes de transformation avancées, les modes personnalisés, les profils par application, Apple Intelligence/BYOK, la synchronisation chiffrée et un quota Pressay Cloud. La dictée locale reste disponible dans l’offre Free.
 
 Certaines fonctions nécessitent les autorisations Microphone et Accessibilité. Pressay explique leur usage avant de les demander. La disponibilité d’Apple Intelligence dépend du Mac, de macOS, de la langue et de la région.
+
+ABONNEMENTS
+
+Pressay Pro est proposé par abonnement mensuel ou annuel avec renouvellement automatique. Le prix et la durée sont affichés avant confirmation dans l’App Store. Vous pouvez gérer ou résilier votre abonnement dans les réglages de votre compte Apple.
+
+Politique de confidentialité : https://press-say.app/fr/privacy
+Conditions d’utilisation (EULA) : https://www.apple.com/legal/internet-services/itunes/dev/stdeula/
 
 ## Mots-clés
 

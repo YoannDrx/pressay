@@ -14,7 +14,7 @@ The following off-device data types require final disclosure review:
 
 | Data type                       | Current purpose                                      | Linked to identity | Tracking | Release evidence required                                                                         |
 | ------------------------------- | ---------------------------------------------------- | ------------------ | -------- | ------------------------------------------------------------------------------------------------- |
-| Email address                   | Account creation, authentication and support         | Yes                | No       | Google and Apple account flows                                                                    |
+| Email address                   | Account creation, authentication and support         | Yes                | No       | Apple in the native Store flow; configured providers on the web                                   |
 | User ID                         | Account, entitlement, devices and deletion           | Yes                | No       | Cloud schema and deletion test                                                                    |
 | Device ID                       | Device approval, quota and revocation                | Yes                | No       | HMAC/pseudonymization review                                                                      |
 | Purchase history                | StoreKit entitlement and restore                     | Yes                | No       | Sandbox, refund and deletion behavior                                                             |
@@ -31,7 +31,12 @@ the provider credential.
 
 - No advertising, cross-app tracking or data-broker use.
 - No transcript, audio, clipboard, selection, prompt, response or API key in logs,
-  analytics, sync payloads or diagnostic events.
+  analytics or diagnostic events.
+- Sync contains encrypted custom modes, app profiles, dictionary entries and the
+  active-mode preference. Custom mode instructions travel inside encrypted
+  envelopes; do not claim that sync transports no user content. History, recorded
+  audio and provider credentials are not part of the sync object set. Confirm the
+  final disclosure against `src-tauri/src/cloud_sync.rs` and the native traffic test.
 - Remote product telemetry remains off by default and requires explicit consent.
 - Privacy Policy URL: `https://press-say.app/en/privacy` (localized FR equivalent).
 - Privacy choices URL candidate: `https://press-say.app/account` after account

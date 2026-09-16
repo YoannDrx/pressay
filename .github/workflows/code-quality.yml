@@ -44,6 +44,9 @@ jobs:
       - name: Validate StoreKit catalogue
         run: bun run storekit:validate
 
+      - name: Test Mac App Store archive guards
+        run: python3 -m unittest discover -s scripts -p 'test_package_macos_store.py'
+
       - name: Run ESLint
         run: bun run lint
 

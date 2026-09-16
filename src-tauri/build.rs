@@ -1,4 +1,5 @@
 fn main() {
+    validate_release_environment();
     #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
     build_apple_intelligence_bridge();
 
@@ -674,4 +675,54 @@ fn is_command_line_tools_only() -> bool {
         .and_then(|out| String::from_utf8(out.stdout).ok())
         .map(|path| path.trim().ends_with("CommandLineTools"))
         .unwrap_or(false)
+}
+
+/// Resolve one declared environment before compiling a commercial binary.
+/// A stable-looking bundle must never silently use beta/staging credentials.
+fn validate_release_environment() {
+    for variable in ["PRESSAY_BUILD_ENVIRONMENT", "PRESSAY_CLOUD_API_URL"] {
+        println!("cargo:rerun-if-env-changed={variable}");
+    }
+    println!("cargo:rerun-if-changed=../config/build-environments.json");
+    let commercial = std::env::var_os("CARGO_FEATURE_COMMERCIAL_ENTITLEMENTS").is_some();
+    let mas = std::env::var_os("CARGO_FEATURE_MAS").is_some();
+    let selected = std::env::var("PRESSAY_BUILD_ENVIRONMENT").ok();
+    if commercial && selected.is_none() {
+        panic!("Commercial builds require PRESSAY_BUILD_ENVIRONMENT from config/build-environments.json");
+    }
+    let override_url = std::env::var("PRESSAY_CLOUD_API_URL").ok();
+    if let Some(selected) = selected {
+        let manifest: serde_json::Value =
+            serde_json::from_str(include_str!("../config/build-environments.json"))
+                .expect("Invalid build environments");
+        let environment = manifest["environments"]
+            .as_array()
+            .expect("Missing environments")
+            .iter()
+            .find(|entry| entry["id"].as_str() == Some(selected.as_str()))
+            .expect("Unknown PRESSAY_BUILD_ENVIRONMENT");
+        let distribution = if mas { "mac_app_store" } else { "direct" };
+        assert_eq!(
+            environment["distribution"].as_str(),
+            Some(distribution),
+            "Build environment and Cargo distribution disagree"
+        );
+        let url = environment["cloudApi"].as_str().expect("Missing cloudApi");
+        if let Some(override_url) = override_url {
+            assert_eq!(
+                override_url.trim_end_matches('/'),
+                url,
+                "Cloud override disagrees with release environment"
+            );
+        }
+        if commercial && environment["channel"] == "stable" {
+            assert!(
+                !std::env::var("CARGO_PKG_VERSION").unwrap().contains('-'),
+                "Production commercial builds require a stable source version"
+            );
+        }
+        println!("cargo:rustc-env=PRESSAY_RESOLVED_CLOUD_API_URL={url}");
+    } else if let Some(url) = override_url {
+        println!("cargo:rustc-env=PRESSAY_RESOLVED_CLOUD_API_URL={url}");
+    }
 }

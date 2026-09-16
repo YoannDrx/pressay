@@ -5,6 +5,8 @@ pub const MONTHLY_PRODUCT_ID: &str = "app.pressay.desktop.mas.pro.monthly";
 pub const ANNUAL_PRODUCT_ID: &str = "app.pressay.desktop.mas.pro.annual";
 pub const PRODUCT_IDS: [&str; 2] = [MONTHLY_PRODUCT_ID, ANNUAL_PRODUCT_ID];
 
+pub static TRANSACTION_UPDATES: tokio::sync::Notify = tokio::sync::Notify::const_new();
+
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq, Type)]
 #[serde(rename_all = "camelCase")]
 pub struct StoreKitProduct {
@@ -47,6 +49,7 @@ mod native {
     }
 
     unsafe extern "C" {
+        fn pressay_storekit_observe_transactions(callback: extern "C" fn());
         fn pressay_storekit_products(
             product_ids_json: *const c_char,
         ) -> *mut PressayStoreKitResponse;
@@ -62,6 +65,14 @@ mod native {
             transaction_id: *const c_char,
         ) -> *mut PressayStoreKitResponse;
         fn pressay_storekit_free_response(response: *mut PressayStoreKitResponse);
+    }
+
+    extern "C" fn transactions_changed() {
+        super::TRANSACTION_UPDATES.notify_one();
+    }
+
+    pub fn observe_transactions() {
+        unsafe { pressay_storekit_observe_transactions(transactions_changed) };
     }
 
     fn read_response(response: *mut PressayStoreKitResponse) -> Result<String, String> {
@@ -131,7 +142,10 @@ mod native {
 }
 
 #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
-pub use native::{current_entitlements, finish, products, purchase};
+pub use native::{current_entitlements, finish, observe_transactions, products, purchase};
+
+#[cfg(not(all(target_os = "macos", target_arch = "aarch64")))]
+pub fn observe_transactions() {}
 
 #[cfg(not(all(target_os = "macos", target_arch = "aarch64")))]
 pub fn products() -> Result<Vec<StoreKitProduct>, String> {

@@ -27,6 +27,21 @@
       "storeKitProducts": []
     },
     {
+      "id": "staging-mac-app-store",
+      "channel": "beta",
+      "distribution": "mac_app_store",
+      "cloudApi": "https://pressay-cloud-staging.vercel.app",
+      "oauthIssuer": "https://press-say.app",
+      "oauthAudience": "https://api.press-say.app",
+      "authRedirect": "pressay://oauth/callback",
+      "paymentEnvironment": "storekit_sandbox",
+      "stripePriceEnvironment": null,
+      "storeKitProducts": [
+        "app.pressay.desktop.mas.pro.monthly",
+        "app.pressay.desktop.mas.pro.annual"
+      ]
+    },
+    {
       "id": "production-direct",
       "channel": "stable",
       "distribution": "direct",

@@ -4,6 +4,8 @@ const HISTORY_MASTER_KEY_ACCOUNT: &str = "master-key-v1";
 const CLOUD_SERVICE: &str = "app.pressay.desktop.cloud";
 const CLOUD_BEARER_ACCOUNT: &str = "bearer-token-v1";
 const CLOUD_OAUTH_TOKEN_SET_ACCOUNT: &str = "oauth-token-set-v1";
+#[cfg(target_os = "macos")]
+const CLOUD_OAUTH_MIGRATION_DISABLED_ACCOUNT: &str = "oauth-legacy-migration-disabled-v1";
 #[cfg_attr(test, allow(dead_code))]
 const CLOUD_PENDING_OAUTH_ACCOUNT: &str = "pending-oauth-v1";
 const CLOUD_ENTITLEMENT_ACCOUNT: &str = "entitlement-snapshot-v1";
@@ -71,9 +73,9 @@ mod platform {
     use super::{
         cloud_sync_account, validate_cloud_bearer_token, validate_cloud_entitlement_snapshot,
         validate_provider_id, BYOK_SERVICE, CLOUD_BEARER_ACCOUNT, CLOUD_ENTITLEMENT_ACCOUNT,
-        CLOUD_OAUTH_TOKEN_SET_ACCOUNT, CLOUD_PENDING_OAUTH_ACCOUNT, CLOUD_SERVICE,
-        CLOUD_SYNC_ACCOUNT_KEY_PREFIX, CLOUD_SYNC_DEVICE_KEY_PREFIX, HISTORY_MASTER_KEY_ACCOUNT,
-        HISTORY_SERVICE,
+        CLOUD_OAUTH_MIGRATION_DISABLED_ACCOUNT, CLOUD_OAUTH_TOKEN_SET_ACCOUNT,
+        CLOUD_PENDING_OAUTH_ACCOUNT, CLOUD_SERVICE, CLOUD_SYNC_ACCOUNT_KEY_PREFIX,
+        CLOUD_SYNC_DEVICE_KEY_PREFIX, HISTORY_MASTER_KEY_ACCOUNT, HISTORY_SERVICE,
     };
     use keyring_core::{Entry, Error};
     use std::sync::OnceLock;
@@ -149,6 +151,13 @@ mod platform {
     /// Copies the former native app OAuth token set into the current service.
     /// The source entry is retained so downgrading remains possible.
     pub fn migrate_legacy_cloud_oauth_token_set() -> Result<bool, String> {
+        match entry(CLOUD_SERVICE, CLOUD_OAUTH_MIGRATION_DISABLED_ACCOUNT)?.get_password() {
+            Ok(_) => return Ok(false),
+            Err(Error::NoEntry) => {}
+            Err(_) => {
+                return Err("Unable to read the Cloud migration state from Keychain".to_string())
+            }
+        }
         if get_cloud_oauth_token_set()?.is_some() {
             return Ok(false);
         }
@@ -233,6 +242,12 @@ mod platform {
     }
 
     pub fn delete_cloud_oauth_token_set() -> Result<(), String> {
+        // Keep the old app's credential for downgrades, but never silently
+        // import it again after this app has explicitly signed out. Write this
+        // first so an interrupted cleanup cannot resurrect the old session.
+        entry(CLOUD_SERVICE, CLOUD_OAUTH_MIGRATION_DISABLED_ACCOUNT)?
+            .set_password("disabled")
+            .map_err(|_| "Unable to save the Cloud migration state in Keychain".to_string())?;
         match entry(CLOUD_SERVICE, CLOUD_OAUTH_TOKEN_SET_ACCOUNT)?.delete_credential() {
             Ok(()) | Err(Error::NoEntry) => Ok(()),
             Err(_) => {

@@ -1,0 +1,49 @@
+name: macOS native tests
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+  workflow_call:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  macos-tests:
+    runs-on: macos-26
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - features: updater
+            environment: staging-direct
+          - features: mas
+            environment: staging-mac-app-store
+          - features: storekit-purchases
+            environment: staging-mac-app-store
+    env:
+      CMAKE_POLICY_VERSION_MINIMUM: "3.5"
+      CARGO_INCREMENTAL: "0"
+      PRESSAY_BUILD_ENVIRONMENT: ${{ matrix.environment }}
+    steps:
+      - uses: actions/checkout@v5
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
+      - uses: swatinem/rust-cache@v2
+        with:
+          workspaces: "./src-tauri -> target"
+          key: macos-tests-${{ matrix.features }}
+      - name: Lint native code for this distribution
+        working-directory: src-tauri
+        run: cargo clippy --locked --all-targets --no-default-features --features ${{ matrix.features }} -- -D warnings
+      - name: Test native code for this distribution
+        working-directory: src-tauri
+        run: cargo test --locked --no-default-features --features ${{ matrix.features }}

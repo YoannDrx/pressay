@@ -11,6 +11,8 @@ typedef struct {
     char* error_message;
 } PressayStoreKitResponse;
 
+void pressay_storekit_observe_transactions(void (*callback)(void));
+
 PressayStoreKitResponse* pressay_storekit_products(const char* product_ids_json);
 PressayStoreKitResponse* pressay_storekit_purchase(const char* product_id, const char* account_token);
 PressayStoreKitResponse* pressay_storekit_current_entitlements(const char* product_ids_json, int force_sync);

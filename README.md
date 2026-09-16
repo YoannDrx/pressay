@@ -27,6 +27,10 @@ Mac App Store distribution are enabled.
 
 Do not ship the current `main` branch as a commercial release. Release gates and
 the distribution split are documented in [docs/RELEASES.md](docs/RELEASES.md).
+The latest desktop audit, corrections, evidence and remaining launch blockers are
+recorded in [the September 2026 production audit](docs/PRODUCTION_READINESS_AUDIT_2026-09-06.md).
+The follow-up fixes and live service checks are recorded in the
+[pre-sale remediation report](docs/PRE_SALE_REMEDIATION_2026-09-07.md).
 The audited product direction, feature ledger, Signal OS design specification,
 Voice Bar contract, and prioritized implementation backlog are indexed in the
 [Voice OS local investigation](docs/voice-os/README.md).
@@ -82,6 +86,7 @@ pressay --cancel
 pressay --start-hidden
 pressay --list-models
 pressay --list-devices
+pressay --transcribe-file synthetic.wav --language en --json
 ```
 
 ## Repository workflow
@@ -103,3 +108,7 @@ test fixtures. See [SECURITY.md](SECURITY.md) for reporting and handling rules.
 The Handy-derived desktop code retains the upstream MIT license and copyright.
 Pressay branding, services, infrastructure, and commercial assets are not
 granted by that license. See [LICENSE](LICENSE) and [NOTICE](NOTICE).
+
+L'[étude des anciens Mac et d’Intel](docs/OLDER_MAC_FEASIBILITY_2026-09-16.md)
+précise les dépendances bloquantes, le prototype proposé, les estimations et la
+recette nécessaire avant tout élargissement du support.
