@@ -36,7 +36,10 @@
       "privacy": "Privacy Policy",
       "manage": "Manage subscription",
       "pendingTitle": "Purchase awaiting approval",
-      "unavailable": "Subscriptions cannot be loaded from the App Store right now."
+      "unavailable": "Subscriptions cannot be loaded from the App Store right now.",
+      "linkTitle": "Link this App Store purchase?",
+      "linkMessage": "This subscription was bought with another Apple ID or before you signed in to Pressay. Link it to the Pressay account you are signed in with? A purchase can belong to only one Pressay account.",
+      "linkConfirm": "Link purchase"
     },
     "providers": {
       "google": "Continue with Google",
@@ -912,7 +915,10 @@
       "releaseGate": "This option is not available in this version of Pressay yet.",
       "restoreFailed": "Purchases could not be restored. Check that you are signed in to the App Store with the account used to subscribe.",
       "otherAccount": "This subscription belongs to another Pressay account. Sign in with the original account or contact support.",
-      "upgradeRequired": "This feature is part of Pressay Pro."
+      "upgradeRequired": "This feature is part of Pressay Pro.",
+      "linkRequired": "This App Store purchase is not linked to this Pressay account yet. Use Restore purchases to link it.",
+      "subscriptionAlreadyActive": "You already have an active Pressay Pro subscription.",
+      "updateRequired": "This version of Pressay can no longer sign in. Update Pressay and try again."
     }
   },
   "appLanguage": {

@@ -239,6 +239,10 @@ pub struct CloudAccountSnapshot {
 #[serde(rename_all = "camelCase")]
 struct RestoreAppStoreRequest<'a> {
     signed_transaction: &'a str,
+    /// Sent only after the user confirmed that a purchase made under another
+    /// Apple ID, or before the account token existed, belongs to this account.
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    link_to_current_account: bool,
 }
 
 #[derive(Deserialize)]
@@ -1734,6 +1738,7 @@ pub async fn restore_app_store_transaction(
     app: &AppHandle,
     signed_transaction: &str,
     transaction_id: &str,
+    link_to_current_account: bool,
 ) -> Result<CloudAccountSnapshot, CloudFailure> {
     if signed_transaction.len() < 64
         || signed_transaction.len() > 250_000
@@ -1753,7 +1758,10 @@ pub async fn restore_app_store_transaction(
                 "idempotency-key",
                 format!("app-store-transaction-{transaction_id}"),
             )
-            .json(&RestoreAppStoreRequest { signed_transaction })
+            .json(&RestoreAppStoreRequest {
+                signed_transaction,
+                link_to_current_account,
+            })
             .send()
             .await
             .map_err(|_| CloudFailure::new("cloud_network_unavailable"))?,
@@ -1801,9 +1809,10 @@ fn revocation_form(refresh_token: &str) -> [(&'static str, &str); 3] {
 
 pub async fn sign_out(app: &AppHandle) -> Result<(), CloudFailure> {
     let revision = session_revision();
-    let settings = get_settings(app);
-    // Revoking the refresh token also ends the access tokens minted from it at
-    // the issuer; local credentials are cleared below whatever happens here.
+    // The web issuer is the only identity provider: the Cloud API's own auth
+    // routes are retired (410). Revoking the refresh token at the issuer also
+    // ends the access tokens minted from it; local credentials are cleared
+    // below whatever happens here.
     let refresh_token = {
         let _session = OAUTH_SESSION_LOCK.lock().await;
         stored_oauth_token_set()
@@ -1811,15 +1820,6 @@ pub async fn sign_out(app: &AppHandle) -> Result<(), CloudFailure> {
             .flatten()
             .and_then(|token_set| token_set.refresh_token)
     };
-    if let Ok(token) = access_token().await {
-        let _ = client()
-            .post(endpoint(&settings, "/v1/auth/sign-out")?)
-            .timeout(Duration::from_secs(10))
-            .bearer_auth(token)
-            .json(&serde_json::json!({}))
-            .send()
-            .await;
-    }
     if let Some(refresh_token) = refresh_token {
         revoke_refresh_token(&refresh_token).await;
     }
@@ -2133,6 +2133,16 @@ mod tests {
     }
 
     #[test]
+    fn apple_subscription_refusal_envelope_yields_its_code() {
+        // The DELETE /v1/me 409 body from the cross-repo contract.
+        let body: ApiErrorBody = serde_json::from_str(
+            r#"{"error":{"code":"apple_subscription_active","message":"An App Store subscription is active","manageSubscriptionsUrl":"https://apps.apple.com/account/subscriptions","acknowledgeParameter":"acknowledgeAppleSubscription"},"requestId":"req_1"}"#,
+        )
+        .unwrap();
+        assert_eq!(body.error.code(), "apple_subscription_active");
+    }
+
+    #[test]
     fn release_channels_pin_distinct_entitlement_verifiers() {
         let beta = default_entitlement_verifier_config("2.0.0-beta.3");
         let stable = default_entitlement_verifier_config("2.0.0");
@@ -2336,6 +2346,26 @@ mod tests {
         }))
         .unwrap();
         assert!(without.revocation_endpoint.is_none());
+    }
+
+    #[test]
+    fn restore_links_a_foreign_purchase_only_after_confirmation() {
+        let transaction = "a".repeat(64);
+        let plain = serde_json::to_value(RestoreAppStoreRequest {
+            signed_transaction: &transaction,
+            link_to_current_account: false,
+        })
+        .unwrap();
+        assert_eq!(
+            plain,
+            serde_json::json!({ "signedTransaction": transaction })
+        );
+        let confirmed = serde_json::to_value(RestoreAppStoreRequest {
+            signed_transaction: &transaction,
+            link_to_current_account: true,
+        })
+        .unwrap();
+        assert_eq!(confirmed["linkToCurrentAccount"], true);
     }
 
     #[test]

@@ -25,7 +25,10 @@ const account: CloudAccountSnapshot = {
 const calls: string[] = [];
 // Arguments of the commands whose payload matters to the assertions.
 const payloads: Record<string, unknown>[] = [];
-Object.assign(window, { accountTestCalls: calls, accountTestPayloads: payloads });
+Object.assign(window, {
+  accountTestCalls: calls,
+  accountTestPayloads: payloads,
+});
 mockIPC(
   (command, payload) => {
     calls.push(command);
@@ -34,6 +37,7 @@ mockIPC(
         "open_external_page",
         "begin_cloud_social_login",
         "delete_cloud_account",
+        "restore_app_store_purchases",
       ].includes(command)
     )
       payloads.push({ command, ...(payload as Record<string, unknown>) });
@@ -54,7 +58,14 @@ mockIPC(
       case "get_cloud_account_snapshot":
         return signedOut ? Promise.reject("cloud_not_connected") : account;
       case "reconcile_app_store_purchases":
+        return account;
       case "restore_app_store_purchases":
+        // A purchase made under another Apple ID needs a confirmed link.
+        if (
+          scenario === "purchases-link" &&
+          !(payload as { linkToCurrentAccount?: boolean }).linkToCurrentAccount
+        )
+          return Promise.reject("app_store_account_mismatch");
         return account;
       case "purchase_app_store_product":
         return Promise.reject("storekit_pending");

@@ -653,9 +653,14 @@ async purchaseAppStoreProduct(productId: string) : Promise<Result<CloudAccountSn
     else return { status: "error", error: e  as any };
 }
 },
-async restoreAppStorePurchases() : Promise<Result<CloudAccountSnapshot, string>> {
+/**
+ * Explicit Restore. `link_to_current_account` is true only after the user
+ * confirmed linking a purchase the Cloud reported as bound to another
+ * Apple ID or made without an account token.
+ */
+async restoreAppStorePurchases(linkToCurrentAccount: boolean) : Promise<Result<CloudAccountSnapshot, string>> {
     try {
-    return { status: "ok", data: await TAURI_INVOKE("restore_app_store_purchases") };
+    return { status: "ok", data: await TAURI_INVOKE("restore_app_store_purchases", { linkToCurrentAccount }) };
 } catch (e) {
     if(e instanceof Error) throw e;
     else return { status: "error", error: e  as any };

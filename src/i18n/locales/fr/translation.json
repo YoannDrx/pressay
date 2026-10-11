@@ -37,7 +37,10 @@
       "privacy": "Politique de confidentialité",
       "manage": "Gérer l’abonnement",
       "pendingTitle": "Achat en attente d’approbation",
-      "unavailable": "Les abonnements ne peuvent pas être chargés depuis l’App Store pour le moment."
+      "unavailable": "Les abonnements ne peuvent pas être chargés depuis l’App Store pour le moment.",
+      "linkTitle": "Lier cet achat App Store ?",
+      "linkMessage": "Cet abonnement a été acheté avec un autre identifiant Apple ou avant votre connexion à Pressay. Le lier au compte Pressay avec lequel vous êtes connecté ? Un achat ne peut appartenir qu’à un seul compte Pressay.",
+      "linkConfirm": "Lier l’achat"
     },
     "providers": {
       "google": "Continuer avec Google",
@@ -909,7 +912,10 @@
       "releaseGate": "Cette option n’est pas encore disponible dans cette version de Pressay.",
       "restoreFailed": "Les achats n’ont pas pu être restaurés. Vérifiez que vous êtes connecté à l’App Store avec le compte utilisé pour l’abonnement.",
       "otherAccount": "Cet abonnement appartient à un autre compte Pressay. Connectez-vous avec le compte d’origine ou contactez l’assistance.",
-      "upgradeRequired": "Cette fonctionnalité fait partie de Pressay Pro."
+      "upgradeRequired": "Cette fonctionnalité fait partie de Pressay Pro.",
+      "linkRequired": "Cet achat App Store n’est pas encore lié à ce compte Pressay. Utilisez « Restaurer les achats » pour le lier.",
+      "subscriptionAlreadyActive": "Vous avez déjà un abonnement Pressay Pro actif.",
+      "updateRequired": "Cette version de Pressay ne peut plus se connecter. Mettez Pressay à jour puis réessayez."
     }
   },
   "appLanguage": {

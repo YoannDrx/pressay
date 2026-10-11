@@ -30,7 +30,12 @@ import { Button } from "@/components/ui/Button";
 import { SettingsGroup } from "@/components/ui/SettingsGroup";
 import { AppPageHeader } from "@/components/layout";
 import { useSettings } from "@/hooks/useSettings";
-import { appErrorKey, describeAppError, presentError } from "@/lib/appErrors";
+import {
+  appErrorKey,
+  describeAppError,
+  needsPurchaseLink,
+  presentError,
+} from "@/lib/appErrors";
 import { confirmDestructiveAction } from "@/lib/confirmAction";
 import { priceWithPeriod } from "@/lib/subscriptionPeriod";
 
@@ -154,9 +159,12 @@ export function AccountSettings() {
       if (!active) return;
       if (reconciliation.status === "ok") {
         setAccount(reconciliation.data);
-      } else if (appErrorKey(reconciliation.error) === "errors.codes.otherAccount") {
-        // A subscription bound to another Pressay account is explained, not
-        // retried silently forever.
+      } else if (
+        needsPurchaseLink(reconciliation.error) ||
+        appErrorKey(reconciliation.error) === "errors.codes.otherAccount"
+      ) {
+        // A subscription bound to another Apple ID or Pressay account is
+        // explained, not retried silently forever. Restore offers the link.
         setStoreError(reconciliation.error);
       } else if (reconciliation.error === "storekit_pending") {
         setStorePending(true);
@@ -440,11 +448,29 @@ export function AccountSettings() {
     }
   };
 
-  const restoreAppStorePurchases = async () => {
+  const restoreAppStorePurchases = async (linkToCurrentAccount = false) => {
     setPendingAction("store-restore");
     setStoreError(null);
-    const result = await commands.restoreAppStorePurchases();
+    const result =
+      await commands.restoreAppStorePurchases(linkToCurrentAccount);
     setPendingAction(null);
+    if (
+      result.status === "error" &&
+      !linkToCurrentAccount &&
+      needsPurchaseLink(result.error)
+    ) {
+      // The Cloud never attaches a purchase made under another Apple ID or
+      // without an account token unless the user explicitly confirms it.
+      const confirmed = await confirmDestructiveAction({
+        title: t("cloud.appStore.linkTitle"),
+        message: t("cloud.appStore.linkMessage"),
+        confirmLabel: t("cloud.appStore.linkConfirm"),
+        cancelLabel: t("common.cancel"),
+      });
+      if (confirmed) await restoreAppStorePurchases(true);
+      else setStoreError(result.error);
+      return;
+    }
     if (result.status === "ok") {
       setStorePending(false);
       setAccount(result.data);
@@ -1021,7 +1047,6 @@ export function AccountSettings() {
                         : t("cloud.errors.detail")
                       : t("cloud.providers.browserNote")}
                   </p>
-
                 </div>
                 {authPhase === "failed" ? (
                   <Button

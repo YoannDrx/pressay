@@ -27,6 +27,16 @@ describe("backend error codes", () => {
     expect(isUpgradeRequired("cloud_network_unavailable")).toBe(false);
   });
 
+  test("a foreign App Store purchase asks for a link, a taken one does not", async () => {
+    const { needsPurchaseLink } = await import("../src/lib/appErrors");
+    expect(needsPurchaseLink("app_store_account_mismatch")).toBe(true);
+    expect(needsPurchaseLink("app_store_account_token_missing")).toBe(true);
+    expect(needsPurchaseLink("app_store_purchase_already_linked")).toBe(false);
+    expect(appErrorKey("app_store_purchase_already_linked")).toBe(
+      "errors.codes.otherAccount",
+    );
+  });
+
   test("unknown or empty codes fall back to a generic message", () => {
     expect(appErrorKey("something_new")).toBe("errors.codes.generic");
     expect(appErrorKey(null)).toBe("errors.codes.generic");
@@ -51,6 +61,11 @@ describe("backend error codes", () => {
       "storekit_release_gate",
       "storekit_restore_failed",
       "storekit_account_invalid",
+      "app_store_account_mismatch",
+      "app_store_account_token_missing",
+      "app_store_purchase_already_linked",
+      "subscription_already_active",
+      "desktop_auth_moved_to_web",
       "capability_upgrade_required:x",
       "capability_release_gate:x",
       "unknown",
@@ -74,5 +89,8 @@ describe("presentError", () => {
       "Mode name is required.",
     );
     expect(presentError(t, null)).toBe("");
+    expect(
+      presentError(t, "Unable to save the API key in the macOS Keychain"),
+    ).toBe("t:errors.codes.keychain");
   });
 });

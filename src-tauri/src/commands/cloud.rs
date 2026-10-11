@@ -165,6 +165,7 @@ fn require_app_store_distribution() -> Result<(), String> {
 async fn reconcile_transaction(
     app: &AppHandle,
     transaction: StoreKitTransaction,
+    link_to_current_account: bool,
 ) -> Result<CloudAccountSnapshot, String> {
     if transaction.status != "purchased" {
         return Err(format!("storekit_{}", transaction.status));
@@ -184,9 +185,14 @@ async fn reconcile_transaction(
         .signed_transaction
         .as_deref()
         .ok_or_else(|| "storekit_transaction_invalid".to_string())?;
-    let snapshot = cloud::restore_app_store_transaction(app, signed_transaction, transaction_id)
-        .await
-        .map_err(public_error)?;
+    let snapshot = cloud::restore_app_store_transaction(
+        app,
+        signed_transaction,
+        transaction_id,
+        link_to_current_account,
+    )
+    .await
+    .map_err(public_error)?;
     // The server has verified the purchase and granted Pro: the user paid and
     // must see success. An unfinished transaction is redelivered by
     // Transaction.unfinished and finished at the next reconciliation (the
@@ -240,12 +246,14 @@ pub async fn purchase_app_store_product(
         tokio::task::spawn_blocking(move || storekit::purchase(&product_id, &account_id))
             .await
             .map_err(|_| "storekit_purchase_failed".to_string())??;
-    reconcile_transaction(&app, transaction).await
+    // A purchase made here carries this account's token: no link needed.
+    reconcile_transaction(&app, transaction, false).await
 }
 
 async fn restore_or_reconcile(
     app: &AppHandle,
     force_sync: bool,
+    link_to_current_account: bool,
 ) -> Result<CloudAccountSnapshot, String> {
     static RECONCILIATION_LOCK: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
     let _reconciliation = RECONCILIATION_LOCK.lock().await;
@@ -260,7 +268,7 @@ async fn restore_or_reconcile(
     let mut snapshot = None;
     let mut failure = None;
     for transaction in transactions {
-        match reconcile_transaction(app, transaction).await {
+        match reconcile_transaction(app, transaction, link_to_current_account).await {
             Ok(value) => snapshot = Some(value),
             Err(error) => failure = Some(error),
         }
@@ -288,7 +296,9 @@ pub fn start_app_store_reconciliation(app: AppHandle) {
     tauri::async_runtime::spawn(async move {
         loop {
             if get_settings(&app).pressay_cloud_account_id.is_some() {
-                if let Err(error) = restore_or_reconcile(&app, false).await {
+                // Background reconciliation never links a purchase to the
+                // account: that needs the user's explicit confirmation.
+                if let Err(error) = restore_or_reconcile(&app, false, false).await {
                     log::warn!("App Store entitlement reconciliation failed: {error}");
                 }
             }
@@ -301,14 +311,20 @@ pub fn start_app_store_reconciliation(app: AppHandle) {
     });
 }
 
+/// Explicit Restore. `link_to_current_account` is true only after the user
+/// confirmed linking a purchase the Cloud reported as bound to another
+/// Apple ID or made without an account token.
 #[tauri::command]
 #[specta::specta]
-pub async fn restore_app_store_purchases(app: AppHandle) -> Result<CloudAccountSnapshot, String> {
-    restore_or_reconcile(&app, true).await
+pub async fn restore_app_store_purchases(
+    app: AppHandle,
+    link_to_current_account: bool,
+) -> Result<CloudAccountSnapshot, String> {
+    restore_or_reconcile(&app, true, link_to_current_account).await
 }
 
 #[tauri::command]
 #[specta::specta]
 pub async fn reconcile_app_store_purchases(app: AppHandle) -> Result<CloudAccountSnapshot, String> {
-    restore_or_reconcile(&app, false).await
+    restore_or_reconcile(&app, false, false).await
 }

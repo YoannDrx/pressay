@@ -94,9 +94,7 @@ test("the paywall shows period, renewal terms and legal links", async ({
   page,
 }) => {
   await page.goto("/tests/fixtures/account.html?scenario=purchases-enabled");
-  await expect(page.getByTestId("subscription-price")).toHaveText(
-    "€5 / month",
-  );
+  await expect(page.getByTestId("subscription-price")).toHaveText("€5 / month");
   await expect(page.getByTestId("auto-renew-disclosure")).toContainText(
     "renews automatically",
   );
@@ -177,3 +175,32 @@ test("the direct checkout stays hidden while its release gate is closed", async 
     page.getByRole("button", { name: "See plans and subscribe" }),
   ).toHaveCount(0);
 });
+
+for (const answer of ["no", "yes"] as const) {
+  test(`a purchase from another Apple ID is linked only on confirmation (${answer})`, async ({
+    page,
+  }) => {
+    await page.goto(
+      `/tests/fixtures/account.html?scenario=purchases-link&dialog=${answer}`,
+    );
+    await page.getByRole("button", { name: "Restore purchases" }).click();
+    const restores = async () =>
+      (await payloads(page)).filter(
+        (entry) => entry.command === "restore_app_store_purchases",
+      );
+    if (answer === "yes") {
+      await expect.poll(restores).toEqual([
+        { command: "restore_app_store_purchases", linkToCurrentAccount: false },
+        { command: "restore_app_store_purchases", linkToCurrentAccount: true },
+      ]);
+      await expect(page.getByRole("alert")).toHaveCount(0);
+    } else {
+      await expect(page.getByRole("alert")).toContainText(
+        "not linked to this Pressay account",
+      );
+      expect(await restores()).toEqual([
+        { command: "restore_app_store_purchases", linkToCurrentAccount: false },
+      ]);
+    }
+  });
+}
