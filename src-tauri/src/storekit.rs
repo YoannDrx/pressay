@@ -7,6 +7,15 @@ pub const PRODUCT_IDS: [&str; 2] = [MONTHLY_PRODUCT_ID, ANNUAL_PRODUCT_ID];
 
 pub static TRANSACTION_UPDATES: tokio::sync::Notify = tokio::sync::Notify::const_new();
 
+#[derive(Serialize, Deserialize, Debug, Clone, Copy, PartialEq, Eq, Type)]
+#[serde(rename_all = "snake_case")]
+pub enum SubscriptionPeriodUnit {
+    Day,
+    Week,
+    Month,
+    Year,
+}
+
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq, Type)]
 #[serde(rename_all = "camelCase")]
 pub struct StoreKitProduct {
@@ -14,6 +23,33 @@ pub struct StoreKitProduct {
     pub display_name: String,
     pub description: String,
     pub display_price: String,
+    /// Billing period shown next to the price (App Review 3.1.2). Filled from
+    /// StoreKit, or from the closed catalogue when StoreKit omits it.
+    #[serde(default)]
+    pub subscription_period_unit: Option<SubscriptionPeriodUnit>,
+    #[serde(default)]
+    pub subscription_period_value: Option<u32>,
+}
+
+/// The two catalogue products are auto-renewable subscriptions with a fixed
+/// period, so the period can always be shown even with an older bridge.
+#[cfg_attr(
+    not(all(target_os = "macos", target_arch = "aarch64")),
+    allow(dead_code)
+)]
+pub fn with_known_period(mut product: StoreKitProduct) -> StoreKitProduct {
+    if product.subscription_period_unit.is_none() || product.subscription_period_value.is_none() {
+        let unit = match product.id.as_str() {
+            MONTHLY_PRODUCT_ID => Some(SubscriptionPeriodUnit::Month),
+            ANNUAL_PRODUCT_ID => Some(SubscriptionPeriodUnit::Year),
+            _ => None,
+        };
+        if let Some(unit) = unit {
+            product.subscription_period_unit = Some(unit);
+            product.subscription_period_value = Some(1);
+        }
+    }
+    product
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq, Type)]
@@ -109,7 +145,9 @@ mod native {
         let ids = product_ids_json()?;
         let response = unsafe { pressay_storekit_products(ids.as_ptr()) };
         let payload = read_response(response)?;
-        serde_json::from_str(&payload).map_err(|_| "storekit_response_invalid".to_string())
+        serde_json::from_str::<Vec<StoreKitProduct>>(&payload)
+            .map(|products| products.into_iter().map(super::with_known_period).collect())
+            .map_err(|_| "storekit_response_invalid".to_string())
     }
 
     pub fn purchase(product_id: &str, account_token: &str) -> Result<StoreKitTransaction, String> {
@@ -170,6 +208,51 @@ pub fn finish(_transaction_id: &str) -> Result<(), String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn product(id: &str) -> StoreKitProduct {
+        StoreKitProduct {
+            id: id.to_string(),
+            display_name: "Pressay Pro".to_string(),
+            description: String::new(),
+            display_price: "7,99 €".to_string(),
+            subscription_period_unit: None,
+            subscription_period_value: None,
+        }
+    }
+
+    #[test]
+    fn catalogue_products_always_carry_their_billing_period() {
+        let monthly = with_known_period(product(MONTHLY_PRODUCT_ID));
+        assert_eq!(
+            monthly.subscription_period_unit,
+            Some(SubscriptionPeriodUnit::Month)
+        );
+        assert_eq!(monthly.subscription_period_value, Some(1));
+        let annual = with_known_period(product(ANNUAL_PRODUCT_ID));
+        assert_eq!(
+            annual.subscription_period_unit,
+            Some(SubscriptionPeriodUnit::Year)
+        );
+        // A period reported by StoreKit wins over the catalogue default.
+        let mut reported = product(ANNUAL_PRODUCT_ID);
+        reported.subscription_period_unit = Some(SubscriptionPeriodUnit::Month);
+        reported.subscription_period_value = Some(12);
+        let reported = with_known_period(reported);
+        assert_eq!(reported.subscription_period_value, Some(12));
+        let parsed: StoreKitProduct = serde_json::from_value(serde_json::json!({
+            "id": MONTHLY_PRODUCT_ID,
+            "displayName": "Pressay Pro",
+            "description": "",
+            "displayPrice": "7,99 €",
+            "subscriptionPeriodUnit": "month",
+            "subscriptionPeriodValue": 1
+        }))
+        .unwrap();
+        assert_eq!(
+            parsed.subscription_period_unit,
+            Some(SubscriptionPeriodUnit::Month)
+        );
+    }
 
     #[test]
     fn catalogue_is_closed_to_known_subscription_ids() {

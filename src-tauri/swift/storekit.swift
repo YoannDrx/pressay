@@ -28,6 +28,19 @@ private struct ProductPayload: Codable {
     let displayName: String
     let description: String
     let displayPrice: String
+    // App Review 3.1.2 requires the billing period next to the price.
+    let subscriptionPeriodUnit: String?
+    let subscriptionPeriodValue: Int?
+}
+
+private func periodUnitName(_ unit: Product.SubscriptionPeriod.Unit) -> String? {
+    switch unit {
+    case .day: return "day"
+    case .week: return "week"
+    case .month: return "month"
+    case .year: return "year"
+    @unknown default: return nil
+    }
 }
 
 private struct TransactionPayload: Codable {
@@ -152,12 +165,15 @@ public func storeKitProducts(
     return runStoreKitOperation {
         let products = try await Product.products(for: ids)
         let payload = products
-            .map {
-                ProductPayload(
-                    id: $0.id,
-                    displayName: $0.displayName,
-                    description: $0.description,
-                    displayPrice: $0.displayPrice
+            .map { product -> ProductPayload in
+                let period = product.subscription?.subscriptionPeriod
+                return ProductPayload(
+                    id: product.id,
+                    displayName: product.displayName,
+                    description: product.description,
+                    displayPrice: product.displayPrice,
+                    subscriptionPeriodUnit: period.flatMap { periodUnitName($0.unit) },
+                    subscriptionPeriodValue: period?.value
                 )
             }
             .sorted { $0.id < $1.id }
