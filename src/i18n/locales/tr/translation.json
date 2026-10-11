@@ -775,9 +775,9 @@
         "license": "MIT"
       },
       "supportDevelopment": {
-        "title": "Geliştirmeyi Destekle",
-        "description": "Pressay'yi geliştirmeye devam etmemize yardımcı olun",
-        "button": "Bağış Yap"
+        "title": "Help and support",
+        "description": "Guides, contact and troubleshooting",
+        "button": "Open support"
       },
       "acknowledgments": {
         "title": "Teşekkürler",

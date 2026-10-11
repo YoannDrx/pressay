@@ -779,9 +779,9 @@
         "license": "MIT"
       },
       "supportDevelopment": {
-        "title": "डेवलपमेंट में सहयोग करें",
-        "description": "Pressay को आगे बढ़ाने में हमारी मदद करें",
-        "button": "दान करें"
+        "title": "Help and support",
+        "description": "Guides, contact and troubleshooting",
+        "button": "Open support"
       },
       "acknowledgments": {
         "title": "आभार",

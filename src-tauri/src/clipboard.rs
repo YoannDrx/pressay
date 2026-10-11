@@ -798,6 +798,11 @@ pub fn paste(text: String, app_handle: AppHandle) -> Result<PasteDispatch, Strin
             }
         }
         PasteMethod::ExternalScript => {
+            // Defence in depth: settings already reset this outside Linux, but
+            // never execute an arbitrary program from an imported store.
+            if !crate::settings::paste_method_supported(PasteMethod::ExternalScript) {
+                return Err("External script paste is only available on Linux".to_string());
+            }
             let script_path = settings
                 .external_script_path
                 .as_ref()

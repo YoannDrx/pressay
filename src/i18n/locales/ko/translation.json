@@ -775,9 +775,9 @@
         "license": "MIT"
       },
       "supportDevelopment": {
-        "title": "개발 지원",
-        "description": "Pressay 개발을 계속할 수 있도록 도와주세요",
-        "button": "후원하기"
+        "title": "Help and support",
+        "description": "Guides, contact and troubleshooting",
+        "button": "Open support"
       },
       "acknowledgments": {
         "title": "감사의 말",

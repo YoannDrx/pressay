@@ -3,9 +3,11 @@ import { getVersion } from "@tauri-apps/api/app";
 
 import ModelSelector from "../model-selector";
 import UpdateChecker from "../update-checker";
+import { useDistribution } from "@/hooks/useDistribution";
 
 const Footer: React.FC = () => {
   const [version, setVersion] = useState("");
+  const { updaterAvailable } = useDistribution();
 
   useEffect(() => {
     const fetchVersion = async () => {
@@ -31,10 +33,11 @@ const Footer: React.FC = () => {
 
         {/* Update Status */}
         <div className="flex items-center gap-1">
-          <UpdateChecker />
+          {/* App Store builds are updated by the App Store only (2.4.5). */}
+          {updaterAvailable ? <UpdateChecker /> : null}
           {version ? (
             <>
-              <span>•</span>
+              {updaterAvailable ? <span>•</span> : null}
               {/* eslint-disable-next-line i18next/no-literal-string */}
               <span>v{version}</span>
             </>

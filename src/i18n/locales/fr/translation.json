@@ -775,9 +775,9 @@
         "license": "MIT"
       },
       "supportDevelopment": {
-        "title": "Site Pressay",
-        "description": "Informations produit, assistance et téléchargements",
-        "button": "Ouvrir le site"
+        "title": "Aide et assistance",
+        "description": "Guides, contact et dépannage",
+        "button": "Ouvrir l’assistance"
       },
       "acknowledgments": {
         "title": "Remerciements",

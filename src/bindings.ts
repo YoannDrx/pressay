@@ -528,6 +528,17 @@ async getLocalReadiness() : Promise<LocalReadiness> {
 async getCapabilities() : Promise<Capabilities> {
     return await TAURI_INVOKE("get_capabilities");
 },
+async getDistributionInfo() : Promise<DistributionInfo> {
+    return await TAURI_INVOKE("get_distribution_info");
+},
+async openExternalPage(page: ExternalPage) : Promise<Result<null, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("open_external_page", { page }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
 async getCloudAuthConfig() : Promise<Result<CloudAuthConfig, string>> {
     try {
     return { status: "ok", data: await TAURI_INVOKE("get_cloud_auth_config") };
@@ -1345,6 +1356,16 @@ export type CorrectionStatus = { available: boolean; armed: boolean; target_app_
 export type CustomSounds = { start: boolean; stop: boolean }
 export type DictionaryEntry = { id: string; term: string; variants?: string[]; replacement?: string | null; match_kind?: DictionaryMatchKind; language?: string | null; enabled?: boolean }
 export type DictionaryMatchKind = "exact" | "fuzzy"
+export type DistributionChannel = "mac_app_store" | "direct" | 
+/**
+ * Unbundled development or inherited non-macOS builds.
+ */
+"development"
+export type DistributionInfo = { channel: DistributionChannel; 
+/**
+ * True only when the self-updater plugin is compiled in.
+ */
+updaterAvailable: boolean }
 export type EngineType =
 /**
  * Any GGML/GGUF model loaded through transcribe-cpp (Whisper, Parakeet,
@@ -1356,6 +1377,19 @@ export type EntitlementSnapshot = { tier: EntitlementTier; source: EntitlementSo
 export type EntitlementSource = "none" | "trial" | "stripe" | "app_store" | "support"
 export type EntitlementState = "local_free" | "verified" | "unavailable"
 export type EntitlementTier = "free" | "pro"
+/**
+ * Pages the UI may open. The URL is chosen here, per channel, so the web
+ * bundle (shared by every channel) never carries a purchase link.
+ */
+export type ExternalPage = "support" | "terms" | "privacy" | 
+/**
+ * App Store subscriptions on MAS, the web billing portal on Direct.
+ */
+"manage_subscription" | 
+/**
+ * Web checkout; only exists in the Direct channel.
+ */
+"direct_checkout"
 export type GpuDeviceOption = { id: number; name: string; total_vram_mb: number }
 export type HistorySearchPage = { entries: HistoryEntry[]; next_cursor: number | null; has_more: boolean }
 export type HistoryEntry = { id: number; file_name: string; timestamp: number; saved: boolean; title: string; transcription_text: string; post_processed_text: string | null; post_process_prompt: string | null; post_process_requested: boolean; audio_available: boolean; audio_saved: boolean; metadata: HistoryMetadata }

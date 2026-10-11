@@ -619,7 +619,7 @@ fn default_autostart_enabled() -> bool {
 }
 
 fn default_update_checks_enabled() -> bool {
-    true
+    crate::distribution::updater_available()
 }
 
 fn default_show_whats_new_on_update() -> bool {
@@ -1182,6 +1182,10 @@ pub fn get_settings(app: &AppHandle) -> AppSettings {
     }
 
     if migrate_legacy_pressay_installation(app, &mut settings) {
+        updated = true;
+    }
+
+    if enforce_build_constraints(&mut settings) {
         updated = true;
     }
 
@@ -1889,7 +1893,30 @@ fn apply_settings_migrations(
     updated
 }
 
-pub fn write_settings(app: &AppHandle, settings: AppSettings) {
+/// Settings that this binary cannot honour are reset on every load and write,
+/// not through a one-time schema migration: the same store can be read by a
+/// Direct build and later by the App Store build.
+fn enforce_build_constraints(settings: &mut AppSettings) -> bool {
+    let mut updated = false;
+    if !crate::distribution::updater_available() && settings.update_checks_enabled {
+        settings.update_checks_enabled = false;
+        updated = true;
+    }
+    if !paste_method_supported(settings.paste_method) {
+        settings.paste_method = PasteMethod::default();
+        updated = true;
+    }
+    updated
+}
+
+/// `ExternalScript` runs an arbitrary executable with the transcript and only
+/// exists for Linux setups without a working virtual keyboard.
+pub fn paste_method_supported(method: PasteMethod) -> bool {
+    method != PasteMethod::ExternalScript || cfg!(target_os = "linux")
+}
+
+pub fn write_settings(app: &AppHandle, mut settings: AppSettings) {
+    enforce_build_constraints(&mut settings);
     let store = app
         .store(crate::portable::store_path(SETTINGS_STORE_PATH))
         .expect("Failed to initialize store");
@@ -1933,6 +1960,33 @@ mod tests {
 
     fn default_settings_json() -> serde_json::Value {
         serde_json::to_value(get_default_settings()).unwrap()
+    }
+
+    #[test]
+    fn build_constraints_reset_settings_this_binary_cannot_honour() {
+        let mut settings = get_default_settings();
+        settings.update_checks_enabled = true;
+        settings.paste_method = PasteMethod::ExternalScript;
+        enforce_build_constraints(&mut settings);
+        assert_eq!(
+            settings.update_checks_enabled,
+            crate::distribution::updater_available()
+        );
+        if cfg!(target_os = "linux") {
+            assert_eq!(settings.paste_method, PasteMethod::ExternalScript);
+        } else {
+            assert_eq!(settings.paste_method, PasteMethod::default());
+        }
+        assert!(!enforce_build_constraints(&mut settings));
+    }
+
+    #[test]
+    fn external_script_paste_is_linux_only() {
+        assert_eq!(
+            paste_method_supported(PasteMethod::ExternalScript),
+            cfg!(target_os = "linux")
+        );
+        assert!(paste_method_supported(PasteMethod::CtrlV));
     }
 
     #[test]

@@ -775,9 +775,9 @@
         "license": "MIT"
       },
       "supportDevelopment": {
-        "title": "開発を支援",
-        "description": "Pressay の開発を支援してください",
-        "button": "寄付する"
+        "title": "Help and support",
+        "description": "Guides, contact and troubleshooting",
+        "button": "Open support"
       },
       "acknowledgments": {
         "title": "謝辞",

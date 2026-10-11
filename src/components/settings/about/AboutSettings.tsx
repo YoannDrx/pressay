@@ -1,7 +1,6 @@
 import React, { useState, useEffect } from "react";
 import { useTranslation } from "react-i18next";
 import { getVersion } from "@tauri-apps/api/app";
-import { openUrl } from "@tauri-apps/plugin-opener";
 import { SettingsGroup } from "../../ui/SettingsGroup";
 import { SettingContainer } from "../../ui/SettingContainer";
 import { Button } from "../../ui/Button";
@@ -9,10 +8,13 @@ import { ShowWhatsNewOnUpdate } from "../ShowWhatsNewOnUpdate";
 import { UpdateChecksToggle } from "../UpdateChecksToggle";
 import { AppPageHeader } from "@/components/layout";
 import PressayMark from "@/components/icons/PressayMark";
+import { commands } from "@/bindings";
+import { useDistribution } from "@/hooks/useDistribution";
 
 export const AboutSettings: React.FC = () => {
   const { t } = useTranslation();
   const [version, setVersion] = useState("");
+  const { updaterAvailable } = useDistribution();
 
   useEffect(() => {
     const fetchVersion = async () => {
@@ -28,11 +30,12 @@ export const AboutSettings: React.FC = () => {
     fetchVersion();
   }, []);
 
-  const handleDonateClick = async () => {
-    try {
-      await openUrl("https://press-say.app");
-    } catch (error) {
-      console.error("Failed to open donate link:", error);
+  // The support page carries no prices or purchase links, so it is safe to
+  // open from every channel, including the Mac App Store (3.1.1).
+  const handleSupportClick = async () => {
+    const result = await commands.openExternalPage("support");
+    if (result.status === "error") {
+      console.error("Failed to open the support page:", result.error);
     }
   };
 
@@ -68,14 +71,16 @@ export const AboutSettings: React.FC = () => {
         </SettingContainer>
 
         <ShowWhatsNewOnUpdate descriptionMode="tooltip" grouped={true} />
-        <UpdateChecksToggle descriptionMode="tooltip" grouped={true} />
+        {updaterAvailable ? (
+          <UpdateChecksToggle descriptionMode="tooltip" grouped={true} />
+        ) : null}
 
         <SettingContainer
           title={t("settings.about.supportDevelopment.title")}
           description={t("settings.about.supportDevelopment.description")}
           grouped={true}
         >
-          <Button variant="primary" size="md" onClick={handleDonateClick}>
+          <Button variant="primary" size="md" onClick={handleSupportClick}>
             {t("settings.about.supportDevelopment.button")}
           </Button>
         </SettingContainer>

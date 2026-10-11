@@ -775,9 +775,9 @@
         "license": "MIT"
       },
       "supportDevelopment": {
-        "title": "Apoyar el desarrollo",
-        "description": "Ayúdanos a continuar construyendo Pressay",
-        "button": "Donar"
+        "title": "Help and support",
+        "description": "Guides, contact and troubleshooting",
+        "button": "Open support"
       },
       "acknowledgments": {
         "title": "Reconocimientos",

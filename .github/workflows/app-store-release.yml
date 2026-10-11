@@ -252,7 +252,7 @@ jobs:
           app=$(find src-tauri/target/aarch64-apple-darwin/release/bundle/macos \
             -name '*.app' -type d -print -quit)
           test -n "$app"
-          if rg -a -i 'checkout\.stripe\.com|/v1/billing/checkout|tauri-plugin-updater|macos-private-api' "$app/Contents"; then
+          if rg -a -i 'checkout\.stripe\.com|/v1/billing/checkout|pricing\?source=pressay-desktop|press-say\.app/account/billing|tauri-plugin-updater|macos-private-api' "$app/Contents"; then
             echo "A forbidden Direct-distribution marker entered the Mac App Store bundle" >&2
             exit 1
           fi

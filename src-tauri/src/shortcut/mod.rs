@@ -893,6 +893,9 @@ pub fn change_paste_method_setting(app: AppHandle, method: String) -> Result<(),
             PasteMethod::CtrlV
         }
     };
+    if !settings::paste_method_supported(parsed) {
+        return Err("paste_method_unsupported".to_string());
+    }
     settings.paste_method = parsed;
     settings::write_settings(&app, settings);
     Ok(())
