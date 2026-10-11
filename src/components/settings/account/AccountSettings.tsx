@@ -26,6 +26,7 @@ import { Button } from "@/components/ui/Button";
 import { SettingsGroup } from "@/components/ui/SettingsGroup";
 import { AppPageHeader } from "@/components/layout";
 import { useSettings } from "@/hooks/useSettings";
+import { confirmDestructiveAction } from "@/lib/confirmAction";
 
 type CloudAuthEvent = {
   status: "exchanging" | "bootstrapping" | "connected" | "failed";
@@ -248,7 +249,13 @@ export function AccountSettings() {
   };
 
   const deleteAccount = async () => {
-    if (!window.confirm(t("cloud.actions.confirmDelete"))) return;
+    const confirmed = await confirmDestructiveAction({
+      title: t("cloud.actions.confirmDeleteTitle"),
+      message: t("cloud.actions.confirmDelete"),
+      confirmLabel: t("cloud.actions.delete"),
+      cancelLabel: t("common.cancel"),
+    });
+    if (!confirmed) return;
     setPendingAction("delete");
     const result = await commands.deleteCloudAccount();
     setPendingAction(null);
@@ -305,7 +312,13 @@ export function AccountSettings() {
   };
 
   const createRecoveryCode = async () => {
-    if (!window.confirm(t("cloud.sync.recovery.confirmRotate"))) return;
+    const confirmed = await confirmDestructiveAction({
+      title: t("cloud.sync.recovery.confirmRotateTitle"),
+      message: t("cloud.sync.recovery.confirmRotate"),
+      confirmLabel: t("cloud.sync.recovery.confirmRotateButton"),
+      cancelLabel: t("common.cancel"),
+    });
+    if (!confirmed) return;
     setPendingAction("sync-recovery-create");
     const result = await commands.createCloudSyncRecoveryCode();
     setPendingAction(null);

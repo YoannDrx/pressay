@@ -9,7 +9,10 @@ import "../../src/App.css";
 
 // Exercise the production component and generated IPC bindings. No live
 // Keychain, Cloud account or StoreKit purchase is used by this fixture.
-const scenario = new URLSearchParams(location.search).get("scenario");
+const params = new URLSearchParams(location.search);
+const scenario = params.get("scenario");
+// The native confirmation answer; destructive commands must follow it.
+const dialogAnswer = params.get("dialog") === "yes";
 const account: CloudAccountSnapshot = {
   connected: true,
   accountId: "00000000-0000-4000-8000-000000000001",
@@ -41,6 +44,10 @@ mockIPC(
         return account;
       case "get_cloud_sync_snapshot":
         return { status: "not_configured", devices: [] };
+      case "plugin:dialog|ask":
+        return dialogAnswer;
+      case "delete_cloud_account":
+        return null;
       case "get_app_store_products":
         if (scenario === "direct")
           return Promise.reject("storekit_distribution_unavailable");

@@ -66,3 +66,20 @@ for (const enabled of [false, true]) {
     ).toBeEnabled();
   });
 }
+
+for (const answer of ["no", "yes"] as const) {
+  test(`account deletion follows the dialog answer (${answer})`, async ({
+    page,
+  }) => {
+    await page.goto(
+      `/tests/fixtures/account.html?scenario=direct&dialog=${answer}`,
+    );
+    await page.getByRole("button", { name: "Delete account" }).click();
+    const calls = () =>
+      page.evaluate(() => Reflect.get(window, "accountTestCalls") as string[]);
+    await expect.poll(calls).toContain("plugin:dialog|ask");
+    if (answer === "yes")
+      await expect.poll(calls).toContain("delete_cloud_account");
+    else expect(await calls()).not.toContain("delete_cloud_account");
+  });
+}

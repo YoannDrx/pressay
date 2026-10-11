@@ -41,7 +41,8 @@
       "disconnect": "Disconnect",
       "delete": "Delete account",
       "confirmDelete": "Delete your Pressay Cloud account and synced settings? This cannot be undone.",
-      "retry": "Retry"
+      "retry": "Retry",
+      "confirmDeleteTitle": "Delete your Pressay account?"
     },
     "sync": {
       "title": "Encrypted sync",
@@ -73,7 +74,9 @@
         "done": "Done",
         "recovered": "Encrypted sync was recovered on this Mac.",
         "invalid": "The recovery code is invalid, expired or already used.",
-        "error": "A recovery code could not be created."
+        "error": "A recovery code could not be created.",
+        "confirmRotateTitle": "Replace the recovery code?",
+        "confirmRotateButton": "Create a new code"
       }
     },
     "usage": {
@@ -607,7 +610,8 @@
       "reprocessMode": "Mode used to reprocess this transcription",
       "reprocessSuccess": "A new derived entry was added to your private history.",
       "reprocessError": "This transcription could not be reprocessed. Check the selected processing route in Providers.",
-      "loadMore": "تحميل المزيد"
+      "loadMore": "تحميل المزيد",
+      "deleteAllTitle": "Delete all history?"
     },
     "debug": {
       "title": "تصحيح الأخطاء",

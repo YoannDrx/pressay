@@ -42,7 +42,8 @@
       "retry": "Réessayer",
       "disconnect": "Déconnecter",
       "delete": "Supprimer le compte",
-      "confirmDelete": "Supprimer votre compte Pressay Cloud et les réglages synchronisés ? Cette action est irréversible."
+      "confirmDelete": "Supprimer votre compte Pressay Cloud et les réglages synchronisés ? Cette action est irréversible.",
+      "confirmDeleteTitle": "Supprimer votre compte Pressay ?"
     },
     "sync": {
       "title": "Synchronisation chiffrée",
@@ -74,7 +75,9 @@
         "done": "Terminé",
         "recovered": "La synchronisation chiffrée a été récupérée sur ce Mac.",
         "invalid": "Le code est invalide, expiré ou déjà utilisé.",
-        "error": "Impossible de créer un code de récupération."
+        "error": "Impossible de créer un code de récupération.",
+        "confirmRotateTitle": "Remplacer le code de récupération ?",
+        "confirmRotateButton": "Créer un nouveau code"
       }
     },
     "usage": {
@@ -630,7 +633,8 @@
       "reprocessError": "Impossible de retraiter cette transcription. Vérifiez la route choisie dans Fournisseurs.",
       "transcribing": "Transcription en cours...",
       "transcriptionFailed": "La transcription a échoué. Vous pouvez re-transcrire en utilisant l'icône de réessai.",
-      "loadMore": "Charger la suite"
+      "loadMore": "Charger la suite",
+      "deleteAllTitle": "Supprimer tout l’historique ?"
     },
     "debug": {
       "title": "Débogage",

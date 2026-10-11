@@ -7,7 +7,10 @@ import type { HistoryEntry, AppSettings } from "../../src/bindings";
 import "../../src/i18n";
 import "../../src/App.css";
 
-const scenario = new URLSearchParams(location.search).get("scenario");
+const params = new URLSearchParams(location.search);
+const scenario = params.get("scenario");
+// The native confirmation answer; destructive commands must follow it.
+const dialogAnswer = params.get("dialog") === "yes";
 const calls: { command: string; args: unknown }[] = [];
 Object.assign(window, { historyTestCalls: calls });
 let attempts = 0;
@@ -38,6 +41,8 @@ mockIPC(
     calls.push({ command, args: payload });
     const args = payload as { cursor?: number | null; query?: string };
     if (command === "get_productivity_config") return { modes: [] };
+    if (command === "plugin:dialog|ask") return dialogAnswer;
+    if (command === "delete_all_history") return null;
     if (command === "get_history_entries") {
       if (scenario === "recovery" && attempts++ === 0)
         return Promise.reject("history_unavailable");

@@ -62,3 +62,30 @@ test("history discards a slow response for a previous search", async ({
   await expect(page.getByText("new result", { exact: true })).toBeVisible();
   await expect(page.getByText("old result", { exact: true })).toHaveCount(0);
 });
+
+for (const answer of ["no", "yes"] as const) {
+  test(`deleting all history follows the dialog answer (${answer})`, async ({
+    page,
+  }) => {
+    await page.goto(`/tests/fixtures/history.html?dialog=${answer}`);
+    await expect(
+      page.getByText("initial transcript", { exact: true }),
+    ).toBeVisible();
+    await page.getByRole("button", { name: "Delete all", exact: true }).click();
+    await expect
+      .poll(() =>
+        page.evaluate(() =>
+          (
+            Reflect.get(window, "historyTestCalls") as { command: string }[]
+          ).map((call) => call.command),
+        ),
+      )
+      .toContain("plugin:dialog|ask");
+    const commands = await page.evaluate(() =>
+      (Reflect.get(window, "historyTestCalls") as { command: string }[]).map(
+        (call) => call.command,
+      ),
+    );
+    expect(commands.includes("delete_all_history")).toBe(answer === "yes");
+  });
+}
