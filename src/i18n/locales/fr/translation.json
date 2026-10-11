@@ -857,7 +857,28 @@
     "modelLoadFailedUnknown": "modèle inconnu",
     "pasteFailedTitle": "Échec du collage du texte",
     "pasteFailed": "Le texte n'a pas pu être collé dans l'application active.",
-    "transcriptionFailedTitle": "Échec de la transcription"
+    "transcriptionFailedTitle": "Échec de la transcription",
+    "codes": {
+      "generic": "Une erreur est survenue. Veuillez réessayer.",
+      "network": "Pressay n’a pas pu accéder à Internet. Vérifiez votre connexion et réessayez.",
+      "serviceUnavailable": "Le service Pressay est momentanément indisponible. Réessayez dans un instant.",
+      "rateLimited": "Trop de tentatives. Patientez une minute puis réessayez.",
+      "sessionExpired": "Votre session a expiré. Reconnectez-vous.",
+      "notConnected": "Connectez-vous d’abord à votre compte Pressay.",
+      "keychain": "Pressay n’a pas pu accéder au trousseau macOS. Déverrouillez votre session puis réessayez.",
+      "browser": "Votre navigateur web n’a pas pu être ouvert.",
+      "authExpired": "Cette tentative de connexion a expiré ou a été remplacée par une plus récente. Recommencez depuis Pressay.",
+      "authCancelled": "La connexion a été annulée ou refusée dans le navigateur.",
+      "accountMismatch": "Ce Mac est lié à un autre compte. Déconnectez-vous puis reconnectez-vous.",
+      "appleSubscriptionActive": "Un abonnement App Store est encore actif pour ce compte.",
+      "purchasePending": "Votre achat attend une approbation (par exemple « Demander l’autorisation d’achat »). Pro s’activera automatiquement une fois l’achat approuvé.",
+      "purchaseUnverified": "L’App Store n’a pas pu vérifier cet achat. Vous n’avez pas été débité deux fois ; essayez « Restaurer les achats ».",
+      "storeUnavailable": "L’App Store n’est pas disponible pour le moment. Réessayez plus tard.",
+      "releaseGate": "Cette option n’est pas encore disponible dans cette version de Pressay.",
+      "restoreFailed": "Les achats n’ont pas pu être restaurés. Vérifiez que vous êtes connecté à l’App Store avec le compte utilisé pour l’abonnement.",
+      "otherAccount": "Cet abonnement appartient à un autre compte Pressay. Connectez-vous avec le compte d’origine ou contactez l’assistance.",
+      "upgradeRequired": "Cette fonctionnalité fait partie de Pressay Pro."
+    }
   },
   "appLanguage": {
     "title": "Langue de l'application",
@@ -1023,6 +1044,10 @@
       "imported": "Configuration importée",
       "summary": "{{modes}} modes · {{profiles}} profils · {{terms}} termes",
       "conflicts": "{{count}} conflits préservés"
+    },
+    "dictionaryState": {
+      "loading": "Chargement du dictionnaire…",
+      "unavailable": "Le dictionnaire est indisponible."
     }
   },
   "signalOs": {
@@ -1200,5 +1225,9 @@
         "fallback": "Pressay nécessite votre attention"
       }
     }
+  },
+  "proGate": {
+    "description": "Votre dictée locale reste gratuite. Passez à Pro depuis la page Compte pour l’utiliser.",
+    "cta": "Voir Pro"
   }
 }

@@ -24,6 +24,7 @@ import { useModelStore } from "@/stores/modelStore";
 import { Button } from "@/components/ui/Button";
 import { formatKeyCombination } from "@/lib/utils/keyboard";
 import { INITIAL_PIPELINE_STATE } from "@/lib/voiceSurface";
+import { presentError } from "@/lib/appErrors";
 
 const INITIAL_CORRECTION_STATUS: CorrectionStatus = {
   available: false,
@@ -54,6 +55,7 @@ const INITIAL_CAPABILITIES: Capabilities = {
 };
 
 export const HomeDashboard = () => {
+  const { t } = useTranslation();
   const { settings } = useSettings();
   const { currentModel, models } = useModelStore();
   const [pipeline, setPipeline] = useState<PipelineState>(
@@ -112,7 +114,7 @@ export const HomeDashboard = () => {
     try {
       const result = await commands.armVoiceCorrection();
       if (result.status === "error") {
-        toast.error(result.error);
+        toast.error(presentError(t, result.error));
         return;
       }
       setCorrection(result.data);

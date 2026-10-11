@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { useTranslation } from "react-i18next";
 import {
   AppWindow,
@@ -25,6 +25,8 @@ import { useModelStore } from "@/stores/modelStore";
 import { useSettingsStore } from "@/stores/settingsStore";
 import { SELECTABLE_LANGUAGES } from "@/lib/constants/languages";
 import { navigateToAppSection } from "@/lib/appNavigation";
+import { presentError } from "@/lib/appErrors";
+import { ProGate } from "@/components/shared/ProGate";
 import { Button } from "@/components/ui/Button";
 import { Input } from "@/components/ui/Input";
 import { Select } from "@/components/ui/Select";
@@ -114,6 +116,8 @@ interface ModesSettingsViewProps {
   modelOptions?: Array<{ value: string; label: string }>;
   microphoneOptions?: Array<{ value: string; label: string }>;
   routeAvailability?: Record<ProcessingRoute, RouteAvailability>;
+  /** Locked-state notices for Pro features, rendered above the content. */
+  gate?: ReactNode;
 }
 
 export const ModesSettingsView = ({
@@ -129,6 +133,7 @@ export const ModesSettingsView = ({
   onExport,
   onImport,
   onConfigureRoute,
+  gate,
   modelOptions = [],
   microphoneOptions = [],
   routeAvailability = {
@@ -227,6 +232,7 @@ export const ModesSettingsView = ({
         </div>
       }
     >
+      {gate}
       {error ? <p className="productivity-error">{error}</p> : null}
 
       {showModeForm ? (
@@ -619,7 +625,9 @@ export const ModesSettings = () => {
       <div className="productivity-loading">
         {loading
           ? t("pressay.modes.loading")
-          : (error ?? t("pressay.modes.unavailable"))}
+          : error
+            ? presentError(t, error)
+            : t("pressay.modes.unavailable")}
       </div>
     );
   }
@@ -664,7 +672,7 @@ export const ModesSettings = () => {
     try {
       const result = await commands.exportProductivityConfig();
       if (result.status === "error") {
-        toast.error(result.error);
+        toast.error(presentError(t, result.error));
       } else if (!result.data.cancelled) {
         toast.success(t("pressay.transfer.exported"));
       }
@@ -677,7 +685,7 @@ export const ModesSettings = () => {
     try {
       const result = await commands.importProductivityConfig();
       if (result.status === "error") {
-        toast.error(result.error);
+        toast.error(presentError(t, result.error));
         return;
       }
       if (result.data.cancelled) return;
@@ -703,7 +711,8 @@ export const ModesSettings = () => {
     <ModesSettingsView
       config={config}
       saving={saving}
-      error={error}
+      error={error ? presentError(t, error) : null}
+      gate={<ProGate capability="customModes" />}
       onActivate={setActiveMode}
       onUseOnce={useModeOnce}
       onSaveMode={saveMode}

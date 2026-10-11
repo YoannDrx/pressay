@@ -7,6 +7,7 @@ import type {
   ProductivityConfig,
 } from "@/bindings";
 import { useProductivityStore } from "@/stores/productivityStore";
+import { presentError } from "@/lib/appErrors";
 import { Button } from "@/components/ui/Button";
 import { Input } from "@/components/ui/Input";
 import { Select } from "@/components/ui/Select";
@@ -277,6 +278,7 @@ export const DictionarySettingsView = ({
 };
 
 export const DictionarySettings = () => {
+  const { t } = useTranslation();
   const config = useProductivityStore((state) => state.config);
   const loading = useProductivityStore((state) => state.loading);
   const saving = useProductivityStore((state) => state.saving);
@@ -294,8 +296,10 @@ export const DictionarySettings = () => {
     return (
       <div className="productivity-loading">
         {loading
-          ? "Loading dictionary…"
-          : (error ?? "Dictionary is unavailable.")}
+          ? t("pressay.dictionaryState.loading")
+          : error
+            ? presentError(t, error)
+            : t("pressay.dictionaryState.unavailable")}
       </div>
     );
   }
@@ -304,7 +308,7 @@ export const DictionarySettings = () => {
     <DictionarySettingsView
       config={config}
       saving={saving}
-      error={error}
+      error={error ? presentError(t, error) : null}
       onReplace={replaceDictionary}
     />
   );
