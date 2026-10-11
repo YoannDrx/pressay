@@ -41,6 +41,12 @@ jobs:
       - name: Check translation consistency
         run: bun run check:translations
 
+      # main must stay releasable: one source version everywhere, and no
+      # pre-release suffix that build.rs would refuse for the commercial MAS
+      # and Direct production environments.
+      - name: Check release version
+        run: bun run check:release-version
+
       - name: Validate StoreKit catalogue
         run: bun run storekit:validate
 

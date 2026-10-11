@@ -13,8 +13,9 @@ const Footer: React.FC = () => {
         const appVersion = await getVersion();
         setVersion(appVersion);
       } catch (error) {
+        // Fall back to the build-time source version, never a literal.
         console.error("Failed to get app version:", error);
-        setVersion("2.0.0-beta.3");
+        setVersion(__APP_VERSION__);
       }
     };
 
@@ -31,9 +32,13 @@ const Footer: React.FC = () => {
         {/* Update Status */}
         <div className="flex items-center gap-1">
           <UpdateChecker />
-          <span>•</span>
-          {/* eslint-disable-next-line i18next/no-literal-string */}
-          <span>v{version}</span>
+          {version ? (
+            <>
+              <span>•</span>
+              {/* eslint-disable-next-line i18next/no-literal-string */}
+              <span>v{version}</span>
+            </>
+          ) : null}
         </div>
       </div>
     </div>

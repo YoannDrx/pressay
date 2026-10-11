@@ -2,12 +2,23 @@ import { defineConfig } from "vite";
 import react from "@vitejs/plugin-react";
 import tailwindcss from "@tailwindcss/vite";
 import { resolve } from "path";
+import { readFileSync } from "fs";
+
+// The single source version (checked against Cargo and Tauri by
+// scripts/check-release-version.ts) for places that cannot ask the runtime.
+const appVersion = JSON.parse(
+  readFileSync(resolve(__dirname, "package.json"), "utf8"),
+).version as string;
 
 const host = process.env.TAURI_DEV_HOST;
 
 // https://vitejs.dev/config/
 export default defineConfig(async () => ({
   plugins: [react(), tailwindcss()],
+
+  define: {
+    __APP_VERSION__: JSON.stringify(appVersion),
+  },
 
   // Path aliases
   resolve: {

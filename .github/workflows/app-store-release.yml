@@ -53,6 +53,9 @@ jobs:
         with:
           bun-version-file: ".bun-version"
 
+      - name: Refuse a pre-release or inconsistent source version
+        run: bun scripts/check-release-version.ts --environment "$PRESSAY_BUILD_ENVIRONMENT"
+
       - name: Validate the build number before importing signing material
         env:
           MAS_BUILD_NUMBER: ${{ inputs.build_number }}
