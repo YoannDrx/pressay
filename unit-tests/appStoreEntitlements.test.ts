@@ -66,3 +66,27 @@ describe("privacy manifest", () => {
     }
   });
 });
+
+describe("localized permission prompts", () => {
+  test("English and French explain the microphone use and are bundled", () => {
+    const config = JSON.parse(
+      readFileSync(
+        join(import.meta.dir, "../src-tauri/tauri.conf.json"),
+        "utf8",
+      ),
+    ) as { bundle: { macOS: { files: Record<string, string> } } };
+    for (const locale of ["en", "fr"]) {
+      const source = `gen/apple/${locale}.lproj/InfoPlist.strings`;
+      expect(
+        config.bundle.macOS.files[
+          `Resources/${locale}.lproj/InfoPlist.strings`
+        ],
+      ).toBe(source);
+      const strings = readFileSync(
+        join(import.meta.dir, "../src-tauri", source),
+        "utf8",
+      );
+      expect(strings).toMatch(/^"NSMicrophoneUsageDescription" = ".+";$/m);
+    }
+  });
+});

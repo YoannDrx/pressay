@@ -48,7 +48,9 @@
     ],
     "macOS": {
       "files": {
-        "Resources/PrivacyInfo.xcprivacy": "gen/apple/PrivacyInfo.xcprivacy"
+        "Resources/PrivacyInfo.xcprivacy": "gen/apple/PrivacyInfo.xcprivacy",
+        "Resources/en.lproj/InfoPlist.strings": "gen/apple/en.lproj/InfoPlist.strings",
+        "Resources/fr.lproj/InfoPlist.strings": "gen/apple/fr.lproj/InfoPlist.strings"
       },
       "hardenedRuntime": true,
       "minimumSystemVersion": "14.0",

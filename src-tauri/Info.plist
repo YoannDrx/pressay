@@ -8,7 +8,16 @@
        ITSEncryptionExportComplianceCode into the built bundle before signing. -->
   <key>ITSAppUsesNonExemptEncryption</key>
   <true/>
+  <!-- Translations live in gen/apple/{en,fr}.lproj/InfoPlist.strings, copied
+       into the bundle by bundle.macOS.files in tauri.conf.json. -->
+  <key>CFBundleDevelopmentRegion</key>
+  <string>en</string>
+  <key>CFBundleLocalizations</key>
+  <array>
+    <string>en</string>
+    <string>fr</string>
+  </array>
   <key>NSMicrophoneUsageDescription</key>
-  <string>Request microphone access to transcribe audio locally</string>
+  <string>Pressay uses the microphone only while you dictate, to turn your voice into text. Audio is transcribed on this Mac unless you choose a Cloud option.</string>
 </dict>
 </plist>

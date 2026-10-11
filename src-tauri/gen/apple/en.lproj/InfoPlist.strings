@@ -1,0 +1,2 @@
+/* Shown by macOS when Pressay first asks for the microphone. */
+"NSMicrophoneUsageDescription" = "Pressay uses the microphone only while you dictate, to turn your voice into text. Audio is transcribed on this Mac unless you choose a Cloud option.";

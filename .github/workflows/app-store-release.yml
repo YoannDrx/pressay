@@ -292,6 +292,11 @@ jobs:
             "$signed_entitlements" | grep -qx 'G9WFV7HNV6.fr.yodev.pressay'
           /usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' \
             "$app/Contents/Info.plist" | grep -qx 'fr.yodev.pressay'
+          # Privacy manifest and localized permission prompts must ship.
+          plutil -lint "$app/Contents/Resources/PrivacyInfo.xcprivacy"
+          for locale in en fr; do
+            plutil -lint "$app/Contents/Resources/$locale.lproj/InfoPlist.strings"
+          done
           /usr/libexec/PlistBuddy -c 'Print :CFBundleVersion' \
             "$app/Contents/Info.plist" | grep -qxF "$EXPECTED_BUILD_NUMBER"
           /usr/libexec/PlistBuddy -c 'Print :ITSAppUsesNonExemptEncryption' \
