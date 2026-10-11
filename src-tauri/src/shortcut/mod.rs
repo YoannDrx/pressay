@@ -447,6 +447,26 @@ fn unregister_all_shortcuts(app: &AppHandle, implementation: KeyboardImplementat
     }
 }
 
+/// Reset, in place, every binding that `implementation` cannot register to its
+/// default. Returns the ids that were reset.
+pub fn reset_bindings_invalid_for(
+    settings: &mut settings::AppSettings,
+    implementation: KeyboardImplementation,
+) -> Vec<String> {
+    let mut reset = Vec::new();
+    for (id, default_binding) in settings::get_default_settings().bindings {
+        if let Some(binding) = settings.bindings.get_mut(&id) {
+            if validate_shortcut_for_implementation(&binding.current_binding, implementation)
+                .is_err()
+            {
+                binding.current_binding = default_binding.current_binding;
+                reset.push(id);
+            }
+        }
+    }
+    reset
+}
+
 /// Register all shortcuts for a specific implementation, validating and resetting invalid ones
 fn register_all_shortcuts_for_implementation(
     app: &AppHandle,
@@ -893,6 +913,9 @@ pub fn change_paste_method_setting(app: AppHandle, method: String) -> Result<(),
             PasteMethod::CtrlV
         }
     };
+    if !settings::paste_method_supported(parsed) {
+        return Err("paste_method_unsupported".to_string());
+    }
     settings.paste_method = parsed;
     settings::write_settings(&app, settings);
     Ok(())
@@ -1302,12 +1325,13 @@ pub fn change_filler_word_removal_enabled_setting(
 #[tauri::command]
 #[specta::specta]
 pub fn change_app_language_setting(app: AppHandle, language: String) -> Result<(), String> {
+    let language = settings::reviewed_app_language(&language);
     let mut settings = settings::get_settings(&app);
-    settings.app_language = language.clone();
+    settings.app_language = language.to_string();
     settings::write_settings(&app, settings);
 
     // Refresh the tray menu with the new language
-    tray::update_tray_menu(&app, Some(&language));
+    tray::update_tray_menu(&app, Some(language));
 
     Ok(())
 }

@@ -59,11 +59,10 @@ F exige les validations A à E. G dépend de l'acceptation par Apple.
       autorisation d'envoi. Si Apple demande un complément ANSSI, fournir le
       document effectivement requis ; un accusé de réception n'est pas assimilé
       à une attestation finale.
-- [ ] Finaliser l'adresse DSA avec un justificatif authentique : **7 allée des
-      Jonquilles, 95130 Franconville, France**. Vérifier l'adresse après soumission
-      et après validation. Le 11 rue de la Chine est l'ancienne adresse ; ne pas
-      poursuivre le changement vers Paris du dossier `20000144124147`.
-- [ ] Conserver le contact validé `yoann.andrieux@gmail.com` et `+33663434665`.
+- [ ] Finaliser l'adresse DSA avec un justificatif authentique : **<adresse postale du propriétaire>**. Vérifier l'adresse après soumission
+      et après validation. L'adresse parisienne est l'ancienne adresse ; ne pas
+      poursuivre le changement vers Paris du dossier `<numéro de dossier Apple>`.
+- [ ] Conserver le contact validé `<e-mail du propriétaire>` et `<téléphone du propriétaire>`.
       Vérifier les liens de contact et le filtre Gmail `Apps/Pressay`. Ne remplacer
       ce contact par `hello@pressay.fr` qu'après configuration et preuve de réception.
 - [ ] Vérifier la cohérence de l'identité de l'éditeur, des conditions de vente,
@@ -213,7 +212,7 @@ rapport final doit distinguer les validations réalisées des limites restantes.
 
 | Intervention                                                                         | Pourquoi elle est nécessaire                                                              | Travail préparé ou réalisable sans attendre                                         |
 | ------------------------------------------------------------------------------------ | ----------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------- |
-| Justificatif actuel de Franconville, via un fichier accessible                       | Le dernier formulaire DSA exigeait une pièce avant soumission                             | Adresse et coordonnées confirmées ; reprise du dossier et vérifications préparables |
+| Justificatif actuel de <ville du propriétaire>, via un fichier accessible            | Le dernier formulaire DSA exigeait une pièce avant soumission                             | Adresse et coordonnées confirmées ; reprise du dossier et vérifications préparables |
 | Autorisation de transmettre la relance Apple si elle reste utile                     | L'envoi d'un message à un tiers nécessite une autorisation explicite                      | Texte déjà rédigé, avec app, dossier et erreur de téléversement                     |
 | Revue humaine et approbation de la PR 94                                             | Règle explicite du dépôt avant fusion                                                     | Diff disponible et 12 contrôles réussis                                             |
 | Confirmation d'un contrat de médiation existant, ou choix d'un contrat si nécessaire | Impossible de publier une affiliation ni de souscrire un contrat payant sans fondement    | Vérification des mentions et préparation des modifications                          |

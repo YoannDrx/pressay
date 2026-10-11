@@ -78,7 +78,7 @@ d'envoi et l'identifiant du build traité par Apple.
 2. Exécuter la [matrice native](native-release-matrix.fr.md) et corriger les échecs.
 3. Finaliser les [notes App Review](review-notes.md), la vidéo, les captures,
    les déclarations de confidentialité et les métadonnées FR/EN.
-4. Vérifier les dossiers Apple, l'adresse DSA à Franconville et les conditions de
+4. Vérifier les dossiers Apple, l'adresse DSA à jour et les conditions de
    vente avant la soumission. Sélectionner le nouveau build avec les abonnements
    nécessaires, puis soumettre.
 5. Après acceptation et publication, constater le téléchargement depuis le Store,

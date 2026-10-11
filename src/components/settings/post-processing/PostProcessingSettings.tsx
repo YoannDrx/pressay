@@ -10,6 +10,7 @@ import {
 } from "lucide-react";
 import { commands } from "@/bindings";
 import { AppPageHeader } from "@/components/layout";
+import { ProGate } from "@/components/shared/ProGate";
 
 import { Alert } from "../../ui/Alert";
 import {
@@ -515,6 +516,7 @@ export const PostProcessingSettings: React.FC = () => {
           </div>
         }
       />
+      <ProGate capability="byok" />
 
       <SettingsGroup title={t("settings.postProcessing.activation")}>
         <PostProcessingToggle descriptionMode="tooltip" grouped={true} />

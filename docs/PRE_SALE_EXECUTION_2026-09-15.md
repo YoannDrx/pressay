@@ -81,10 +81,10 @@ La session Chrome initialement expirée est ensuite redevenue accessible. Le
 **15 septembre**, les contrôles connectés ont confirmé :
 
 - Chiffrement : document du 23 août toujours en « Vérification », valeur de clé « - ».
-- Business : adresse de Franconville correcte ; contrats gratuits/payants, banque,
+- Business : adresse de <ville du propriétaire> correcte ; contrats gratuits/payants, banque,
   formulaires fiscaux, DSA et DAC7 affichés actifs.
 - Le formulaire DSA séparé contient encore l'ancienne adresse parisienne. La
-  correction vers Franconville et les coordonnées sont préparées ; l'étape
+  correction vers <ville du propriétaire> et les coordonnées sont préparées ; l'étape
   « Pièce justificative d'adresse » interdit de continuer sans document.
   La nouvelle adresse n'est donc pas encore soumise/validée dans ce formulaire.
 - TestFlight : 2.0.3 est le dernier build traité de 2.0.0, avec informations
@@ -97,7 +97,7 @@ La relance est remplie dans le formulaire Apple Developer « Configuration d'app
 Chiffrement », avec le statut du 15 septembre ; elle n'est pas envoyée et attend
 l'accord explicite demandé. Aucun justificatif d'identité ou d'adresse n'y est joint.
 
-Le justificatif de **7 allée des Jonquilles, 95130 Franconville** et l'existence
+Le justificatif de **<adresse postale du propriétaire>** et l'existence
 d'un contrat de médiation ont été demandés. Aucune pièce d'adresse n'a été inventée
 ou envoyée, aucun contrat souscrit. Le brouillon de relance Apple reste disponible.
 

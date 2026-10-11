@@ -66,3 +66,141 @@ for (const enabled of [false, true]) {
     ).toBeEnabled();
   });
 }
+
+for (const answer of ["no", "yes"] as const) {
+  test(`account deletion follows the dialog answer (${answer})`, async ({
+    page,
+  }) => {
+    await page.goto(
+      `/tests/fixtures/account.html?scenario=direct&dialog=${answer}`,
+    );
+    await page.getByRole("button", { name: "Delete account" }).click();
+    const calls = () =>
+      page.evaluate(() => Reflect.get(window, "accountTestCalls") as string[]);
+    await expect.poll(calls).toContain("plugin:dialog|ask");
+    if (answer === "yes")
+      await expect.poll(calls).toContain("delete_cloud_account");
+    else expect(await calls()).not.toContain("delete_cloud_account");
+  });
+}
+
+const payloads = (page: import("@playwright/test").Page) =>
+  page.evaluate(
+    () =>
+      Reflect.get(window, "accountTestPayloads") as Record<string, unknown>[],
+  );
+
+test("the paywall shows period, renewal terms and legal links", async ({
+  page,
+}) => {
+  await page.goto("/tests/fixtures/account.html?scenario=purchases-enabled");
+  await expect(page.getByTestId("subscription-price")).toHaveText("€5 / month");
+  await expect(page.getByTestId("auto-renew-disclosure")).toContainText(
+    "renews automatically",
+  );
+  await page.getByRole("button", { name: "Terms of Use (EULA)" }).click();
+  await page.getByRole("button", { name: "Privacy Policy" }).click();
+  await page.getByRole("button", { name: "Manage subscription" }).click();
+  await expect
+    .poll(async () => (await payloads(page)).map((entry) => entry.page))
+    .toEqual(["terms", "privacy", "manage_subscription"]);
+});
+
+test("a pending purchase is shown as pending, not as an error", async ({
+  page,
+}) => {
+  await page.goto("/tests/fixtures/account.html?scenario=purchases-enabled");
+  await page.getByRole("button", { name: "Subscribe", exact: true }).click();
+  await expect(
+    page.getByRole("status").filter({ hasText: "awaiting approval" }),
+  ).toBeVisible();
+  await expect(page.getByRole("alert")).toHaveCount(0);
+  await expect(page.getByText("storekit_pending")).toHaveCount(0);
+});
+
+test("sign-in offers Apple and Google equally plus other options", async ({
+  page,
+}) => {
+  await page.goto("/tests/fixtures/account.html?scenario=signed-out");
+  const apple = page.getByRole("button", { name: "Continue with Apple" });
+  const google = page.getByRole("button", { name: "Continue with Google" });
+  await expect(apple).toBeVisible();
+  await expect(google).toBeVisible();
+  await page.getByRole("button", { name: "Other options" }).click();
+  await expect
+    .poll(async () => (await payloads(page)).at(-1))
+    .toEqual({ command: "begin_cloud_social_login", provider: null });
+});
+
+test("deleting with an active App Store subscription warns first", async ({
+  page,
+}) => {
+  await page.goto(
+    "/tests/fixtures/account.html?scenario=apple-subscription&dialog=yes",
+  );
+  await page.getByRole("button", { name: "Delete account" }).click();
+  const warning = page.getByTestId("apple-subscription-warning");
+  await expect(warning).toBeVisible();
+  await warning
+    .getByRole("button", { name: "Manage App Store subscriptions" })
+    .click();
+  await warning.getByRole("button", { name: "Delete anyway" }).click();
+  await expect
+    .poll(() => payloads(page))
+    .toEqual([
+      { command: "delete_cloud_account", acknowledgeAppleSubscription: false },
+      { command: "open_external_page", page: "apple_subscriptions" },
+      { command: "delete_cloud_account", acknowledgeAppleSubscription: true },
+    ]);
+  await expect(warning).toHaveCount(0);
+});
+
+test("the direct checkout opens the web pricing behind its gate", async ({
+  page,
+}) => {
+  await page.goto("/tests/fixtures/account.html?scenario=direct-checkout");
+  await page.getByRole("button", { name: "See plans and subscribe" }).click();
+  await expect
+    .poll(async () => (await payloads(page)).at(-1))
+    .toEqual({ command: "open_external_page", page: "direct_checkout" });
+  await expect(page.getByText("Finish checkout in your browser")).toBeVisible();
+});
+
+test("the direct checkout stays hidden while its release gate is closed", async ({
+  page,
+}) => {
+  await page.goto("/tests/fixtures/account.html?scenario=direct");
+  await expect(page.getByText("synthetic@example.invalid")).toBeVisible();
+  await expect(
+    page.getByRole("button", { name: "See plans and subscribe" }),
+  ).toHaveCount(0);
+});
+
+for (const answer of ["no", "yes"] as const) {
+  test(`a purchase from another Apple ID is linked only on confirmation (${answer})`, async ({
+    page,
+  }) => {
+    await page.goto(
+      `/tests/fixtures/account.html?scenario=purchases-link&dialog=${answer}`,
+    );
+    await page.getByRole("button", { name: "Restore purchases" }).click();
+    const restores = async () =>
+      (await payloads(page)).filter(
+        (entry) => entry.command === "restore_app_store_purchases",
+      );
+    if (answer === "yes") {
+      await expect.poll(restores).toEqual([
+        { command: "restore_app_store_purchases", linkToCurrentAccount: false },
+        { command: "restore_app_store_purchases", linkToCurrentAccount: true },
+      ]);
+      await expect(page.getByRole("alert")).toHaveCount(0);
+    } else {
+      await expect(page.getByRole("alert")).toContainText(
+        "not linked to this Pressay account",
+      );
+      expect(await restores()).toEqual([
+        { command: "restore_app_store_purchases", linkToCurrentAccount: false },
+      ]);
+    }
+  });
+}

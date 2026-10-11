@@ -279,7 +279,7 @@ pub fn initialize_enigo(app: AppHandle) -> Result<(), String> {
 pub struct ShortcutsInitialized;
 
 #[cfg(target_os = "macos")]
-fn accessibility_permission_granted() -> bool {
+pub(crate) fn accessibility_permission_granted() -> bool {
     #[link(name = "ApplicationServices", kind = "framework")]
     unsafe extern "C" {
         fn AXIsProcessTrusted() -> u8;
@@ -290,7 +290,7 @@ fn accessibility_permission_granted() -> bool {
 }
 
 #[cfg(not(target_os = "macos"))]
-fn accessibility_permission_granted() -> bool {
+pub(crate) fn accessibility_permission_granted() -> bool {
     true
 }
 
@@ -306,7 +306,13 @@ pub fn initialize_shortcuts(app: AppHandle) -> Result<(), String> {
         return Ok(());
     }
 
-    if !accessibility_permission_granted() {
+    // Only the event-tap implementation needs Accessibility. Carbon hotkeys
+    // (the Tauri implementation) work without it, which keeps dictation
+    // usable in copy mode when the user declines the permission.
+    let implementation = crate::settings::get_settings(&app).keyboard_implementation;
+    if implementation == crate::settings::KeyboardImplementation::HandyKeys
+        && !accessibility_permission_granted()
+    {
         log::warn!("Shortcut initialization deferred until accessibility permission is granted");
         return Err("accessibility_permission_required".to_string());
     }
@@ -321,4 +327,62 @@ pub fn initialize_shortcuts(app: AppHandle) -> Result<(), String> {
 
     log::info!("Shortcuts initialized successfully");
     Ok(())
+}
+
+/// Keep dictation usable when the user declines macOS Accessibility: switch
+/// shortcuts to Carbon hotkeys (no event tap) and let delivery fall back to
+/// the clipboard. Idempotent; a no-op once Accessibility is granted.
+#[specta::specta]
+#[tauri::command]
+pub fn use_shortcuts_without_accessibility(app: AppHandle) -> Result<(), String> {
+    if accessibility_permission_granted() {
+        return initialize_shortcuts(app);
+    }
+    let settings = get_settings(&app);
+    if settings.keyboard_implementation == crate::settings::KeyboardImplementation::HandyKeys {
+        if app.try_state::<ShortcutsInitialized>().is_some() {
+            // Permission revoked while running: switch the live registrations.
+            crate::shortcut::change_keyboard_implementation_setting(
+                app.clone(),
+                "tauri".to_string(),
+            )?;
+        } else {
+            let mut settings = settings;
+            settings.keyboard_implementation = crate::settings::KeyboardImplementation::Tauri;
+            crate::shortcut::reset_bindings_invalid_for(
+                &mut settings,
+                crate::settings::KeyboardImplementation::Tauri,
+            );
+            write_settings(&app, settings);
+        }
+        let mut latest = get_settings(&app);
+        latest.accessibility_fallback_active = true;
+        write_settings(&app, latest);
+    }
+    initialize_shortcuts(app)
+}
+
+/// Restore the preferred event-tap shortcuts once Accessibility is granted
+/// after the user had continued without it. Safe to call repeatedly.
+#[specta::specta]
+#[tauri::command]
+pub fn restore_accessibility_shortcuts(app: AppHandle) -> Result<(), String> {
+    let settings = get_settings(&app);
+    if !settings.accessibility_fallback_active || !accessibility_permission_granted() {
+        return Ok(());
+    }
+    if app.try_state::<ShortcutsInitialized>().is_some() {
+        crate::shortcut::change_keyboard_implementation_setting(
+            app.clone(),
+            "handy_keys".to_string(),
+        )?;
+    } else {
+        let mut settings = settings;
+        settings.keyboard_implementation = crate::settings::KeyboardImplementation::HandyKeys;
+        write_settings(&app, settings);
+    }
+    let mut latest = get_settings(&app);
+    latest.accessibility_fallback_active = false;
+    write_settings(&app, latest);
+    initialize_shortcuts(app)
 }

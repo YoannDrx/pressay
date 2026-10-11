@@ -21,28 +21,41 @@
       "managedByApple": "La facturation et la résiliation sont gérées par Apple.",
       "purchased": "Pressay Pro est maintenant actif.",
       "restored": "Les achats App Store ont été restaurés.",
-      "error": "Impossible de terminer l’opération App Store."
-    },
-    "email": {
-      "label": "Email",
-      "placeholder": "vous@exemple.com",
-      "send": "Envoyer le lien",
-      "sent": "Consultez votre boîte mail pour continuer."
+      "error": "Impossible de terminer l’opération App Store.",
+      "period": {
+        "day": "{{price}} / jour",
+        "week": "{{price}} / semaine",
+        "month": "{{price}} / mois",
+        "year": "{{price}} / an",
+        "dayMultiple": "{{price}} tous les {{count}} jours",
+        "weekMultiple": "{{price}} toutes les {{count}} semaines",
+        "monthMultiple": "{{price}} tous les {{count}} mois",
+        "yearMultiple": "{{price}} tous les {{count}} ans"
+      },
+      "autoRenew": "Abonnement à renouvellement automatique. Le paiement est débité de votre compte Apple à la confirmation de l’achat. L’abonnement se renouvelle automatiquement pour la même durée et au même prix, sauf résiliation au moins 24 heures avant la fin de la période en cours ; le renouvellement est facturé dans les 24 heures précédant la fin de la période. Gérez-le ou résiliez-le à tout moment dans les réglages de votre compte App Store.",
+      "terms": "Conditions d’utilisation (CLUF)",
+      "privacy": "Politique de confidentialité",
+      "manage": "Gérer l’abonnement",
+      "pendingTitle": "Achat en attente d’approbation",
+      "unavailable": "Les abonnements ne peuvent pas être chargés depuis l’App Store pour le moment.",
+      "linkTitle": "Lier cet achat App Store ?",
+      "linkMessage": "Cet abonnement a été acheté avec un autre identifiant Apple ou avant votre connexion à Pressay. Le lier au compte Pressay avec lequel vous êtes connecté ? Un achat ne peut appartenir qu’à un seul compte Pressay.",
+      "linkConfirm": "Lier l’achat"
     },
     "providers": {
-      "or": "ou",
       "google": "Continuer avec Google",
       "apple": "Continuer avec Apple",
-      "unavailableTitle": "Service de connexion indisponible",
-      "unavailable": "Cette version ne peut pas encore proposer de méthode de connexion. La dictée locale reste entièrement disponible."
+      "other": "Autres options",
+      "browserNote": "La connexion se poursuit sur press-say.app dans votre navigateur, puis revient dans Pressay."
     },
     "actions": {
-      "loading": "Vérification de la disponibilité du Cloud…",
+      "loading": "Vérification de votre compte…",
       "refresh": "Actualiser",
       "retry": "Réessayer",
       "disconnect": "Déconnecter",
       "delete": "Supprimer le compte",
-      "confirmDelete": "Supprimer votre compte Pressay Cloud et les réglages synchronisés ? Cette action est irréversible."
+      "confirmDelete": "Supprimer votre compte Pressay Cloud et les réglages synchronisés ? Cette action est irréversible. Supprimer votre compte n’annule pas un abonnement App Store.",
+      "confirmDeleteTitle": "Supprimer votre compte Pressay ?"
     },
     "sync": {
       "title": "Synchronisation chiffrée",
@@ -74,7 +87,9 @@
         "done": "Terminé",
         "recovered": "La synchronisation chiffrée a été récupérée sur ce Mac.",
         "invalid": "Le code est invalide, expiré ou déjà utilisé.",
-        "error": "Impossible de créer un code de récupération."
+        "error": "Impossible de créer un code de récupération.",
+        "confirmRotateTitle": "Remplacer le code de récupération ?",
+        "confirmRotateButton": "Créer un nouveau code"
       }
     },
     "usage": {
@@ -107,6 +122,27 @@
       "start": "Impossible de démarrer la connexion Cloud.",
       "disconnect": "Impossible de déconnecter le compte.",
       "delete": "Impossible de supprimer le compte."
+    },
+    "signIn": {
+      "whyAccount": "Un compte permet de retrouver Pressay Pro sur tous vos Mac et de synchroniser vos réglages. La dictée locale fonctionne sans compte."
+    },
+    "deletion": {
+      "appleSubscriptionTitle": "Votre abonnement App Store est toujours actif",
+      "appleSubscriptionMessage": "Supprimer votre compte Pressay n’annule pas un abonnement App Store : Apple continue de le facturer tant que vous ne l’avez pas résilié dans vos abonnements App Store. Résiliez-le d’abord, ou supprimez quand même votre compte.",
+      "manage": "Gérer les abonnements App Store",
+      "deleteAnyway": "Supprimer quand même"
+    },
+    "direct": {
+      "title": "Pressay Pro",
+      "description": "Abonnez-vous sur press-say.app, connecté avec ce même compte. Le paiement est traité par Stripe, et Pro s’active ici automatiquement une fois confirmé.",
+      "subscribe": "Voir les offres et s’abonner",
+      "waiting": "Terminez le paiement dans votre navigateur. Pressay vérifie votre abonnement à votre retour.",
+      "checkNow": "Vérifier maintenant",
+      "manage": "Gérer la facturation"
+    },
+    "legal": {
+      "terms": "Conditions",
+      "privacy": "Confidentialité"
     }
   },
   "tray": {
@@ -232,7 +268,9 @@
       },
       "accessibility": {
         "title": "Accès à l'accessibilité",
-        "description": "Nécessaire pour taper le texte transcrit dans vos applications."
+        "description": "Nécessaire pour taper le texte transcrit dans vos applications.",
+        "skip": "Continuer sans Accessibilité",
+        "skipDescription": "Sans elle, Pressay copie chaque dictée dans le presse-papiers pour que vous la colliez vous-même. Vous pourrez l’autoriser plus tard."
       },
       "grant": "Accorder l'autorisation",
       "granted": "Accordé",
@@ -337,7 +375,9 @@
           "restore": "Échec de la restauration du raccourci original",
           "set": "Échec de la définition du raccourci : {{error}}",
           "reset": "Échec de la réinitialisation du raccourci à sa valeur d'origine"
-        }
+        },
+        "changeLabel": "Modifier : {{name}}, actuellement {{binding}}",
+        "recordingLabel": "Enregistrement : {{name}}. Appuyez sur les touches à utiliser."
       },
       "language": {
         "title": "Langue",
@@ -630,7 +670,8 @@
       "reprocessError": "Impossible de retraiter cette transcription. Vérifiez la route choisie dans Fournisseurs.",
       "transcribing": "Transcription en cours...",
       "transcriptionFailed": "La transcription a échoué. Vous pouvez re-transcrire en utilisant l'icône de réessai.",
-      "loadMore": "Charger la suite"
+      "loadMore": "Charger la suite",
+      "deleteAllTitle": "Supprimer tout l’historique ?"
     },
     "debug": {
       "title": "Débogage",
@@ -771,9 +812,9 @@
         "license": "MIT"
       },
       "supportDevelopment": {
-        "title": "Site Pressay",
-        "description": "Informations produit, assistance et téléchargements",
-        "button": "Ouvrir le site"
+        "title": "Aide et assistance",
+        "description": "Guides, contact et dépannage",
+        "button": "Ouvrir l’assistance"
       },
       "acknowledgments": {
         "title": "Remerciements",
@@ -826,7 +867,12 @@
   },
   "accessibility": {
     "permissionsDescription": "Pressay a besoin des autorisations d'accessibilité pour taper le texte transcrit.",
-    "openSettings": "Ouvrir les Préférences Système"
+    "openSettings": "Ouvrir les Préférences Système",
+    "copyModeTitle": "Mode copie : les dictées vont dans le presse-papiers",
+    "copyModeDescription": "Autorisez l’Accessibilité dans Réglages Système pour que Pressay colle le texte automatiquement dans vos apps.",
+    "useCopyMode": "Utiliser le mode copie",
+    "copiedTitle": "Copié dans le presse-papiers",
+    "copiedDescription": "Appuyez sur ⌘V pour coller. Autorisez l’Accessibilité pour coller automatiquement."
   },
   "errors": {
     "loadDirectory": "Erreur lors du chargement du répertoire : {{error}}",
@@ -846,7 +892,31 @@
     "modelLoadFailedUnknown": "modèle inconnu",
     "pasteFailedTitle": "Échec du collage du texte",
     "pasteFailed": "Le texte n'a pas pu être collé dans l'application active.",
-    "transcriptionFailedTitle": "Échec de la transcription"
+    "transcriptionFailedTitle": "Échec de la transcription",
+    "codes": {
+      "generic": "Une erreur est survenue. Veuillez réessayer.",
+      "network": "Pressay n’a pas pu accéder à Internet. Vérifiez votre connexion et réessayez.",
+      "serviceUnavailable": "Le service Pressay est momentanément indisponible. Réessayez dans un instant.",
+      "rateLimited": "Trop de tentatives. Patientez une minute puis réessayez.",
+      "sessionExpired": "Votre session a expiré. Reconnectez-vous.",
+      "notConnected": "Connectez-vous d’abord à votre compte Pressay.",
+      "keychain": "Pressay n’a pas pu accéder au trousseau macOS. Déverrouillez votre session puis réessayez.",
+      "browser": "Votre navigateur web n’a pas pu être ouvert.",
+      "authExpired": "Cette tentative de connexion a expiré ou a été remplacée par une plus récente. Recommencez depuis Pressay.",
+      "authCancelled": "La connexion a été annulée ou refusée dans le navigateur.",
+      "accountMismatch": "Ce Mac est lié à un autre compte. Déconnectez-vous puis reconnectez-vous.",
+      "appleSubscriptionActive": "Un abonnement App Store est encore actif pour ce compte.",
+      "purchasePending": "Votre achat attend une approbation (par exemple « Demander l’autorisation d’achat »). Pro s’activera automatiquement une fois l’achat approuvé.",
+      "purchaseUnverified": "L’App Store n’a pas pu vérifier cet achat. Vous n’avez pas été débité deux fois ; essayez « Restaurer les achats ».",
+      "storeUnavailable": "L’App Store n’est pas disponible pour le moment. Réessayez plus tard.",
+      "releaseGate": "Cette option n’est pas encore disponible dans cette version de Pressay.",
+      "restoreFailed": "Les achats n’ont pas pu être restaurés. Vérifiez que vous êtes connecté à l’App Store avec le compte utilisé pour l’abonnement.",
+      "otherAccount": "Cet abonnement appartient à un autre compte Pressay. Connectez-vous avec le compte d’origine ou contactez l’assistance.",
+      "upgradeRequired": "Cette fonctionnalité fait partie de Pressay Pro.",
+      "linkRequired": "Cet achat App Store n’est pas encore lié à ce compte Pressay. Utilisez « Restaurer les achats » pour le lier.",
+      "subscriptionAlreadyActive": "Vous avez déjà un abonnement Pressay Pro actif.",
+      "updateRequired": "Cette version de Pressay ne peut plus se connecter. Mettez Pressay à jour puis réessayez."
+    }
   },
   "appLanguage": {
     "title": "Langue de l'application",
@@ -1012,6 +1082,10 @@
       "imported": "Configuration importée",
       "summary": "{{modes}} modes · {{profiles}} profils · {{terms}} termes",
       "conflicts": "{{count}} conflits préservés"
+    },
+    "dictionaryState": {
+      "loading": "Chargement du dictionnaire…",
+      "unavailable": "Le dictionnaire est indisponible."
     }
   },
   "signalOs": {
@@ -1189,5 +1263,9 @@
         "fallback": "Pressay nécessite votre attention"
       }
     }
+  },
+  "proGate": {
+    "description": "Votre dictée locale reste gratuite. Passez à Pro depuis la page Compte pour l’utiliser.",
+    "cta": "Voir Pro"
   }
 }

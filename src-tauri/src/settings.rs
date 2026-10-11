@@ -528,6 +528,11 @@ pub struct AppSettings {
     pub lazy_stream_close: bool,
     #[serde(default)]
     pub keyboard_implementation: KeyboardImplementation,
+    /// Set when the user continued without macOS Accessibility: shortcuts run
+    /// on Carbon hotkeys and dictation is copied instead of pasted. Cleared,
+    /// and the preferred implementation restored, once access is granted.
+    #[serde(default)]
+    pub accessibility_fallback_active: bool,
     #[serde(default = "default_show_tray_icon")]
     pub show_tray_icon: bool,
     #[serde(default = "default_paste_delay_ms")]
@@ -619,7 +624,7 @@ fn default_autostart_enabled() -> bool {
 }
 
 fn default_update_checks_enabled() -> bool {
-    true
+    crate::distribution::updater_available()
 }
 
 fn default_show_whats_new_on_update() -> bool {
@@ -717,10 +722,19 @@ fn default_post_process_enabled() -> bool {
     false
 }
 
+/// Only English and French have had a human translation review. The other
+/// inherited catalogues stay on disk but are not offered: a French system
+/// gets French, every other system gets English.
+pub fn reviewed_app_language(language: &str) -> &'static str {
+    if language.trim().to_ascii_lowercase().starts_with("fr") {
+        "fr"
+    } else {
+        "en"
+    }
+}
+
 fn default_app_language() -> String {
-    tauri_plugin_os::locale()
-        .map(|l| l.replace('_', "-"))
-        .unwrap_or_else(|| "en".to_string())
+    reviewed_app_language(&tauri_plugin_os::locale().unwrap_or_default()).to_string()
 }
 
 fn default_show_tray_icon() -> bool {
@@ -1037,6 +1051,7 @@ pub fn get_default_settings() -> AppSettings {
         experimental_enabled: false,
         lazy_stream_close: false,
         keyboard_implementation: KeyboardImplementation::default(),
+        accessibility_fallback_active: false,
         show_tray_icon: default_show_tray_icon(),
         paste_delay_ms: default_paste_delay_ms(),
         paste_delay_after_ms: default_paste_delay_after_ms(),
@@ -1182,6 +1197,10 @@ pub fn get_settings(app: &AppHandle) -> AppSettings {
     }
 
     if migrate_legacy_pressay_installation(app, &mut settings) {
+        updated = true;
+    }
+
+    if enforce_build_constraints(&mut settings) {
         updated = true;
     }
 
@@ -1889,7 +1908,35 @@ fn apply_settings_migrations(
     updated
 }
 
-pub fn write_settings(app: &AppHandle, settings: AppSettings) {
+/// Settings that this binary cannot honour are reset on every load and write,
+/// not through a one-time schema migration: the same store can be read by a
+/// Direct build and later by the App Store build.
+fn enforce_build_constraints(settings: &mut AppSettings) -> bool {
+    let mut updated = false;
+    if !crate::distribution::updater_available() && settings.update_checks_enabled {
+        settings.update_checks_enabled = false;
+        updated = true;
+    }
+    if !paste_method_supported(settings.paste_method) {
+        settings.paste_method = PasteMethod::default();
+        updated = true;
+    }
+    let language = reviewed_app_language(&settings.app_language);
+    if settings.app_language != language {
+        settings.app_language = language.to_string();
+        updated = true;
+    }
+    updated
+}
+
+/// `ExternalScript` runs an arbitrary executable with the transcript and only
+/// exists for Linux setups without a working virtual keyboard.
+pub fn paste_method_supported(method: PasteMethod) -> bool {
+    method != PasteMethod::ExternalScript || cfg!(target_os = "linux")
+}
+
+pub fn write_settings(app: &AppHandle, mut settings: AppSettings) {
+    enforce_build_constraints(&mut settings);
     let store = app
         .store(crate::portable::store_path(SETTINGS_STORE_PATH))
         .expect("Failed to initialize store");
@@ -1933,6 +1980,52 @@ mod tests {
 
     fn default_settings_json() -> serde_json::Value {
         serde_json::to_value(get_default_settings()).unwrap()
+    }
+
+    #[test]
+    fn build_constraints_reset_settings_this_binary_cannot_honour() {
+        let mut settings = get_default_settings();
+        settings.update_checks_enabled = true;
+        settings.paste_method = PasteMethod::ExternalScript;
+        enforce_build_constraints(&mut settings);
+        assert_eq!(
+            settings.update_checks_enabled,
+            crate::distribution::updater_available()
+        );
+        if cfg!(target_os = "linux") {
+            assert_eq!(settings.paste_method, PasteMethod::ExternalScript);
+        } else {
+            assert_eq!(settings.paste_method, PasteMethod::default());
+        }
+        assert!(!enforce_build_constraints(&mut settings));
+    }
+
+    #[test]
+    fn only_reviewed_languages_are_kept() {
+        for (input, expected) in [
+            ("fr", "fr"),
+            ("fr-CA", "fr"),
+            ("FR_fr", "fr"),
+            ("en-US", "en"),
+            ("de-DE", "en"),
+            ("ar", "en"),
+            ("", "en"),
+        ] {
+            assert_eq!(reviewed_app_language(input), expected, "{input}");
+        }
+        let mut settings = get_default_settings();
+        settings.app_language = "zh-TW".to_string();
+        assert!(enforce_build_constraints(&mut settings));
+        assert_eq!(settings.app_language, "en");
+    }
+
+    #[test]
+    fn external_script_paste_is_linux_only() {
+        assert_eq!(
+            paste_method_supported(PasteMethod::ExternalScript),
+            cfg!(target_os = "linux")
+        );
+        assert!(paste_method_supported(PasteMethod::CtrlV));
     }
 
     #[test]

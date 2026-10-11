@@ -1,6 +1,6 @@
 [package]
 name = "pressay"
-version = "2.0.0-rc.1"
+version = "2.0.0"
 description = "Local-first dictation for macOS"
 authors = ["Yoann Andrieux", "CJ Pais and Handy contributors"]
 edition = "2021"
@@ -18,6 +18,10 @@ mas = []
 commercial-entitlements = []
 # Explicit candidate switch; restore remains available with this switch off.
 storekit-purchases = ["mas", "commercial-entitlements"]
+# Direct (DMG) sales through the web Stripe checkout. Implies `direct`, so it
+# can never be combined with `mas` (see the compile_error! in lib.rs). Enable
+# only after the Stripe test-clock matrix passes.
+stripe-purchases = ["direct", "commercial-entitlements"]
 
 [profile.dev]
 incremental = true # Compile your binary in smaller steps.

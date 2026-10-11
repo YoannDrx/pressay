@@ -15,6 +15,7 @@ mod cloud;
 mod cloud_sync;
 mod cloud_transcription;
 mod commands;
+mod distribution;
 mod helpers;
 mod history_crypto;
 mod input;
@@ -279,7 +280,7 @@ fn initialize_core_logic(app_handle: &AppHandle) {
             }
             "check_updates" => {
                 let settings = settings::get_settings(app);
-                if settings.update_checks_enabled {
+                if distribution::updater_available() && settings.update_checks_enabled {
                     show_main_window(app);
                     let _ = app.emit("check-for-updates", ());
                 }
@@ -370,7 +371,8 @@ fn initialize_core_logic(app_handle: &AppHandle) {
 #[specta::specta]
 fn trigger_update_check(app: AppHandle) -> Result<(), String> {
     let settings = settings::get_settings(&app);
-    if !settings.update_checks_enabled {
+    // The Mac App Store build is updated by the App Store only (2.4.5).
+    if !distribution::updater_available() || !settings.update_checks_enabled {
         return Ok(());
     }
     app.emit("check-for-updates", ())
@@ -696,8 +698,9 @@ pub fn run(cli_args: CliArgs) {
             commands::complete_onboarding,
             commands::get_local_readiness,
             capabilities::get_capabilities,
+            distribution::get_distribution_info,
+            distribution::open_external_page,
             commands::cloud::get_cloud_auth_config,
-            commands::cloud::request_cloud_magic_link,
             commands::cloud::begin_cloud_social_login,
             commands::cloud::cancel_cloud_social_login,
             commands::cloud::get_cloud_account_snapshot,
@@ -726,6 +729,8 @@ pub fn run(cli_args: CliArgs) {
             commands::check_apple_intelligence_available,
             commands::initialize_enigo,
             commands::initialize_shortcuts,
+            commands::use_shortcuts_without_accessibility,
+            commands::restore_accessibility_shortcuts,
             commands::models::get_available_models,
             commands::models::get_model_info,
             commands::models::download_model,

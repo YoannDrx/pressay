@@ -9,7 +9,7 @@ use std::process::Command;
 #[cfg(target_os = "linux")]
 use std::sync::OnceLock;
 use std::time::Duration;
-use tauri::{AppHandle, Manager};
+use tauri::{AppHandle, Emitter, Manager};
 use tauri_plugin_clipboard_manager::ClipboardExt;
 
 #[cfg(target_os = "linux")]
@@ -798,6 +798,11 @@ pub fn paste(text: String, app_handle: AppHandle) -> Result<PasteDispatch, Strin
             }
         }
         PasteMethod::ExternalScript => {
+            // Defence in depth: settings already reset this outside Linux, but
+            // never execute an arbitrary program from an imported store.
+            if !crate::settings::paste_method_supported(PasteMethod::ExternalScript) {
+                return Err("External script paste is only available on Linux".to_string());
+            }
             let script_path = settings
                 .external_script_path
                 .as_ref()
@@ -824,11 +829,35 @@ pub fn paste(text: String, app_handle: AppHandle) -> Result<PasteDispatch, Strin
     Ok(PasteDispatch::Completed)
 }
 
+/// Whether delivering with `behavior` synthesizes keystrokes, which macOS only
+/// allows once the user grants Accessibility.
+fn insertion_requires_accessibility(behavior: OutputBehavior, paste_method: PasteMethod) -> bool {
+    match behavior {
+        OutputBehavior::Copy => false,
+        OutputBehavior::Type => true,
+        OutputBehavior::Paste => paste_method != PasteMethod::None,
+    }
+}
+
+/// Event sent to the UI when a dictation was copied to the clipboard instead
+/// of being inserted, because Accessibility is not granted.
+pub const COPIED_WITHOUT_ACCESSIBILITY_EVENT: &str = "output-copied-without-accessibility";
+
 pub fn deliver(
     text: String,
     app_handle: AppHandle,
     behavior: OutputBehavior,
 ) -> Result<PasteDispatch, String> {
+    // Without Accessibility, synthesized keystrokes are silently dropped by
+    // macOS. Keep the dictation usable: copy it and tell the user, instead of
+    // reporting a paste failure (copy mode chosen during onboarding).
+    if insertion_requires_accessibility(behavior, get_settings(&app_handle).paste_method)
+        && !crate::commands::accessibility_permission_granted()
+    {
+        write_text_to_clipboard(&app_handle, &text)?;
+        let _ = app_handle.emit(COPIED_WITHOUT_ACCESSIBILITY_EVENT, ());
+        return Ok(PasteDispatch::Completed);
+    }
     match behavior {
         OutputBehavior::Paste => paste(text, app_handle),
         OutputBehavior::Copy => {
@@ -873,6 +902,26 @@ pub fn redo_last_insertion(app_handle: &AppHandle) -> Result<(), String> {
 mod tests {
     use super::*;
     use std::cell::Cell;
+
+    #[test]
+    fn only_keystroke_delivery_needs_accessibility() {
+        assert!(!insertion_requires_accessibility(
+            OutputBehavior::Copy,
+            PasteMethod::CtrlV
+        ));
+        assert!(insertion_requires_accessibility(
+            OutputBehavior::Type,
+            PasteMethod::None
+        ));
+        assert!(insertion_requires_accessibility(
+            OutputBehavior::Paste,
+            PasteMethod::CtrlV
+        ));
+        assert!(!insertion_requires_accessibility(
+            OutputBehavior::Paste,
+            PasteMethod::None
+        ));
+    }
 
     #[cfg(target_os = "linux")]
     const YDOTOOL_0_1_8_HELP: &str = r#"

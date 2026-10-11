@@ -528,23 +528,25 @@ async getLocalReadiness() : Promise<LocalReadiness> {
 async getCapabilities() : Promise<Capabilities> {
     return await TAURI_INVOKE("get_capabilities");
 },
-async getCloudAuthConfig() : Promise<Result<CloudAuthConfig, string>> {
+async getDistributionInfo() : Promise<DistributionInfo> {
+    return await TAURI_INVOKE("get_distribution_info");
+},
+async openExternalPage(page: ExternalPage) : Promise<Result<null, string>> {
     try {
-    return { status: "ok", data: await TAURI_INVOKE("get_cloud_auth_config") };
+    return { status: "ok", data: await TAURI_INVOKE("open_external_page", { page }) };
 } catch (e) {
     if(e instanceof Error) throw e;
     else return { status: "error", error: e  as any };
 }
 },
-async requestCloudMagicLink(email: string) : Promise<Result<null, string>> {
-    try {
-    return { status: "ok", data: await TAURI_INVOKE("request_cloud_magic_link", { email }) };
-} catch (e) {
-    if(e instanceof Error) throw e;
-    else return { status: "error", error: e  as any };
-}
+async getCloudAuthConfig() : Promise<CloudAuthConfig> {
+    return await TAURI_INVOKE("get_cloud_auth_config");
 },
-async beginCloudSocialLogin(provider: CloudAuthProvider) : Promise<Result<null, string>> {
+/**
+ * Open the web issuer sign-in in the browser. `provider` is an optional hint
+ * (Apple or Google); `None` shows every option, including passkeys and email.
+ */
+async beginCloudSocialLogin(provider: CloudAuthProvider | null) : Promise<Result<null, string>> {
     try {
     return { status: "ok", data: await TAURI_INVOKE("begin_cloud_social_login", { provider }) };
 } catch (e) {
@@ -571,9 +573,9 @@ async disconnectCloudAccount() : Promise<Result<null, string>> {
     else return { status: "error", error: e  as any };
 }
 },
-async deleteCloudAccount() : Promise<Result<null, string>> {
+async deleteCloudAccount(acknowledgeAppleSubscription: boolean) : Promise<Result<null, string>> {
     try {
-    return { status: "ok", data: await TAURI_INVOKE("delete_cloud_account") };
+    return { status: "ok", data: await TAURI_INVOKE("delete_cloud_account", { acknowledgeAppleSubscription }) };
 } catch (e) {
     if(e instanceof Error) throw e;
     else return { status: "error", error: e  as any };
@@ -651,9 +653,14 @@ async purchaseAppStoreProduct(productId: string) : Promise<Result<CloudAccountSn
     else return { status: "error", error: e  as any };
 }
 },
-async restoreAppStorePurchases() : Promise<Result<CloudAccountSnapshot, string>> {
+/**
+ * Explicit Restore. `link_to_current_account` is true only after the user
+ * confirmed linking a purchase the Cloud reported as bound to another
+ * Apple ID or made without an account token.
+ */
+async restoreAppStorePurchases(linkToCurrentAccount: boolean) : Promise<Result<CloudAccountSnapshot, string>> {
     try {
-    return { status: "ok", data: await TAURI_INVOKE("restore_app_store_purchases") };
+    return { status: "ok", data: await TAURI_INVOKE("restore_app_store_purchases", { linkToCurrentAccount }) };
 } catch (e) {
     if(e instanceof Error) throw e;
     else return { status: "error", error: e  as any };
@@ -761,6 +768,31 @@ async initializeEnigo() : Promise<Result<null, string>> {
 async initializeShortcuts() : Promise<Result<null, string>> {
     try {
     return { status: "ok", data: await TAURI_INVOKE("initialize_shortcuts") };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+/**
+ * Keep dictation usable when the user declines macOS Accessibility: switch
+ * shortcuts to Carbon hotkeys (no event tap) and let delivery fall back to
+ * the clipboard. Idempotent; a no-op once Accessibility is granted.
+ */
+async useShortcutsWithoutAccessibility() : Promise<Result<null, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("use_shortcuts_without_accessibility") };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+/**
+ * Restore the preferred event-tap shortcuts once Accessibility is granted
+ * after the user had continued without it. Safe to call repeatedly.
+ */
+async restoreAccessibilityShortcuts() : Promise<Result<null, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("restore_accessibility_shortcuts") };
 } catch (e) {
     if(e instanceof Error) throw e;
     else return { status: "error", error: e  as any };
@@ -1296,7 +1328,13 @@ post_process_api_keys_configured?: Partial<{ [key in string]: boolean }>; post_p
  * Aggregate token metadata only; prompts, transcriptions and responses are
  * never included. Kept locally for twelve rolling monthly periods.
  */
-byok_usage?: ByokUsageSummary[]; mute_while_recording?: boolean; append_trailing_space?: boolean; app_language?: string; theme?: Theme; experimental_enabled?: boolean; lazy_stream_close?: boolean; keyboard_implementation?: KeyboardImplementation; show_tray_icon?: boolean; paste_delay_ms?: number; paste_delay_after_ms?: number;
+byok_usage?: ByokUsageSummary[]; mute_while_recording?: boolean; append_trailing_space?: boolean; app_language?: string; theme?: Theme; experimental_enabled?: boolean; lazy_stream_close?: boolean; keyboard_implementation?: KeyboardImplementation; 
+/**
+ * Set when the user continued without macOS Accessibility: shortcuts run
+ * on Carbon hotkeys and dictation is copied instead of pasted. Cleared,
+ * and the preferred implementation restored, once access is granted.
+ */
+accessibility_fallback_active?: boolean; show_tray_icon?: boolean; paste_delay_ms?: number; paste_delay_after_ms?: number;
 /**
  * Debug-gated ("beta") receipt-sequenced paste: restore the clipboard only
  * after the target app actually reads the transcript, instead of after a
@@ -1333,7 +1371,12 @@ entitlementsEnforced: boolean; tier: EntitlementTier; entitlementSource: Entitle
 export type CapabilityAccess = "enabled" | "upgrade_required" | "release_gate"
 export type ClipboardHandling = "dont_modify" | "copy_to_clipboard"
 export type CloudAccountSnapshot = { connected: boolean; accountId: string | null; email: string | null; deviceId: string | null; entitlement: EntitlementSnapshot | null; usage: UsageSnapshot | null }
-export type CloudAuthConfig = { magicLink: boolean; providers: CloudAuthProvider[]; callbackUrl: string }
+/**
+ * How the desktop app signs in. Every provider goes through the web issuer's
+ * OAuth 2.1 PKCE flow; `providers` only lists the hints the sign-in page
+ * understands, shown with equal prominence (Sign in with Apple first).
+ */
+export type CloudAuthConfig = { providers: CloudAuthProvider[]; callbackUrl: string }
 export type CloudAuthProvider = "google" | "apple"
 export type CloudSyncDevice = { id: string; displayName: string; status: CloudSyncStatus; current: boolean }
 export type CloudSyncRecoveryCode = { code: string }
@@ -1345,6 +1388,16 @@ export type CorrectionStatus = { available: boolean; armed: boolean; target_app_
 export type CustomSounds = { start: boolean; stop: boolean }
 export type DictionaryEntry = { id: string; term: string; variants?: string[]; replacement?: string | null; match_kind?: DictionaryMatchKind; language?: string | null; enabled?: boolean }
 export type DictionaryMatchKind = "exact" | "fuzzy"
+export type DistributionChannel = "mac_app_store" | "direct" | 
+/**
+ * Unbundled development or inherited non-macOS builds.
+ */
+"development"
+export type DistributionInfo = { channel: DistributionChannel; 
+/**
+ * True only when the self-updater plugin is compiled in.
+ */
+updaterAvailable: boolean }
 export type EngineType =
 /**
  * Any GGML/GGUF model loaded through transcribe-cpp (Whisper, Parakeet,
@@ -1356,6 +1409,24 @@ export type EntitlementSnapshot = { tier: EntitlementTier; source: EntitlementSo
 export type EntitlementSource = "none" | "trial" | "stripe" | "app_store" | "support"
 export type EntitlementState = "local_free" | "verified" | "unavailable"
 export type EntitlementTier = "free" | "pro"
+/**
+ * Pages the UI may open. The URL is chosen here, per channel, so the web
+ * bundle (shared by every channel) never carries a purchase link.
+ */
+export type ExternalPage = "support" | "terms" | "privacy" | 
+/**
+ * App Store subscriptions on MAS, the web billing portal on Direct.
+ */
+"manage_subscription" | 
+/**
+ * Web checkout; only exists in the Direct channel.
+ */
+"direct_checkout" | 
+/**
+ * Apple's subscription settings, whatever the channel: an App Store
+ * subscription keeps billing after account deletion until cancelled there.
+ */
+"apple_subscriptions"
 export type GpuDeviceOption = { id: number; name: string; total_vram_mb: number }
 export type HistorySearchPage = { entries: HistoryEntry[]; next_cursor: number | null; has_more: boolean }
 export type HistoryEntry = { id: number; file_name: string; timestamp: number; saved: boolean; title: string; transcription_text: string; post_processed_text: string | null; post_process_prompt: string | null; post_process_requested: boolean; audio_available: boolean; audio_saved: boolean; metadata: HistoryMetadata }
@@ -1465,7 +1536,13 @@ uncovered_bindings: string[];
 recorder_blocked: boolean }
 export type ShortcutBinding = { id: string; name: string; description: string; default_binding: string; current_binding: string }
 export type SoundTheme = "marimba" | "pop" | "minimal" | "soft" | "glass" | "mechanical" | "dreamy" | "scifi" | "studio" | "zen" | "custom"
-export type StoreKitProduct = { id: string; displayName: string; description: string; displayPrice: string }
+export type StoreKitProduct = { id: string; displayName: string; description: string; displayPrice: string;
+/**
+ * Billing period shown next to the price (App Review 3.1.2). Filled from
+ * StoreKit, or from the closed catalogue when StoreKit omits it.
+ */
+subscriptionPeriodUnit?: SubscriptionPeriodUnit | null; subscriptionPeriodValue?: number | null }
+export type SubscriptionPeriodUnit = "day" | "week" | "month" | "year"
 /**
  * Phase of the streaming overlay card, emitted to drive its UI state.
  */

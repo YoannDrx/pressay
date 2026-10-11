@@ -3,9 +3,11 @@ import { getVersion } from "@tauri-apps/api/app";
 
 import ModelSelector from "../model-selector";
 import UpdateChecker from "../update-checker";
+import { useDistribution } from "@/hooks/useDistribution";
 
 const Footer: React.FC = () => {
   const [version, setVersion] = useState("");
+  const { updaterAvailable } = useDistribution();
 
   useEffect(() => {
     const fetchVersion = async () => {
@@ -13,8 +15,9 @@ const Footer: React.FC = () => {
         const appVersion = await getVersion();
         setVersion(appVersion);
       } catch (error) {
+        // Fall back to the build-time source version, never a literal.
         console.error("Failed to get app version:", error);
-        setVersion("2.0.0-beta.3");
+        setVersion(__APP_VERSION__);
       }
     };
 
@@ -30,10 +33,15 @@ const Footer: React.FC = () => {
 
         {/* Update Status */}
         <div className="flex items-center gap-1">
-          <UpdateChecker />
-          <span>•</span>
-          {/* eslint-disable-next-line i18next/no-literal-string */}
-          <span>v{version}</span>
+          {/* App Store builds are updated by the App Store only (2.4.5). */}
+          {updaterAvailable ? <UpdateChecker /> : null}
+          {version ? (
+            <>
+              {updaterAvailable ? <span>•</span> : null}
+              {/* eslint-disable-next-line i18next/no-literal-string */}
+              <span>v{version}</span>
+            </>
+          ) : null}
         </div>
       </div>
     </div>

@@ -692,6 +692,12 @@ pub fn update_tray_menu(app: &AppHandle, locale: Option<&str>) {
         .expect("failed to create menu")
     };
 
+    // Only the Direct updater build may offer self-updates; the App Store
+    // build is updated by the App Store alone (App Review 2.4.5).
+    if !crate::distribution::updater_available() {
+        let _ = menu.remove(&check_updates_i);
+    }
+
     // Both layouts start with [version, state, separator, ...]; slot the warning in
     // right below the version line so it's the first actionable thing seen.
     let mut tooltip = version_label;

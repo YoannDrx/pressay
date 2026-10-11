@@ -104,19 +104,19 @@
     }
   },
   "address": {
-    "street": "7 allée des Jonquilles",
-    "postalCode": "95130",
-    "city": "Franconville",
+    "street": "<redacted>",
+    "postalCode": "<redacted>",
+    "city": "<redacted>",
     "confirmedByOwner": true,
-    "obsoleteChangeRequest": "20000144124147",
+    "obsoleteChangeRequest": "<redacted>",
     "appleBusinessAccountMatches": true,
-    "dsaFormPreviouslyPrefilledWith": "11 rue de la Chine, Paris 75020",
+    "dsaFormPreviouslyPrefilledWith": "<redacted previous address>",
     "dsaFormCorrectedButNotSubmitted": true,
     "dsaAddressProofRequired": true
   },
   "pending": [
     "Apple export-compliance approval and issued key",
-    "Address proof to complete separate DSA correction to Franconville",
+    "Address proof to complete separate DSA correction to the current owner address",
     "Rebuild with approved key and upload replacement",
     "Native Apple-delivered sign-in, purchases and restore QA",
     "Microphone/permissions/macOS release matrix and two-Mac sync",

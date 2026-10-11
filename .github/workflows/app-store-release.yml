@@ -53,6 +53,9 @@ jobs:
         with:
           bun-version-file: ".bun-version"
 
+      - name: Refuse a pre-release or inconsistent source version
+        run: bun scripts/check-release-version.ts --environment "$PRESSAY_BUILD_ENVIRONMENT"
+
       - name: Validate the build number before importing signing material
         env:
           MAS_BUILD_NUMBER: ${{ inputs.build_number }}
@@ -249,7 +252,7 @@ jobs:
           app=$(find src-tauri/target/aarch64-apple-darwin/release/bundle/macos \
             -name '*.app' -type d -print -quit)
           test -n "$app"
-          if rg -a -i 'checkout\.stripe\.com|/v1/billing/checkout|tauri-plugin-updater|macos-private-api' "$app/Contents"; then
+          if rg -a -i 'checkout\.stripe\.com|/v1/billing/checkout|pricing\?source=pressay-desktop|press-say\.app/account/billing|tauri-plugin-updater|macos-private-api' "$app/Contents"; then
             echo "A forbidden Direct-distribution marker entered the Mac App Store bundle" >&2
             exit 1
           fi
@@ -283,8 +286,17 @@ jobs:
             "$signed_entitlements" | grep -qx true
           /usr/libexec/PlistBuddy -c 'Print :com.apple.security.device.audio-input' \
             "$signed_entitlements" | grep -qx true
+          # The protected (data-protection) Keychain stores items in the first
+          # access group: it must be the app's own group, not a team wildcard.
+          /usr/libexec/PlistBuddy -c 'Print :keychain-access-groups:0' \
+            "$signed_entitlements" | grep -qx 'G9WFV7HNV6.fr.yodev.pressay'
           /usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' \
             "$app/Contents/Info.plist" | grep -qx 'fr.yodev.pressay'
+          # Privacy manifest and localized permission prompts must ship.
+          plutil -lint "$app/Contents/Resources/PrivacyInfo.xcprivacy"
+          for locale in en fr; do
+            plutil -lint "$app/Contents/Resources/$locale.lproj/InfoPlist.strings"
+          done
           /usr/libexec/PlistBuddy -c 'Print :CFBundleVersion' \
             "$app/Contents/Info.plist" | grep -qxF "$EXPECTED_BUILD_NUMBER"
           /usr/libexec/PlistBuddy -c 'Print :ITSAppUsesNonExemptEncryption' \

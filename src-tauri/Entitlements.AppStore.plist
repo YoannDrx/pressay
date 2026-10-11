@@ -20,7 +20,7 @@
     <true/>
     <key>keychain-access-groups</key>
     <array>
-      <string>G9WFV7HNV6.*</string>
+      <string>G9WFV7HNV6.fr.yodev.pressay</string>
     </array>
   </dict>
 </plist>

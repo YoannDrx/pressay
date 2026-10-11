@@ -6,6 +6,8 @@ import {
   checkAccessibilityPermission,
   requestAccessibilityPermission,
 } from "tauri-plugin-macos-permissions-api";
+import { commands } from "@/bindings";
+import { useSettingsStore } from "@/stores/settingsStore";
 
 // Define permission state type
 type PermissionState = "request" | "verify" | "granted";
@@ -50,6 +52,11 @@ const AccessibilityPermissions: React.FC<AccessibilityPermissionsProps> = ({
         return false;
       }
 
+      // Leave copy mode first so the event-tap shortcuts come back.
+      const restored = await commands.restoreAccessibilityShortcuts();
+      if (restored.status === "error") {
+        console.warn("Failed to restore shortcuts:", restored.error);
+      }
       const nativeInputReady = onPermissionGranted
         ? await onPermissionGranted()
         : true;
@@ -65,6 +72,22 @@ const AccessibilityPermissions: React.FC<AccessibilityPermissionsProps> = ({
       checkInFlightRef.current = false;
     }
   }, [onPermissionGranted]);
+
+  // Shortcuts already run without Accessibility once copy mode is active;
+  // otherwise offer to switch so dictation keeps working while access is off.
+  const copyModeReady = useSettingsStore(
+    (state) =>
+      state.settings?.accessibility_fallback_active === true ||
+      state.settings?.keyboard_implementation === "tauri",
+  );
+  const refreshSettings = useSettingsStore((state) => state.refreshSettings);
+  const enableCopyMode = async () => {
+    const result = await commands.useShortcutsWithoutAccessibility();
+    if (result.status === "error") {
+      console.warn("Failed to start shortcuts in copy mode:", result.error);
+    }
+    await refreshSettings();
+  };
 
   // Handle the unified button action based on current state
   const handleButtonClick = async (): Promise<void> => {
@@ -135,15 +158,30 @@ const AccessibilityPermissions: React.FC<AccessibilityPermissionsProps> = ({
       <div className="flex justify-between items-center gap-2">
         <div className="">
           <p className="text-sm font-medium">
-            {t("accessibility.permissionsDescription")}
+            {t("accessibility.copyModeTitle")}
+          </p>
+          <p className="mt-1 text-xs text-mid-gray">
+            {t("accessibility.copyModeDescription")}
           </p>
         </div>
-        <button
-          onClick={handleButtonClick}
-          className={`min-h-10 ${config.className}`}
-        >
-          {config.text}
-        </button>
+        <div className="flex shrink-0 items-center gap-2">
+          {!copyModeReady ? (
+            <button
+              type="button"
+              onClick={() => void enableCopyMode()}
+              className="min-h-10 px-2 py-1 text-sm rounded border border-mid-gray/40 hover:border-logo-primary cursor-pointer"
+            >
+              {t("accessibility.useCopyMode")}
+            </button>
+          ) : null}
+          <button
+            type="button"
+            onClick={handleButtonClick}
+            className={`min-h-10 ${config.className}`}
+          >
+            {config.text}
+          </button>
+        </div>
       </div>
     </div>
   );

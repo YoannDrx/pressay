@@ -23,6 +23,7 @@ import {
 import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
 import { AppPageHeader } from "@/components/layout";
+import { confirmDestructiveAction } from "@/lib/confirmAction";
 import {
   commands,
   events,
@@ -349,12 +350,12 @@ export const HistorySettings: React.FC = () => {
   };
 
   const deleteAllHistory = async () => {
-    const confirmed = window.confirm(
-      t("settings.history.deleteAllConfirmation", {
-        defaultValue:
-          "Delete all local history, encrypted recordings, and the history encryption key? This cannot be undone.",
-      }),
-    );
+    const confirmed = await confirmDestructiveAction({
+      title: t("settings.history.deleteAllTitle"),
+      message: t("settings.history.deleteAllConfirmation"),
+      confirmLabel: t("settings.history.deleteAll"),
+      cancelLabel: t("common.cancel"),
+    });
     if (!confirmed) return;
 
     const result = await commands.deleteAllHistory();

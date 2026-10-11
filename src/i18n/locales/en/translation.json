@@ -21,28 +21,41 @@
       "managedByApple": "Billing and cancellation are managed by Apple.",
       "purchased": "Pressay Pro is now active.",
       "restored": "App Store purchases were restored.",
-      "error": "The App Store operation could not be completed."
-    },
-    "email": {
-      "label": "Email",
-      "placeholder": "you@example.com",
-      "send": "Send link",
-      "sent": "Check your inbox to continue."
+      "error": "The App Store operation could not be completed.",
+      "period": {
+        "day": "{{price}} / day",
+        "week": "{{price}} / week",
+        "month": "{{price}} / month",
+        "year": "{{price}} / year",
+        "dayMultiple": "{{price}} every {{count}} days",
+        "weekMultiple": "{{price}} every {{count}} weeks",
+        "monthMultiple": "{{price}} every {{count}} months",
+        "yearMultiple": "{{price}} every {{count}} years"
+      },
+      "autoRenew": "Auto-renewable subscription. Payment is charged to your Apple Account at confirmation of purchase. The subscription renews automatically for the same period and price unless it is cancelled at least 24 hours before the end of the current period; the renewal is charged within the 24 hours before the period ends. Manage or cancel it at any time in your App Store account settings.",
+      "terms": "Terms of Use (EULA)",
+      "privacy": "Privacy Policy",
+      "manage": "Manage subscription",
+      "pendingTitle": "Purchase awaiting approval",
+      "unavailable": "Subscriptions cannot be loaded from the App Store right now.",
+      "linkTitle": "Link this App Store purchase?",
+      "linkMessage": "This subscription was bought with another Apple ID or before you signed in to Pressay. Link it to the Pressay account you are signed in with? A purchase can belong to only one Pressay account.",
+      "linkConfirm": "Link purchase"
     },
     "providers": {
-      "or": "or",
       "google": "Continue with Google",
       "apple": "Continue with Apple",
-      "unavailableTitle": "Sign-in service unavailable",
-      "unavailable": "This build cannot offer a sign-in method yet. Local dictation remains fully available."
+      "other": "Other options",
+      "browserNote": "Sign-in continues on press-say.app in your browser, then returns to Pressay."
     },
     "actions": {
-      "loading": "Checking Cloud availability…",
+      "loading": "Checking your account…",
       "refresh": "Refresh",
       "retry": "Retry",
       "disconnect": "Disconnect",
       "delete": "Delete account",
-      "confirmDelete": "Delete your Pressay Cloud account and synced settings? This cannot be undone."
+      "confirmDelete": "Delete your Pressay Cloud account and synced settings? This cannot be undone. Deleting your account does not cancel an App Store subscription.",
+      "confirmDeleteTitle": "Delete your Pressay account?"
     },
     "sync": {
       "title": "Encrypted sync",
@@ -74,7 +87,9 @@
         "done": "Done",
         "recovered": "Encrypted sync was recovered on this Mac.",
         "invalid": "The recovery code is invalid, expired or already used.",
-        "error": "A recovery code could not be created."
+        "error": "A recovery code could not be created.",
+        "confirmRotateTitle": "Replace the recovery code?",
+        "confirmRotateButton": "Create a new code"
       }
     },
     "usage": {
@@ -107,6 +122,27 @@
       "start": "Cloud sign-in could not be started.",
       "disconnect": "The account could not be disconnected.",
       "delete": "The account could not be deleted."
+    },
+    "signIn": {
+      "whyAccount": "An account keeps Pressay Pro on all your Macs and syncs your settings. Local dictation works without one."
+    },
+    "deletion": {
+      "appleSubscriptionTitle": "Your App Store subscription is still active",
+      "appleSubscriptionMessage": "Deleting your Pressay account does not cancel an App Store subscription: Apple keeps billing it until you cancel it in your App Store subscriptions. Cancel it first, or delete your account anyway.",
+      "manage": "Manage App Store subscriptions",
+      "deleteAnyway": "Delete anyway"
+    },
+    "direct": {
+      "title": "Pressay Pro",
+      "description": "Subscribe on press-say.app, signed in with this same account. Payment is handled by Stripe, and Pro activates here automatically once it is confirmed.",
+      "subscribe": "See plans and subscribe",
+      "waiting": "Finish checkout in your browser. Pressay checks your subscription when you come back.",
+      "checkNow": "Check now",
+      "manage": "Manage billing"
+    },
+    "legal": {
+      "terms": "Terms",
+      "privacy": "Privacy"
     }
   },
   "tray": {
@@ -232,7 +268,9 @@
       },
       "accessibility": {
         "title": "Accessibility Access",
-        "description": "Required to type transcribed text into your applications."
+        "description": "Required to type transcribed text into your applications.",
+        "skip": "Continue without Accessibility",
+        "skipDescription": "Without it, Pressay copies each dictation to the clipboard so you can paste it yourself. You can allow it later."
       },
       "grant": "Grant Permission",
       "granted": "Granted",
@@ -317,7 +355,9 @@
           "restore": "Failed to restore original shortcut",
           "set": "Failed to set shortcut: {{error}}",
           "reset": "Failed to reset shortcut to original value"
-        }
+        },
+        "changeLabel": "Change the {{name}}, currently {{binding}}",
+        "recordingLabel": "Recording a new {{name}}. Press the keys to use."
       },
       "language": {
         "title": "Language",
@@ -630,7 +670,8 @@
       "reprocessError": "This transcription could not be reprocessed. Check the selected processing route in Providers.",
       "transcribing": "Transcribing...",
       "transcriptionFailed": "Transcription failed. You can re-transcribe using the retry icon.",
-      "loadMore": "Load more"
+      "loadMore": "Load more",
+      "deleteAllTitle": "Delete all history?"
     },
     "debug": {
       "title": "Debug",
@@ -775,9 +816,9 @@
         "license": "MIT"
       },
       "supportDevelopment": {
-        "title": "Pressay website",
-        "description": "Product information, support and downloads",
-        "button": "Open website"
+        "title": "Help and support",
+        "description": "Guides, contact and troubleshooting",
+        "button": "Open support"
       },
       "acknowledgments": {
         "title": "Acknowledgments",
@@ -829,7 +870,12 @@
   },
   "accessibility": {
     "permissionsDescription": "Pressay needs accessibility permissions to type transcribed text.",
-    "openSettings": "Open System Settings"
+    "openSettings": "Open System Settings",
+    "copyModeTitle": "Copy mode: dictations go to the clipboard",
+    "copyModeDescription": "Allow Accessibility in System Settings so Pressay can paste text into your apps automatically.",
+    "useCopyMode": "Use copy mode",
+    "copiedTitle": "Copied to the clipboard",
+    "copiedDescription": "Press ⌘V to paste. Allow Accessibility to paste automatically."
   },
   "errors": {
     "loadDirectory": "Error loading directory: {{error}}",
@@ -849,7 +895,31 @@
     "modelLoadFailedUnknown": "unknown model",
     "pasteFailedTitle": "Failed to Paste Text",
     "pasteFailed": "Text could not be pasted into the active application.",
-    "transcriptionFailedTitle": "Transcription Failed"
+    "transcriptionFailedTitle": "Transcription Failed",
+    "codes": {
+      "generic": "Something went wrong. Please try again.",
+      "network": "Pressay could not reach the internet. Check your connection and try again.",
+      "serviceUnavailable": "The Pressay service is temporarily unavailable. Please try again in a moment.",
+      "rateLimited": "Too many attempts. Please wait a minute and try again.",
+      "sessionExpired": "Your session has expired. Please sign in again.",
+      "notConnected": "Sign in to your Pressay account first.",
+      "keychain": "Pressay could not access the macOS Keychain. Unlock your Mac session and try again.",
+      "browser": "Your web browser could not be opened.",
+      "authExpired": "This sign-in attempt expired or was replaced by a newer one. Start again from Pressay.",
+      "authCancelled": "Sign-in was cancelled or refused in the browser.",
+      "accountMismatch": "This Mac is linked to another account. Sign out, then sign in again.",
+      "appleSubscriptionActive": "An App Store subscription is still active for this account.",
+      "purchasePending": "Your purchase is awaiting approval (for example Ask to Buy). Pro will activate automatically once it is approved.",
+      "purchaseUnverified": "The App Store could not verify this purchase. You were not charged twice; try Restore purchases.",
+      "storeUnavailable": "The App Store is not available right now. Please try again later.",
+      "releaseGate": "This option is not available in this version of Pressay yet.",
+      "restoreFailed": "Purchases could not be restored. Check that you are signed in to the App Store with the account used to subscribe.",
+      "otherAccount": "This subscription belongs to another Pressay account. Sign in with the original account or contact support.",
+      "upgradeRequired": "This feature is part of Pressay Pro.",
+      "linkRequired": "This App Store purchase is not linked to this Pressay account yet. Use Restore purchases to link it.",
+      "subscriptionAlreadyActive": "You already have an active Pressay Pro subscription.",
+      "updateRequired": "This version of Pressay can no longer sign in. Update Pressay and try again."
+    }
   },
   "appLanguage": {
     "title": "Application Language",
@@ -1012,6 +1082,10 @@
       "imported": "Configuration imported",
       "summary": "{{modes}} modes · {{profiles}} profiles · {{terms}} terms",
       "conflicts": "{{count}} conflicts preserved"
+    },
+    "dictionaryState": {
+      "loading": "Loading dictionary…",
+      "unavailable": "The dictionary is unavailable."
     }
   },
   "signalOs": {
@@ -1189,5 +1263,9 @@
         "fallback": "Pressay needs your attention"
       }
     }
+  },
+  "proGate": {
+    "description": "Your local dictation stays free. Upgrade from the Account page to use it.",
+    "cta": "See Pro"
   }
 }

@@ -202,6 +202,18 @@ function App() {
     };
   }, [t]);
 
+  // Without macOS Accessibility, dictation is copied instead of inserted.
+  useEffect(() => {
+    const unlisten = listen("output-copied-without-accessibility", () => {
+      toast.info(t("accessibility.copiedTitle"), {
+        description: t("accessibility.copiedDescription"),
+      });
+    });
+    return () => {
+      unlisten.then((fn) => fn());
+    };
+  }, [t]);
+
   useEffect(() => {
     const unlisten = listen<{ code: string; text: string }>(
       "transform-error",

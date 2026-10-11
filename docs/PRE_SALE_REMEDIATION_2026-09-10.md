@@ -48,7 +48,7 @@ sur https://press-say.app, déploiement `dpl_8N3y1ExANpE4899AisKfBJR5cwkF`.
 - L’échec ou le ralentissement de l’API GitHub ne casse plus le téléchargement :
   délai maximal de 2,5 s, cache de 60 s et repli sur la bêta 3 déjà vérifiée.
 - Les tests suivent la version effectivement publiée (actuellement bêta 4).
-- Les contacts publics utilisent `yoann.andrieux@gmail.com`, avec un objet
+- Les contacts publics utilisent `<e-mail du propriétaire>`, avec un objet
   `[Pressay] Support`, `[Pressay] Rétractation` ou `[Pressay] Secure Input`.
 - Le filtre Gmail existant a été modifié et relu après sauvegarde :
   `{to:(@press-say.app) subject:Pressay}` applique `Apps/Pressay`, sans archivage,
@@ -65,7 +65,7 @@ un expéditeur externe n’a pas été simulée.
 ### Candidat natif et review
 
 Archive actuelle conservée dans
-`/Users/yoannandrieux/Projets/Pressay-release-candidates/2.0.0-2.0.4/packaged/Pressay.xcarchive`.
+`<dossier local>/Pressay-release-candidates/2.0.0-2.0.4/packaged/Pressay.xcarchive`.
 Le build utilise `production-mac-app-store`, `storekit-purchases`, le service de
 production et les mises à jour Apple. Il intègre le main `f5d06c6` : relais OAuth
 Apple dans le navigateur, annulation de session, état du compte et diagnostics
@@ -145,16 +145,16 @@ problème d’inférence n’a subsisté après fourniture des modèles au répe
    l’activité et la convention doivent être confirmées avant signature/paiement
    et avant de publier ses coordonnées comme médiateur de YoDev.
 4. **Adresse confirmée ; correction DSA à valider.** Le propriétaire confirme
-   7 allée des Jonquilles, 95130 Franconville. Le site et le compte professionnel
+   <adresse postale du propriétaire>. Le site et le compte professionnel
    Apple indiquent cette adresse. Le formulaire DSA distinct reprenait néanmoins
-   Paris ; il a été rempli avec Franconville, Gmail et le numéro autorisés. Apple
+   Paris ; il a été rempli avec <ville du propriétaire>, Gmail et le numéro autorisés. Apple
    demande un justificatif d’adresse (PDF/JPEG/PNG, 10 Mo maximum) avant de
    finaliser cette correction. Aucun document ni changement DSA n’a été soumis.
-   La recherche publique du SIREN 803272590 ne fournit pas de justificatif
+   La recherche publique du SIREN <SIREN> ne fournit pas de justificatif
    utilisable : les données sont non diffusibles et la commune du siège renvoyée
    reste Paris. Cette donnée administrative ne remplace pas l’adresse actuelle
    confirmée par le propriétaire ; son document permettra de vérifier la cohérence.
-   Le dossier Developer Support `20000144124147` de changement vers Paris reste
+   Le dossier Developer Support `<numéro de dossier Apple>` de changement vers Paris reste
    obsolète : ne pas lui transmettre de justificatif pour cet ancien changement.
 5. **Revue du code natif.** L’AGENTS.md du dépôt exige une revue et une approbation
    humaines avant fusion. La préparation, les tests et le build n’y substituent pas
@@ -169,7 +169,7 @@ puis publier et remplacer le lien de téléchargement par le lien Store effectif
 ## Sources et suite prête à utiliser
 
 - Apple DSA et justificatifs : https://developer.apple.com/help/app-store-connect/manage-compliance-information/manage-european-union-digital-services-act-trader-requirements/
-- Registre public consulté : https://recherche-entreprises.api.gouv.fr/search?q=803272590&per_page=1
+- Registre public consulté : https://recherche-entreprises.api.gouv.fr/ (recherche par SIREN)
 - Apple Sandbox : https://developer.apple.com/documentation/storekit/testing-in-app-purchases-with-sandbox
 - Remboursement Apple : https://support.apple.com/118223
 - Obligations de médiation : https://www.economie.gouv.fr/mediation-conso/vous-etes-un-professionnel/vos-principales-obligations-0

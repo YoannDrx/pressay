@@ -1,8 +1,11 @@
 import { useCallback, useEffect, useState } from "react";
 import { listen } from "@tauri-apps/api/event";
 import {
+  AlertTriangle,
   CheckCircle2,
+  Clock,
   Copy,
+  ExternalLink,
   KeyRound,
   Laptop,
   LockKeyhole,
@@ -20,12 +23,21 @@ import {
   type CloudAuthConfig,
   type CloudAuthProvider,
   type CloudSyncSnapshot,
+  type ExternalPage,
   type StoreKitProduct,
 } from "@/bindings";
 import { Button } from "@/components/ui/Button";
 import { SettingsGroup } from "@/components/ui/SettingsGroup";
 import { AppPageHeader } from "@/components/layout";
 import { useSettings } from "@/hooks/useSettings";
+import {
+  appErrorKey,
+  describeAppError,
+  needsPurchaseLink,
+  presentError,
+} from "@/lib/appErrors";
+import { confirmDestructiveAction } from "@/lib/confirmAction";
+import { priceWithPeriod } from "@/lib/subscriptionPeriod";
 
 type CloudAuthEvent = {
   status: "exchanging" | "bootstrapping" | "connected" | "failed";
@@ -34,6 +46,13 @@ type CloudAuthEvent = {
 
 type AuthPhase =
   "idle" | "opening" | "waiting" | "exchanging" | "bootstrapping" | "failed";
+
+// Every sign-in goes through the web issuer; the providers are fixed hints, so
+// the buttons never depend on a network answer (App Review 4.8).
+const DEFAULT_AUTH_CONFIG: CloudAuthConfig = {
+  providers: ["apple", "google"],
+  callbackUrl: "pressay://oauth/callback",
+};
 
 const EMPTY_ACCOUNT: CloudAccountSnapshot = {
   connected: false,
@@ -47,9 +66,8 @@ const EMPTY_ACCOUNT: CloudAccountSnapshot = {
 export function AccountSettings() {
   const { t } = useTranslation();
   const { settings } = useSettings();
-  const [config, setConfig] = useState<CloudAuthConfig | null>(null);
+  const [config, setConfig] = useState<CloudAuthConfig>(DEFAULT_AUTH_CONFIG);
   const [account, setAccount] = useState<CloudAccountSnapshot>(EMPTY_ACCOUNT);
-  const [email, setEmail] = useState("");
   const [sync, setSync] = useState<CloudSyncSnapshot | null>(null);
   const [recoveryInput, setRecoveryInput] = useState("");
   const [generatedRecoveryCode, setGeneratedRecoveryCode] = useState<
@@ -57,30 +75,30 @@ export function AccountSettings() {
   >(null);
   const [loading, setLoading] = useState(true);
   const [pendingAction, setPendingAction] = useState<string | null>(null);
-  const [authConfigError, setAuthConfigError] = useState<string | null>(null);
   const [authPhase, setAuthPhase] = useState<AuthPhase>("idle");
   const [authErrorCode, setAuthErrorCode] = useState<string | null>(null);
   const [lastRefresh, setLastRefresh] = useState<Date | null>(null);
   const [syncError, setSyncError] = useState<string | null>(null);
   const [storeProducts, setStoreProducts] = useState<StoreKitProduct[]>([]);
   const [storeError, setStoreError] = useState<string | null>(null);
+  const [storePending, setStorePending] = useState(false);
   const [isAppStore, setIsAppStore] = useState(false);
   const [purchasesEnabled, setPurchasesEnabled] = useState(false);
+  const [directCheckoutEnabled, setDirectCheckoutEnabled] = useState(false);
+  const [awaitingCheckout, setAwaitingCheckout] = useState(false);
+  const [appleSubscriptionWarning, setAppleSubscriptionWarning] =
+    useState(false);
 
   const refresh = useCallback(
     async (silent = false) => {
       if (!silent) setLoading(true);
       const [configResult, accountResult] = await Promise.all([
-        commands.getCloudAuthConfig(),
+        commands.getCloudAuthConfig().catch(() => DEFAULT_AUTH_CONFIG),
         commands.getCloudAccountSnapshot(),
       ]);
-      if (configResult.status === "ok") {
-        setConfig(configResult.data);
-        setAuthConfigError(null);
-      } else if (!silent) {
-        setConfig(null);
-        setAuthConfigError(configResult.error);
-      }
+      setConfig(
+        configResult.providers.length > 0 ? configResult : DEFAULT_AUTH_CONFIG,
+      );
       if (accountResult.status === "ok") {
         setAccount(accountResult.data);
         setLastRefresh(new Date());
@@ -112,14 +130,18 @@ export function AccountSettings() {
     }
     let active = true;
     setPurchasesEnabled(false);
+    setDirectCheckoutEnabled(false);
     void commands
       .getCapabilities()
       .then((capabilities) => {
-        if (active)
-          setPurchasesEnabled(capabilities.appStorePurchase === "enabled");
+        if (!active) return;
+        setPurchasesEnabled(capabilities.appStorePurchase === "enabled");
+        setDirectCheckoutEnabled(capabilities.directCheckout === "enabled");
       })
       .catch(() => {
-        if (active) setPurchasesEnabled(false);
+        if (!active) return;
+        setPurchasesEnabled(false);
+        setDirectCheckoutEnabled(false);
       });
     void commands.getAppStoreProducts().then((result) => {
       if (!active) return;
@@ -134,8 +156,19 @@ export function AccountSettings() {
     });
     // Restoration must work even when Product.products is empty or offline.
     void commands.reconcileAppStorePurchases().then((reconciliation) => {
-      if (!active || reconciliation.status === "error") return;
-      setAccount(reconciliation.data);
+      if (!active) return;
+      if (reconciliation.status === "ok") {
+        setAccount(reconciliation.data);
+      } else if (
+        needsPurchaseLink(reconciliation.error) ||
+        appErrorKey(reconciliation.error) === "errors.codes.otherAccount"
+      ) {
+        // A subscription bound to another Apple ID or Pressay account is
+        // explained, not retried silently forever. Restore offers the link.
+        setStoreError(reconciliation.error);
+      } else if (reconciliation.error === "storekit_pending") {
+        setStorePending(true);
+      }
     });
     return () => {
       active = false;
@@ -151,6 +184,15 @@ export function AccountSettings() {
       window.removeEventListener("focus", refreshOnFocus);
     };
   }, [refresh]);
+
+  // The web checkout grants Pro through a signed webhook; the app only notices
+  // it when it refreshes (on focus and every 30 s above).
+  useEffect(() => {
+    if (awaitingCheckout && account.entitlement?.tier === "pro") {
+      setAwaitingCheckout(false);
+      toast.success(t("cloud.appStore.purchased"));
+    }
+  }, [awaitingCheckout, account.entitlement?.tier, t]);
 
   useEffect(() => {
     const unlisten = listen<CloudAuthEvent>(
@@ -173,7 +215,9 @@ export function AccountSettings() {
         } else {
           setAuthPhase("failed");
           setAuthErrorCode(event.payload.errorCode);
-          toast.error(t("cloud.errors.auth"));
+          toast.error(t("cloud.errors.auth"), {
+            description: describeAppError(t, event.payload.errorCode),
+          });
         }
       },
     );
@@ -200,19 +244,18 @@ export function AccountSettings() {
     return () => window.clearTimeout(timeout);
   }, [authPhase, t]);
 
-  const requestMagicLink = async () => {
-    setPendingAction("magic-link");
-    const result = await commands.requestCloudMagicLink(email.trim());
-    setPendingAction(null);
-    if (result.status === "ok") {
-      toast.success(t("cloud.email.sent"));
-    } else {
-      toast.error(t("cloud.errors.start"));
+  const openPage = async (page: ExternalPage) => {
+    const result = await commands.openExternalPage(page);
+    if (result.status === "error") {
+      toast.error(describeAppError(t, result.error));
+      return false;
     }
+    return true;
   };
 
-  const beginSocialLogin = async (provider: CloudAuthProvider) => {
-    setPendingAction(provider);
+  /** `null` opens the web sign-in without a hint (passkey, email, ...). */
+  const beginSocialLogin = async (provider: CloudAuthProvider | null) => {
+    setPendingAction(provider ?? "other");
     setAuthPhase("opening");
     setAuthErrorCode(null);
     const result = await commands.beginCloudSocialLogin(provider);
@@ -220,7 +263,9 @@ export function AccountSettings() {
       setPendingAction(null);
       setAuthPhase("failed");
       setAuthErrorCode(result.error);
-      toast.error(t("cloud.errors.start"));
+      toast.error(t("cloud.errors.start"), {
+        description: describeAppError(t, result.error),
+      });
       return;
     }
     setAuthPhase("waiting");
@@ -243,22 +288,49 @@ export function AccountSettings() {
       setRecoveryInput("");
       setGeneratedRecoveryCode(null);
     } else {
-      toast.error(t("cloud.errors.disconnect"));
+      toast.error(t("cloud.errors.disconnect"), {
+        description: describeAppError(t, result.error),
+      });
     }
   };
 
   const deleteAccount = async () => {
-    if (!window.confirm(t("cloud.actions.confirmDelete"))) return;
+    const confirmed = await confirmDestructiveAction({
+      title: t("cloud.actions.confirmDeleteTitle"),
+      message: t("cloud.actions.confirmDelete"),
+      confirmLabel: t("cloud.actions.delete"),
+      cancelLabel: t("common.cancel"),
+    });
+    if (!confirmed) return;
+    await performDeletion(false);
+  };
+
+  /**
+   * The Cloud refuses with `apple_subscription_active` while an App Store
+   * subscription still bills the account: deleting the account cannot cancel
+   * it. The user is told, given the App Store link, and may delete anyway.
+   */
+  const performDeletion = async (acknowledgeAppleSubscription: boolean) => {
     setPendingAction("delete");
-    const result = await commands.deleteCloudAccount();
+    const result = await commands.deleteCloudAccount(
+      acknowledgeAppleSubscription,
+    );
     setPendingAction(null);
     if (result.status === "ok") {
+      setAppleSubscriptionWarning(false);
       setAccount(EMPTY_ACCOUNT);
       setSync(null);
       setRecoveryInput("");
       setGeneratedRecoveryCode(null);
+    } else if (
+      !acknowledgeAppleSubscription &&
+      result.error === "apple_subscription_active"
+    ) {
+      setAppleSubscriptionWarning(true);
     } else {
-      toast.error(t("cloud.errors.delete"));
+      toast.error(t("cloud.errors.delete"), {
+        description: describeAppError(t, result.error),
+      });
     }
   };
 
@@ -272,7 +344,9 @@ export function AccountSettings() {
       toast.success(t("cloud.sync.updated"));
     } else {
       setSyncError(result.error);
-      toast.error(t("cloud.sync.error"), { description: result.error });
+      toast.error(t("cloud.sync.error"), {
+        description: presentError(t, result.error),
+      });
     }
   };
 
@@ -286,7 +360,9 @@ export function AccountSettings() {
       toast.success(t("cloud.sync.approved"));
     } else {
       setSyncError(result.error);
-      toast.error(t("cloud.sync.error"), { description: result.error });
+      toast.error(t("cloud.sync.error"), {
+        description: presentError(t, result.error),
+      });
     }
   };
 
@@ -300,12 +376,20 @@ export function AccountSettings() {
       await refresh();
     } else {
       setSyncError(result.error);
-      toast.error(t("cloud.sync.error"), { description: result.error });
+      toast.error(t("cloud.sync.error"), {
+        description: presentError(t, result.error),
+      });
     }
   };
 
   const createRecoveryCode = async () => {
-    if (!window.confirm(t("cloud.sync.recovery.confirmRotate"))) return;
+    const confirmed = await confirmDestructiveAction({
+      title: t("cloud.sync.recovery.confirmRotateTitle"),
+      message: t("cloud.sync.recovery.confirmRotate"),
+      confirmLabel: t("cloud.sync.recovery.confirmRotateButton"),
+      cancelLabel: t("common.cancel"),
+    });
+    if (!confirmed) return;
     setPendingAction("sync-recovery-create");
     const result = await commands.createCloudSyncRecoveryCode();
     setPendingAction(null);
@@ -346,30 +430,67 @@ export function AccountSettings() {
     const result = await commands.purchaseAppStoreProduct(productId);
     setPendingAction(null);
     if (result.status === "ok") {
+      setStorePending(false);
       setAccount(result.data);
       toast.success(t("cloud.appStore.purchased"));
+    } else if (result.error === "storekit_pending") {
+      // Ask to Buy or SCA: not a failure. Transaction.updates delivers the
+      // approved purchase later and the reconciliation grants Pro.
+      setStorePending(true);
+      toast.info(t("cloud.appStore.pendingTitle"), {
+        description: t("errors.codes.purchasePending"),
+      });
     } else if (result.error !== "storekit_cancelled") {
       setStoreError(result.error);
-      toast.error(t("cloud.appStore.error"));
+      toast.error(t("cloud.appStore.error"), {
+        description: describeAppError(t, result.error),
+      });
     }
   };
 
-  const restoreAppStorePurchases = async () => {
+  const restoreAppStorePurchases = async (linkToCurrentAccount = false) => {
     setPendingAction("store-restore");
     setStoreError(null);
-    const result = await commands.restoreAppStorePurchases();
+    const result =
+      await commands.restoreAppStorePurchases(linkToCurrentAccount);
     setPendingAction(null);
+    if (
+      result.status === "error" &&
+      !linkToCurrentAccount &&
+      needsPurchaseLink(result.error)
+    ) {
+      // The Cloud never attaches a purchase made under another Apple ID or
+      // without an account token unless the user explicitly confirms it.
+      const confirmed = await confirmDestructiveAction({
+        title: t("cloud.appStore.linkTitle"),
+        message: t("cloud.appStore.linkMessage"),
+        confirmLabel: t("cloud.appStore.linkConfirm"),
+        cancelLabel: t("common.cancel"),
+      });
+      if (confirmed) await restoreAppStorePurchases(true);
+      else setStoreError(result.error);
+      return;
+    }
     if (result.status === "ok") {
+      setStorePending(false);
       setAccount(result.data);
       toast.success(t("cloud.appStore.restored"));
+    } else if (result.error === "storekit_pending") {
+      setStorePending(true);
     } else {
       setStoreError(result.error);
-      toast.error(t("cloud.appStore.error"));
+      toast.error(t("cloud.appStore.error"), {
+        description: describeAppError(t, result.error),
+      });
     }
   };
 
-  const providersAvailable =
-    config?.magicLink || (config?.providers.length ?? 0) > 0;
+  const openDirectCheckout = async () => {
+    if (await openPage("direct_checkout")) setAwaitingCheckout(true);
+  };
+
+  const isPro = account.entitlement?.tier === "pro";
+  const entitlementSource = account.entitlement?.source;
   const currentPeriod = new Date().toISOString().slice(0, 7);
   const byokUsage = (settings?.byok_usage ?? []).filter(
     (summary) => summary.periodStart === currentPeriod,
@@ -427,6 +548,7 @@ export function AccountSettings() {
                 onClick={() => void refresh()}
                 disabled={loading}
                 title={t("cloud.actions.refresh")}
+                aria-label={t("cloud.actions.refresh")}
               >
                 <RefreshCw
                   className={`h-4 w-4 ${loading ? "animate-spin" : ""}`}
@@ -437,63 +559,182 @@ export function AccountSettings() {
 
           {isAppStore ? (
             <SettingsGroup title={t("cloud.appStore.title")}>
-              <div className="space-y-3 p-4">
+              <div className="space-y-3 p-4" data-testid="app-store-paywall">
                 <div className="flex items-start gap-3">
                   <ShoppingBag className="mt-0.5 h-4 w-4 shrink-0 text-accent" />
                   <p className="text-xs leading-5 text-mid-gray">
                     {t("cloud.appStore.description")}
                   </p>
                 </div>
-                <div className="grid gap-3 sm:grid-cols-2">
-                  {storeProducts.map((product) => (
-                    <article
-                      key={product.id}
-                      className="rounded-xl border border-mid-gray/10 bg-white p-4 shadow-sm dark:bg-white/[0.04]"
-                    >
-                      <div className="flex items-start justify-between gap-3">
-                        <div className="min-w-0">
-                          <h3 className="text-sm font-medium text-text">
-                            {product.displayName}
-                          </h3>
-                          <p className="mt-1 text-xs leading-5 text-mid-gray">
-                            {product.description}
-                          </p>
-                        </div>
-                        <strong className="shrink-0 font-mono text-sm text-text">
-                          {product.displayPrice}
-                        </strong>
-                      </div>
-                      <Button
-                        className="mt-4 w-full"
-                        size="sm"
-                        onClick={() => void purchaseAppStoreProduct(product.id)}
-                        disabled={pendingAction !== null || !purchasesEnabled}
+                {storeProducts.length > 0 ? (
+                  <div className="grid gap-3 sm:grid-cols-2">
+                    {storeProducts.map((product) => (
+                      <article
+                        key={product.id}
+                        className="rounded-xl border border-mid-gray/10 bg-white p-4 shadow-sm dark:bg-white/[0.04]"
                       >
-                        {pendingAction === `store-purchase-${product.id}` ? (
-                          <LoaderCircle className="mr-1.5 h-3.5 w-3.5 animate-spin" />
-                        ) : null}
-                        {t("cloud.appStore.subscribe")}
-                      </Button>
-                    </article>
-                  ))}
-                </div>
-                <div className="flex items-center justify-between gap-3 border-t border-mid-gray/10 pt-3">
-                  <p className="text-[11px] leading-4 text-mid-gray">
-                    {t("cloud.appStore.managedByApple")}
+                        <div className="flex items-start justify-between gap-3">
+                          <div className="min-w-0">
+                            <h3 className="text-sm font-medium text-text">
+                              {product.displayName}
+                            </h3>
+                            <p className="mt-1 text-xs leading-5 text-mid-gray">
+                              {product.description}
+                            </p>
+                          </div>
+                          <strong
+                            className="shrink-0 text-right font-mono text-sm text-text"
+                            data-testid="subscription-price"
+                          >
+                            {priceWithPeriod(t, product)}
+                          </strong>
+                        </div>
+                        <Button
+                          className="mt-4 w-full"
+                          size="sm"
+                          onClick={() =>
+                            void purchaseAppStoreProduct(product.id)
+                          }
+                          disabled={pendingAction !== null || !purchasesEnabled}
+                        >
+                          {pendingAction === `store-purchase-${product.id}` ? (
+                            <LoaderCircle className="mr-1.5 h-3.5 w-3.5 animate-spin" />
+                          ) : null}
+                          {t("cloud.appStore.subscribe")}
+                        </Button>
+                      </article>
+                    ))}
+                  </div>
+                ) : storeError ? null : (
+                  <p className="text-xs text-mid-gray">
+                    {t("cloud.appStore.unavailable")}
                   </p>
+                )}
+                <p
+                  className="text-[11px] leading-4 text-mid-gray"
+                  data-testid="auto-renew-disclosure"
+                >
+                  {t("cloud.appStore.autoRenew")}
+                </p>
+                <div className="flex flex-wrap items-center gap-2 border-t border-mid-gray/10 pt-3">
                   <Button
                     size="sm"
                     variant="ghost"
+                    onClick={() => void openPage("terms")}
+                  >
+                    {t("cloud.appStore.terms")}
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    onClick={() => void openPage("privacy")}
+                  >
+                    {t("cloud.appStore.privacy")}
+                  </Button>
+                  <span className="flex-1" />
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    onClick={() => void openPage("manage_subscription")}
+                  >
+                    {t("cloud.appStore.manage")}
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant="secondary"
                     onClick={() => void restoreAppStorePurchases()}
                     disabled={pendingAction !== null}
                   >
                     {t("cloud.appStore.restore")}
                   </Button>
                 </div>
+                <p className="text-[11px] leading-4 text-mid-gray">
+                  {t("cloud.appStore.managedByApple")}
+                </p>
+                {storePending ? (
+                  <div
+                    className="flex items-start gap-2 rounded-lg border border-accent/20 bg-accent/5 px-3 py-2 text-xs text-text"
+                    role="status"
+                  >
+                    <Clock className="mt-0.5 h-3.5 w-3.5 shrink-0 text-accent" />
+                    <span>
+                      <strong className="font-medium">
+                        {t("cloud.appStore.pendingTitle")}
+                      </strong>{" "}
+                      {t("errors.codes.purchasePending")}
+                    </span>
+                  </div>
+                ) : null}
                 {storeError ? (
-                  <div className="rounded-lg border border-danger/20 bg-danger/5 px-3 py-2 text-xs text-danger">
-                    {t("cloud.appStore.error")}{" "}
-                    <code className="font-mono">{storeError}</code>
+                  <div
+                    className="rounded-lg border border-danger/20 bg-danger/5 px-3 py-2 text-xs text-danger"
+                    role="alert"
+                  >
+                    {describeAppError(t, storeError)}
+                  </div>
+                ) : null}
+              </div>
+            </SettingsGroup>
+          ) : null}
+
+          {directCheckoutEnabled && !isAppStore ? (
+            <SettingsGroup title={t("cloud.direct.title")}>
+              <div className="space-y-3 p-4" data-testid="direct-checkout">
+                <div className="flex items-start gap-3">
+                  <ShoppingBag className="mt-0.5 h-4 w-4 shrink-0 text-accent" />
+                  <p className="text-xs leading-5 text-mid-gray">
+                    {t("cloud.direct.description")}
+                  </p>
+                </div>
+                <div className="flex flex-wrap items-center gap-2">
+                  {isPro && entitlementSource === "stripe" ? (
+                    <Button
+                      size="sm"
+                      variant="secondary"
+                      onClick={() => void openPage("manage_subscription")}
+                    >
+                      <ExternalLink className="mr-1.5 h-3.5 w-3.5" />
+                      {t("cloud.direct.manage")}
+                    </Button>
+                  ) : !isPro ? (
+                    <Button
+                      size="sm"
+                      onClick={() => void openDirectCheckout()}
+                      disabled={pendingAction !== null}
+                    >
+                      <ExternalLink className="mr-1.5 h-3.5 w-3.5" />
+                      {t("cloud.direct.subscribe")}
+                    </Button>
+                  ) : null}
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    onClick={() => void openPage("terms")}
+                  >
+                    {t("cloud.legal.terms")}
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    onClick={() => void openPage("privacy")}
+                  >
+                    {t("cloud.legal.privacy")}
+                  </Button>
+                </div>
+                {awaitingCheckout ? (
+                  <div
+                    className="flex items-center justify-between gap-3 rounded-lg border border-accent/20 bg-accent/5 px-3 py-2 text-xs text-text"
+                    role="status"
+                  >
+                    <span>{t("cloud.direct.waiting")}</span>
+                    <Button
+                      size="sm"
+                      variant="secondary"
+                      onClick={() => void refresh()}
+                      disabled={loading}
+                    >
+                      {t("cloud.direct.checkNow")}
+                    </Button>
                   </div>
                 ) : null}
               </div>
@@ -586,7 +827,7 @@ export function AccountSettings() {
                 {syncError ? (
                   <div className="rounded-lg border border-danger/20 bg-danger/5 px-3 py-2 text-xs text-danger">
                     <span>{t("cloud.sync.error")}</span>{" "}
-                    <code className="font-mono">{syncError}</code>
+                    <span>{presentError(t, syncError)}</span>
                   </div>
                 ) : null}
 
@@ -712,6 +953,53 @@ export function AccountSettings() {
             </SettingsGroup>
           ) : null}
 
+          {appleSubscriptionWarning ? (
+            <div
+              className="account-warning"
+              role="alert"
+              data-testid="apple-subscription-warning"
+            >
+              <div className="account-warning-icon">
+                <AlertTriangle size={18} aria-hidden="true" />
+              </div>
+              <div className="space-y-3">
+                <div>
+                  <p className="text-sm font-medium text-text">
+                    {t("cloud.deletion.appleSubscriptionTitle")}
+                  </p>
+                  <p className="mt-1 text-xs leading-5 text-mid-gray">
+                    {t("cloud.deletion.appleSubscriptionMessage")}
+                  </p>
+                </div>
+                <div className="flex flex-wrap gap-2">
+                  <Button
+                    size="sm"
+                    variant="secondary"
+                    onClick={() => void openPage("apple_subscriptions")}
+                  >
+                    <ExternalLink className="mr-1.5 h-3.5 w-3.5" />
+                    {t("cloud.deletion.manage")}
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant="danger-ghost"
+                    onClick={() => void performDeletion(true)}
+                    disabled={pendingAction !== null}
+                  >
+                    {t("cloud.deletion.deleteAnyway")}
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    onClick={() => setAppleSubscriptionWarning(false)}
+                  >
+                    {t("common.cancel")}
+                  </Button>
+                </div>
+              </div>
+            </div>
+          ) : null}
+
           <div className="flex items-center justify-between gap-3 px-4">
             <Button
               variant="secondary"
@@ -754,10 +1042,11 @@ export function AccountSettings() {
                   </strong>
                   <p>
                     {authPhase === "failed"
-                      ? t("cloud.errors.detail")
-                      : t("cloud.privacy")}
+                      ? authErrorCode
+                        ? describeAppError(t, authErrorCode)
+                        : t("cloud.errors.detail")
+                      : t("cloud.providers.browserNote")}
                   </p>
-                  {authErrorCode ? <code>{authErrorCode}</code> : null}
                 </div>
                 {authPhase === "failed" ? (
                   <Button
@@ -785,95 +1074,55 @@ export function AccountSettings() {
               <p className="text-sm text-mid-gray">
                 {t("cloud.actions.loading")}
               </p>
-            ) : providersAvailable ? (
-              <>
-                {config?.magicLink ? (
-                  <div className="space-y-2">
-                    <label
-                      htmlFor="cloud-email"
-                      className="text-xs font-medium text-mid-gray"
-                    >
-                      {t("cloud.email.label")}
-                    </label>
-                    <div className="flex gap-2">
-                      <input
-                        id="cloud-email"
-                        type="email"
-                        autoComplete="email"
-                        value={email}
-                        onChange={(event) => setEmail(event.target.value)}
-                        placeholder={t("cloud.email.placeholder")}
-                        className="signal-input is-default min-w-0 flex-1"
-                      />
-                      <Button
-                        onClick={() => void requestMagicLink()}
-                        disabled={
-                          !email.includes("@") || pendingAction !== null
-                        }
-                      >
-                        {t("cloud.email.send")}
-                      </Button>
-                    </div>
-                  </div>
-                ) : null}
-
-                {config?.magicLink && config.providers.length > 0 ? (
-                  <p className="text-center text-xs text-mid-gray">
-                    {t("cloud.providers.or")}
-                  </p>
-                ) : null}
-
-                <div
-                  className={`grid gap-2 ${config && config.providers.length > 1 ? "grid-cols-2" : "grid-cols-1"}`}
-                >
-                  {config?.providers.includes("google") ? (
-                    <Button
-                      variant="secondary"
-                      onClick={() => void beginSocialLogin("google")}
-                      disabled={pendingAction !== null}
-                    >
-                      {t("cloud.providers.google")}
-                    </Button>
-                  ) : null}
-                  {config?.providers.includes("apple") ? (
-                    <Button
-                      variant="secondary"
-                      onClick={() => void beginSocialLogin("apple")}
-                      disabled={pendingAction !== null}
-                    >
-                      {t("cloud.providers.apple")}
-                    </Button>
-                  ) : null}
-                </div>
-              </>
             ) : (
-              <div className="account-unavailable">
-                <div className="account-unavailable-icon">
-                  <ShieldCheck size={18} aria-hidden="true" />
+              <>
+                <p className="text-xs leading-5 text-mid-gray">
+                  {t("cloud.signIn.whyAccount")}
+                </p>
+                <div className="grid grid-cols-2 gap-2">
+                  {config.providers.map((provider) => (
+                    <Button
+                      key={provider}
+                      variant="secondary"
+                      onClick={() => void beginSocialLogin(provider)}
+                      disabled={pendingAction !== null}
+                    >
+                      {provider === "apple"
+                        ? t("cloud.providers.apple")
+                        : t("cloud.providers.google")}
+                    </Button>
+                  ))}
                 </div>
-                <div>
-                  <p className="text-sm font-medium text-text">
-                    {t("cloud.providers.unavailableTitle")}
-                  </p>
-                  <p className="mt-1 text-xs text-mid-gray">
-                    {t("cloud.providers.unavailable")}
-                  </p>
-                  <code>
-                    {authConfigError ?? "cloud_auth_provider_not_configured"}
-                  </code>
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => void beginSocialLogin(null)}
+                    disabled={pendingAction !== null}
+                  >
+                    {t("cloud.providers.other")}
+                  </Button>
+                  <div className="flex gap-1">
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => void openPage("terms")}
+                    >
+                      {t("cloud.legal.terms")}
+                    </Button>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => void openPage("privacy")}
+                    >
+                      {t("cloud.legal.privacy")}
+                    </Button>
+                  </div>
                 </div>
-                <Button
-                  variant="secondary"
-                  size="sm"
-                  onClick={() => void refresh()}
-                  disabled={loading}
-                >
-                  <RefreshCw
-                    className={`h-3.5 w-3.5 ${loading ? "animate-spin" : ""}`}
-                  />
-                  {t("cloud.actions.retry")}
-                </Button>
-              </div>
+                <p className="text-[11px] leading-4 text-mid-gray">
+                  {t("cloud.providers.browserNote")}
+                </p>
+              </>
             )}
           </div>
         </SettingsGroup>

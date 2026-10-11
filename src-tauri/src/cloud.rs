@@ -9,7 +9,6 @@ use specta::Type;
 use std::sync::{Mutex, OnceLock};
 use std::time::{Duration, Instant};
 use tauri::{AppHandle, Emitter, Manager};
-use url::form_urlencoded;
 
 use crate::secrets::{
     delete_cloud_bearer_token, delete_cloud_entitlement_snapshot, delete_cloud_oauth_token_set,
@@ -154,12 +153,23 @@ pub enum CloudAuthProvider {
     Apple,
 }
 
+/// How the desktop app signs in. Every provider goes through the web issuer's
+/// OAuth 2.1 PKCE flow; `providers` only lists the hints the sign-in page
+/// understands, shown with equal prominence (Sign in with Apple first).
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq, Type)]
 #[serde(rename_all = "camelCase")]
 pub struct CloudAuthConfig {
-    pub magic_link: bool,
     pub providers: Vec<CloudAuthProvider>,
     pub callback_url: String,
+}
+
+impl CloudAuthProvider {
+    fn hint(self) -> &'static str {
+        match self {
+            Self::Google => "google",
+            Self::Apple => "apple",
+        }
+    }
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone, Copy, PartialEq, Eq, Type)]
@@ -229,6 +239,10 @@ pub struct CloudAccountSnapshot {
 #[serde(rename_all = "camelCase")]
 struct RestoreAppStoreRequest<'a> {
     signed_transaction: &'a str,
+    /// Sent only after the user confirmed that a purchase made under another
+    /// Apple ID, or before the account token existed, belongs to this account.
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    link_to_current_account: bool,
 }
 
 #[derive(Deserialize)]
@@ -354,7 +368,7 @@ pub enum CloudAuthEventStatus {
 #[derive(Debug)]
 struct PendingAuth {
     state: String,
-    verifier: Option<String>,
+    verifier: String,
     created_at: Instant,
 }
 
@@ -402,13 +416,9 @@ pub struct CloudAuthRuntime {
 }
 
 impl CloudAuthRuntime {
-    pub fn begin(&self) -> Result<String, CloudFailure> {
-        self.begin_pending(None)
-    }
-
     pub fn begin_oauth(&self) -> Result<(String, String), CloudFailure> {
         let verifier = URL_SAFE_NO_PAD.encode(crate::history_crypto::generate_master_key());
-        let state = self.begin_pending(Some(verifier.clone()))?;
+        let state = self.begin_pending(verifier.clone())?;
         let record = PendingOAuthRecord {
             state: state.clone(),
             verifier: verifier.clone(),
@@ -423,7 +433,7 @@ impl CloudAuthRuntime {
         Ok((state, verifier))
     }
 
-    fn begin_pending(&self, verifier: Option<String>) -> Result<String, CloudFailure> {
+    fn begin_pending(&self, verifier: String) -> Result<String, CloudFailure> {
         let state = URL_SAFE_NO_PAD.encode(crate::history_crypto::generate_master_key());
         let mut pending = self
             .pending
@@ -437,7 +447,7 @@ impl CloudAuthRuntime {
         Ok(state)
     }
 
-    fn consume(&self, state: &str) -> Result<Option<String>, CloudFailure> {
+    fn consume(&self, state: &str) -> Result<String, CloudFailure> {
         let mut pending = self
             .pending
             .lock()
@@ -445,9 +455,7 @@ impl CloudAuthRuntime {
         if let Some(candidate) = pending.take() {
             let valid =
                 candidate.created_at.elapsed() <= AUTH_STATE_TTL && candidate.state == state;
-            if candidate.verifier.is_some() {
-                let _ = clear_pending_oauth();
-            }
+            let _ = clear_pending_oauth();
             return if valid {
                 Ok(candidate.verifier)
             } else {
@@ -468,7 +476,7 @@ impl CloudAuthRuntime {
         {
             return Err(CloudFailure::new("cloud_auth_state_mismatch"));
         }
-        Ok(Some(persisted.verifier))
+        Ok(persisted.verifier)
     }
 
     pub fn clear(&self) {
@@ -485,6 +493,10 @@ struct OAuthMetadata {
     authorization_endpoint: Url,
     #[serde(rename = "token_endpoint")]
     token_endpoint: Url,
+    /// RFC 7009 endpoint advertised by the web issuer (Better Auth
+    /// oauth-provider serves `/api/auth/oauth2/revoke`).
+    #[serde(rename = "revocation_endpoint", default)]
+    revocation_endpoint: Option<Url>,
 }
 
 #[derive(Serialize, Deserialize, Clone)]
@@ -510,9 +522,9 @@ struct LegacyOAuthTokenSet {
 }
 
 #[derive(Debug, PartialEq, Eq)]
-enum AuthCallback {
-    OAuth { code: String, state: String },
-    Legacy { token: String, state: String },
+struct AuthCallback {
+    code: String,
+    state: String,
 }
 
 #[derive(Deserialize)]
@@ -533,19 +545,6 @@ impl ApiErrorValue {
             Self::Structured { code } | Self::Code(code) => code,
         }
     }
-}
-
-#[derive(Serialize)]
-#[serde(rename_all = "camelCase")]
-struct MagicLinkRequest<'a> {
-    email: &'a str,
-    callback_url: &'a str,
-    error_callback_url: &'a str,
-}
-
-#[derive(Serialize)]
-struct OneTimeTokenRequest<'a> {
-    token: &'a str,
 }
 
 #[derive(Serialize)]
@@ -780,12 +779,6 @@ fn endpoint(settings: &AppSettings, path: &str) -> Result<Url, CloudFailure> {
         .map_err(|_| CloudFailure::new("cloud_api_url_invalid"))
 }
 
-fn apple_browser_login_url(settings: &AppSettings, state: &str) -> Result<Url, CloudFailure> {
-    let mut url = endpoint(settings, "/v1/desktop-auth/social/apple")?;
-    url.query_pairs_mut().append_pair("state", state);
-    Ok(url)
-}
-
 async fn finish(response: Response) -> Result<Response, CloudFailure> {
     if response.status().is_success() {
         return Ok(response);
@@ -848,6 +841,9 @@ async fn oauth_metadata() -> Result<OAuthMetadata, CloudFailure> {
     let metadata: OAuthMetadata = json(response).await?;
     validate_oauth_endpoint(&metadata.authorization_endpoint)?;
     validate_oauth_endpoint(&metadata.token_endpoint)?;
+    if let Some(revocation) = &metadata.revocation_endpoint {
+        validate_oauth_endpoint(revocation)?;
+    }
     Ok(metadata)
 }
 
@@ -1166,125 +1162,58 @@ fn clear_account_snapshot_cache() {
     }
 }
 
-fn callback_urls(config: &CloudAuthConfig, state: &str) -> Result<(String, String), CloudFailure> {
-    let mut callback = Url::parse(&config.callback_url)
-        .map_err(|_| CloudFailure::new("cloud_auth_callback_invalid"))?;
-    callback.query_pairs_mut().append_pair("state", state);
-    let mut error_callback = Url::parse("pressay://oauth/error")
-        .map_err(|_| CloudFailure::new("cloud_auth_callback_invalid"))?;
-    error_callback.query_pairs_mut().append_pair("state", state);
-    Ok((callback.to_string(), error_callback.to_string()))
+/// Static on purpose: the sign-in options must not depend on a network round
+/// trip. Offline, a failed fetch used to leave Google as the only button,
+/// without Sign in with Apple (App Review 4.8).
+pub fn auth_config() -> CloudAuthConfig {
+    CloudAuthConfig {
+        providers: vec![CloudAuthProvider::Apple, CloudAuthProvider::Google],
+        callback_url: OAUTH_REDIRECT_URI.to_string(),
+    }
 }
 
-pub async fn get_auth_config(settings: &AppSettings) -> Result<CloudAuthConfig, CloudFailure> {
-    let remote = client()
-        .get(endpoint(settings, "/v1/desktop-auth/config")?)
-        .send()
-        .await;
-    let mut config = match remote {
-        Ok(response) => json(response).await.unwrap_or(CloudAuthConfig {
-            magic_link: false,
-            providers: Vec::new(),
-            callback_url: OAUTH_REDIRECT_URI.to_string(),
-        }),
-        Err(_) => CloudAuthConfig {
-            magic_link: false,
-            providers: Vec::new(),
-            callback_url: OAUTH_REDIRECT_URI.to_string(),
-        },
-    };
-    if !config.providers.contains(&CloudAuthProvider::Google) {
-        config.providers.push(CloudAuthProvider::Google);
-    }
-    config.callback_url = OAUTH_REDIRECT_URI.to_string();
-    Ok(config)
-}
-
-pub async fn request_magic_link(
-    settings: &AppSettings,
-    email: &str,
-    state: &str,
-) -> Result<(), CloudFailure> {
-    if email.len() > 254 || !email.contains('@') {
-        return Err(CloudFailure::new("cloud_email_invalid"));
-    }
-    let config = get_auth_config(settings).await?;
-    if !config.magic_link {
-        return Err(CloudFailure::new("cloud_magic_link_unavailable"));
-    }
-    let (callback_url, error_callback_url) = callback_urls(&config, state)?;
-    let response = client()
-        .post(endpoint(settings, "/v1/auth/sign-in/magic-link")?)
-        .json(&MagicLinkRequest {
-            email,
-            callback_url: &callback_url,
-            error_callback_url: &error_callback_url,
-        })
-        .send()
-        .await
-        .map_err(|_| CloudFailure::new("cloud_network_unavailable"))?;
-    finish(response).await?;
-    Ok(())
-}
-
-pub async fn social_login_url(
-    settings: &AppSettings,
-    provider: CloudAuthProvider,
+/// Build the web issuer authorization URL for one PKCE attempt. `provider` is
+/// only a hint: the web sign-in page starts that social sign-in directly and
+/// ignores unknown values; without it the page shows every option.
+fn authorization_url(
+    mut authorization_endpoint: Url,
+    provider: Option<CloudAuthProvider>,
     state: &str,
     verifier: &str,
 ) -> Result<String, CloudFailure> {
     if state.len() < 32 {
         return Err(CloudFailure::new("cloud_auth_state_invalid"));
     }
-
-    if provider == CloudAuthProvider::Apple {
-        // Better Auth must create its signed provider-state cookie in the
-        // user's browser. The API route then redirects the same browser to
-        // Apple and receives Apple's form_post callback with that cookie.
-        return Ok(apple_browser_login_url(settings, state)?.to_string());
-    }
-
     if verifier.len() < 43 || verifier.len() > 128 {
         return Err(CloudFailure::new("cloud_auth_state_invalid"));
     }
-
-    let metadata = oauth_metadata().await?;
+    validate_oauth_endpoint(&authorization_endpoint)?;
     let challenge = URL_SAFE_NO_PAD.encode(Sha256::digest(verifier.as_bytes()));
-    let mut authorization_url = metadata.authorization_endpoint;
-    authorization_url
-        .query_pairs_mut()
-        .append_pair("response_type", "code")
-        .append_pair("client_id", OAUTH_CLIENT_ID)
-        .append_pair("redirect_uri", OAUTH_REDIRECT_URI)
-        .append_pair("scope", OAUTH_SCOPE)
-        .append_pair("state", state)
-        .append_pair("code_challenge", &challenge)
-        .append_pair("code_challenge_method", "S256")
-        .append_pair("resource", OAUTH_RESOURCE);
-    Ok(authorization_url.to_string())
-}
-
-pub(crate) fn uses_native_oauth_pkce(provider: CloudAuthProvider) -> bool {
-    provider != CloudAuthProvider::Apple
-}
-
-async fn exchange_one_time_token(settings: &AppSettings, token: &str) -> Result<(), CloudFailure> {
-    if token.len() < 16 || token.len() > 512 {
-        return Err(CloudFailure::new("cloud_auth_token_invalid"));
+    {
+        let mut query = authorization_endpoint.query_pairs_mut();
+        query
+            .append_pair("response_type", "code")
+            .append_pair("client_id", OAUTH_CLIENT_ID)
+            .append_pair("redirect_uri", OAUTH_REDIRECT_URI)
+            .append_pair("scope", OAUTH_SCOPE)
+            .append_pair("state", state)
+            .append_pair("code_challenge", &challenge)
+            .append_pair("code_challenge_method", "S256")
+            .append_pair("resource", OAUTH_RESOURCE);
+        if let Some(provider) = provider {
+            query.append_pair("provider", provider.hint());
+        }
     }
-    let response = client()
-        .post(endpoint(settings, "/v1/auth/one-time-token/verify")?)
-        .json(&OneTimeTokenRequest { token })
-        .send()
-        .await
-        .map_err(|_| CloudFailure::new("cloud_network_unavailable"))?;
-    let response = finish(response).await?;
-    let bearer = response
-        .headers()
-        .get("set-auth-token")
-        .and_then(|value| value.to_str().ok())
-        .ok_or_else(|| CloudFailure::new("cloud_auth_bearer_missing"))?;
-    set_cloud_bearer_token(bearer).map_err(|_| CloudFailure::new("cloud_keychain_unavailable"))
+    Ok(authorization_endpoint.to_string())
+}
+
+pub async fn login_url(
+    provider: Option<CloudAuthProvider>,
+    state: &str,
+    verifier: &str,
+) -> Result<String, CloudFailure> {
+    let metadata = oauth_metadata().await?;
+    authorization_url(metadata.authorization_endpoint, provider, state, verifier)
 }
 
 async fn bootstrap_device(app: &AppHandle) -> Result<(), CloudFailure> {
@@ -1809,6 +1738,7 @@ pub async fn restore_app_store_transaction(
     app: &AppHandle,
     signed_transaction: &str,
     transaction_id: &str,
+    link_to_current_account: bool,
 ) -> Result<CloudAccountSnapshot, CloudFailure> {
     if signed_transaction.len() < 64
         || signed_transaction.len() > 250_000
@@ -1828,7 +1758,10 @@ pub async fn restore_app_store_transaction(
                 "idempotency-key",
                 format!("app-store-transaction-{transaction_id}"),
             )
-            .json(&RestoreAppStoreRequest { signed_transaction })
+            .json(&RestoreAppStoreRequest {
+                signed_transaction,
+                link_to_current_account,
+            })
             .send()
             .await
             .map_err(|_| CloudFailure::new("cloud_network_unavailable"))?,
@@ -1840,16 +1773,55 @@ pub async fn restore_app_store_transaction(
     account_snapshot(app).await
 }
 
+/// RFC 7009 revocation of the refresh token at the web issuer. Best effort:
+/// signing out locally must never depend on the network.
+async fn revoke_refresh_token(refresh_token: &str) {
+    let result = async {
+        let endpoint = oauth_metadata()
+            .await?
+            .revocation_endpoint
+            .ok_or_else(|| CloudFailure::new("cloud_oauth_revocation_unavailable"))?;
+        let response = client()
+            .post(endpoint)
+            .timeout(Duration::from_secs(10))
+            .form(&revocation_form(refresh_token))
+            .send()
+            .await
+            .map_err(|_| CloudFailure::new("cloud_network_unavailable"))?;
+        finish(response).await.map(|_| ())
+    }
+    .await;
+    if let Err(error) = result {
+        log::warn!(
+            "OAuth refresh token revocation failed with code {}",
+            error.code
+        );
+    }
+}
+
+fn revocation_form(refresh_token: &str) -> [(&'static str, &str); 3] {
+    [
+        ("token", refresh_token),
+        ("token_type_hint", "refresh_token"),
+        ("client_id", OAUTH_CLIENT_ID),
+    ]
+}
+
 pub async fn sign_out(app: &AppHandle) -> Result<(), CloudFailure> {
     let revision = session_revision();
-    let settings = get_settings(app);
-    if let Ok(token) = access_token().await {
-        let _ = client()
-            .post(endpoint(&settings, "/v1/auth/sign-out")?)
-            .bearer_auth(token)
-            .json(&serde_json::json!({}))
-            .send()
-            .await;
+    // The web issuer is the only identity provider: the Cloud API's own auth
+    // routes are retired (410). Revoking the refresh token at the issuer also
+    // ends the access tokens minted from it; local credentials are cleared
+    // below whatever happens here.
+    let refresh_token = {
+        let _session = OAUTH_SESSION_LOCK.lock().await;
+        stored_oauth_token_set()
+            .ok()
+            .flatten()
+            .and_then(|token_set| token_set.refresh_token)
+    };
+    if let Some(refresh_token) = refresh_token {
+        revoke_refresh_token(&refresh_token).await;
     }
     let _session = OAUTH_SESSION_LOCK.lock().await;
     require_session_revision(revision)?;
@@ -1873,11 +1845,18 @@ pub async fn sign_out(app: &AppHandle) -> Result<(), CloudFailure> {
     Ok(())
 }
 
-pub async fn delete_account(app: &AppHandle) -> Result<(), CloudFailure> {
+/// Delete the account. The cloud answers `409 apple_subscription_active` while
+/// an App Store subscription would keep billing; the user must then confirm
+/// with `acknowledge_apple_subscription` after being shown how to cancel it.
+pub async fn delete_account(
+    app: &AppHandle,
+    acknowledge_apple_subscription: bool,
+) -> Result<(), CloudFailure> {
     let settings = get_settings(app);
     let account_id = settings.pressay_cloud_account_id.clone();
+    let url = account_deletion_url(&settings, acknowledge_apple_subscription)?;
     let response = client()
-        .delete(endpoint(&settings, "/v1/me")?)
+        .delete(url)
         .bearer_auth(access_token().await?)
         .send()
         .await
@@ -1889,6 +1868,18 @@ pub async fn delete_account(app: &AppHandle) -> Result<(), CloudFailure> {
             .map_err(|_| CloudFailure::new("cloud_keychain_unavailable"))?;
     }
     Ok(())
+}
+
+fn account_deletion_url(
+    settings: &AppSettings,
+    acknowledge_apple_subscription: bool,
+) -> Result<Url, CloudFailure> {
+    let mut url = endpoint(settings, "/v1/me")?;
+    if acknowledge_apple_subscription {
+        url.query_pairs_mut()
+            .append_pair("acknowledgeAppleSubscription", "true");
+    }
+    Ok(url)
 }
 
 pub async fn transform(
@@ -1960,34 +1951,17 @@ fn auth_callback_parts(url: &Url) -> Result<AuthCallback, CloudFailure> {
         return Err(CloudFailure::new("cloud_auth_callback_invalid"));
     }
     let mut code = None;
-    let mut query_state = None;
+    let mut state = None;
     for (key, value) in url.query_pairs() {
         match key.as_ref() {
             "code" if code.is_none() => code = Some(value.into_owned()),
-            "state" if query_state.is_none() => query_state = Some(value.into_owned()),
+            "state" if state.is_none() => state = Some(value.into_owned()),
             _ => {}
         }
     }
-    if let (Some(code), Some(state)) = (code, query_state) {
-        return Ok(AuthCallback::OAuth { code, state });
-    }
-
-    let fragment = url.fragment().unwrap_or_default();
-    let mut token = None;
-    let mut state = None;
-    for (key, value) in form_urlencoded::parse(fragment.as_bytes()) {
-        match key.as_ref() {
-            "token" if token.is_none() => token = Some(value),
-            "state" if state.is_none() => state = Some(value),
-            _ => {}
-        }
-    }
-    let token = token.ok_or_else(|| CloudFailure::new("cloud_auth_token_missing"))?;
+    let code = code.ok_or_else(|| CloudFailure::new("cloud_auth_token_missing"))?;
     let state = state.ok_or_else(|| CloudFailure::new("cloud_auth_state_missing"))?;
-    Ok(AuthCallback::Legacy {
-        token: token.into_owned(),
-        state: state.into_owned(),
-    })
+    Ok(AuthCallback { code, state })
 }
 
 fn auth_error_state(url: &Url) -> Result<String, CloudFailure> {
@@ -2026,25 +2000,9 @@ pub fn handle_deep_link(app: AppHandle, url: Url) {
     }
     tauri::async_runtime::spawn(async move {
         let result = async {
-            match parsed? {
-                AuthCallback::OAuth { code, state } => {
-                    let verifier = app
-                        .state::<CloudAuthRuntime>()
-                        .consume(&state)?
-                        .ok_or_else(|| CloudFailure::new("cloud_auth_state_mismatch"))?;
-                    exchange_oauth_code(&code, &verifier).await?;
-                }
-                AuthCallback::Legacy { token, state } => {
-                    let verifier = app.state::<CloudAuthRuntime>().consume(&state)?;
-                    if verifier.is_some() {
-                        return Err(CloudFailure::new("cloud_auth_state_mismatch"));
-                    }
-                    let settings = get_settings(&app);
-                    let _session = OAUTH_SESSION_LOCK.lock().await;
-                    exchange_one_time_token(&settings, &token).await?;
-                    advance_session_revision();
-                }
-            }
+            let AuthCallback { code, state } = parsed?;
+            let verifier = app.state::<CloudAuthRuntime>().consume(&state)?;
+            exchange_oauth_code(&code, &verifier).await?;
             let _ = app.emit(
                 "cloud-auth-state-changed",
                 CloudAuthEvent {
@@ -2175,6 +2133,16 @@ mod tests {
     }
 
     #[test]
+    fn apple_subscription_refusal_envelope_yields_its_code() {
+        // The DELETE /v1/me 409 body from the cross-repo contract.
+        let body: ApiErrorBody = serde_json::from_str(
+            r#"{"error":{"code":"apple_subscription_active","message":"An App Store subscription is active","manageSubscriptionsUrl":"https://apps.apple.com/account/subscriptions","acknowledgeParameter":"acknowledgeAppleSubscription"},"requestId":"req_1"}"#,
+        )
+        .unwrap();
+        assert_eq!(body.error.code(), "apple_subscription_active");
+    }
+
+    #[test]
     fn release_channels_pin_distinct_entitlement_verifiers() {
         let beta = default_entitlement_verifier_config("2.0.0-beta.3");
         let stable = default_entitlement_verifier_config("2.0.0");
@@ -2285,56 +2253,158 @@ mod tests {
         assert!(validate_base_url("https://api.press-say.app.attacker.example").is_err());
     }
 
-    #[test]
-    fn apple_auth_starts_in_the_browser_on_the_configured_api() {
-        let settings = crate::settings::get_default_settings();
-        let url = apple_browser_login_url(&settings, "expected-state-value").unwrap();
-        assert_eq!(url.path(), "/v1/desktop-auth/social/apple");
-        assert_eq!(
-            url.query_pairs()
-                .find_map(|(key, value)| (key == "state").then(|| value.into_owned())),
-            Some("expected-state-value".to_string())
-        );
-        assert_eq!(
-            url.host_str(),
-            validate_base_url(&settings.pressay_cloud_api_url)
-                .unwrap()
-                .host_str()
-        );
-        assert!(!uses_native_oauth_pkce(CloudAuthProvider::Apple));
-        assert!(uses_native_oauth_pkce(CloudAuthProvider::Google));
+    const TEST_STATE: &str = "expected-state-value-with-at-least-32-chars";
+    const TEST_VERIFIER: &str = "synthetic-pkce-verifier-0123456789-abcdefghijklmnop";
+
+    fn authorize_endpoint() -> Url {
+        Url::parse("https://press-say.app/api/auth/oauth2/authorize").unwrap()
+    }
+
+    fn query(url: &str) -> std::collections::HashMap<String, String> {
+        Url::parse(url)
+            .unwrap()
+            .query_pairs()
+            .map(|(key, value)| (key.into_owned(), value.into_owned()))
+            .collect()
     }
 
     #[test]
-    fn callback_accepts_oauth_query_and_legacy_fragment_on_exact_scheme_host_path() {
+    fn auth_config_offers_apple_and_google_without_the_network() {
+        let config = auth_config();
+        assert_eq!(
+            config.providers,
+            vec![CloudAuthProvider::Apple, CloudAuthProvider::Google]
+        );
+        assert_eq!(config.callback_url, "pressay://oauth/callback");
+    }
+
+    #[test]
+    fn every_provider_uses_the_web_pkce_flow_with_an_optional_hint() {
+        for provider in [
+            Some(CloudAuthProvider::Apple),
+            Some(CloudAuthProvider::Google),
+            None,
+        ] {
+            let url = authorization_url(authorize_endpoint(), provider, TEST_STATE, TEST_VERIFIER)
+                .unwrap();
+            assert!(url.starts_with("https://press-say.app/api/auth/oauth2/authorize?"));
+            let query = query(&url);
+            assert_eq!(query["response_type"], "code");
+            assert_eq!(query["client_id"], OAUTH_CLIENT_ID);
+            assert_eq!(query["redirect_uri"], "pressay://oauth/callback");
+            assert_eq!(query["state"], TEST_STATE);
+            assert_eq!(query["code_challenge_method"], "S256");
+            assert_eq!(
+                query["code_challenge"],
+                URL_SAFE_NO_PAD.encode(Sha256::digest(TEST_VERIFIER.as_bytes()))
+            );
+            assert_eq!(query["resource"], OAUTH_RESOURCE);
+            assert_eq!(
+                query.get("provider").map(String::as_str),
+                provider.map(CloudAuthProvider::hint)
+            );
+        }
+    }
+
+    #[test]
+    fn authorization_url_rejects_weak_state_verifier_or_foreign_issuer() {
+        assert!(authorization_url(authorize_endpoint(), None, "short", TEST_VERIFIER).is_err());
+        assert!(authorization_url(authorize_endpoint(), None, TEST_STATE, "short").is_err());
+        let foreign = Url::parse("https://evil.example/oauth2/authorize").unwrap();
+        assert!(authorization_url(foreign, None, TEST_STATE, TEST_VERIFIER).is_err());
+        let downgraded = Url::parse("http://press-say.app/api/auth/oauth2/authorize").unwrap();
+        assert!(authorization_url(downgraded, None, TEST_STATE, TEST_VERIFIER).is_err());
+    }
+
+    #[test]
+    fn revocation_targets_the_refresh_token_of_the_public_client() {
+        assert_eq!(
+            revocation_form("synthetic-refresh"),
+            [
+                ("token", "synthetic-refresh"),
+                ("token_type_hint", "refresh_token"),
+                ("client_id", OAUTH_CLIENT_ID),
+            ]
+        );
+    }
+
+    #[test]
+    fn issuer_metadata_revocation_endpoint_is_optional_and_parsed() {
+        let metadata: OAuthMetadata = serde_json::from_value(serde_json::json!({
+            "authorization_endpoint": "https://press-say.app/api/auth/oauth2/authorize",
+            "token_endpoint": "https://press-say.app/api/auth/oauth2/token",
+            "revocation_endpoint": "https://press-say.app/api/auth/oauth2/revoke"
+        }))
+        .unwrap();
+        assert_eq!(
+            metadata.revocation_endpoint.unwrap().path(),
+            "/api/auth/oauth2/revoke"
+        );
+        let without: OAuthMetadata = serde_json::from_value(serde_json::json!({
+            "authorization_endpoint": "https://press-say.app/api/auth/oauth2/authorize",
+            "token_endpoint": "https://press-say.app/api/auth/oauth2/token"
+        }))
+        .unwrap();
+        assert!(without.revocation_endpoint.is_none());
+    }
+
+    #[test]
+    fn restore_links_a_foreign_purchase_only_after_confirmation() {
+        let transaction = "a".repeat(64);
+        let plain = serde_json::to_value(RestoreAppStoreRequest {
+            signed_transaction: &transaction,
+            link_to_current_account: false,
+        })
+        .unwrap();
+        assert_eq!(
+            plain,
+            serde_json::json!({ "signedTransaction": transaction })
+        );
+        let confirmed = serde_json::to_value(RestoreAppStoreRequest {
+            signed_transaction: &transaction,
+            link_to_current_account: true,
+        })
+        .unwrap();
+        assert_eq!(confirmed["linkToCurrentAccount"], true);
+    }
+
+    #[test]
+    fn account_deletion_acknowledges_apple_subscription_only_on_request() {
+        let settings = crate::settings::get_default_settings();
+        let plain = account_deletion_url(&settings, false).unwrap();
+        assert_eq!(plain.path(), "/v1/me");
+        assert!(plain.query().is_none());
+        let acknowledged = account_deletion_url(&settings, true).unwrap();
+        assert_eq!(
+            acknowledged.query(),
+            Some("acknowledgeAppleSubscription=true")
+        );
+    }
+
+    #[test]
+    fn callback_accepts_only_the_oauth_query_on_exact_scheme_host_path() {
         let oauth = Url::parse(
             "pressay://oauth/callback?code=authorization-code&state=expected-state-value",
         )
         .unwrap();
         assert_eq!(
             auth_callback_parts(&oauth).unwrap(),
-            AuthCallback::OAuth {
+            AuthCallback {
                 code: "authorization-code".to_string(),
                 state: "expected-state-value".to_string(),
             }
         );
-        let legacy = Url::parse(
-            "pressay://oauth/callback#token=one-time-token-value&state=expected-state-value",
-        )
-        .unwrap();
-        assert_eq!(
-            auth_callback_parts(&legacy).unwrap(),
-            AuthCallback::Legacy {
-                token: "one-time-token-value".to_string(),
-                state: "expected-state-value".to_string(),
-            }
-        );
+        // The retired cloud one-time-token flow must not be accepted anymore.
         assert!(auth_callback_parts(
-            &Url::parse("https://oauth/callback#token=x&state=y").unwrap()
+            &Url::parse("pressay://oauth/callback#token=one-time-token-value&state=x").unwrap()
         )
         .is_err());
         assert!(
-            auth_callback_parts(&Url::parse("pressay://oauth/other#token=x&state=y").unwrap())
+            auth_callback_parts(&Url::parse("https://oauth/callback?code=x&state=y").unwrap())
+                .is_err()
+        );
+        assert!(
+            auth_callback_parts(&Url::parse("pressay://oauth/other?code=x&state=y").unwrap())
                 .is_err()
         );
     }
@@ -2359,7 +2429,7 @@ mod tests {
     #[test]
     fn pending_state_is_single_use() {
         let runtime = CloudAuthRuntime::default();
-        let state = runtime.begin().unwrap();
+        let (state, _) = runtime.begin_oauth().unwrap();
         assert!(runtime.consume(&state).is_ok());
         assert!(runtime.consume(&state).is_err());
     }
@@ -2367,7 +2437,7 @@ mod tests {
     #[test]
     fn clearing_pending_state_cancels_the_login() {
         let runtime = CloudAuthRuntime::default();
-        let state = runtime.begin().unwrap();
+        let (state, _) = runtime.begin_oauth().unwrap();
         runtime.clear();
         assert!(runtime.consume(&state).is_err());
     }
@@ -2377,7 +2447,7 @@ mod tests {
         let runtime = CloudAuthRuntime::default();
         let (state, verifier) = runtime.begin_oauth().unwrap();
         assert!((43..=128).contains(&verifier.len()));
-        assert_eq!(runtime.consume(&state).unwrap(), Some(verifier));
+        assert_eq!(runtime.consume(&state).unwrap(), verifier);
         assert!(runtime.consume(&state).is_err());
     }
 

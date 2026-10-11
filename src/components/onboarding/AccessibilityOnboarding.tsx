@@ -334,6 +334,25 @@ const AccessibilityOnboarding: React.FC<AccessibilityOnboardingProps> = ({
     }
   };
 
+  // Accessibility only enables automatic insertion. Declining it must leave
+  // Pressay usable: shortcuts move to Carbon hotkeys and every dictation is
+  // copied to the clipboard until access is granted from the main window.
+  const handleContinueWithoutAccessibility = async () => {
+    if (pollingRef.current) {
+      clearInterval(pollingRef.current);
+      pollingRef.current = null;
+    }
+    if (timeoutRef.current) {
+      clearTimeout(timeoutRef.current);
+      timeoutRef.current = null;
+    }
+    const result = await commands.useShortcutsWithoutAccessibility();
+    if (result.status === "error") {
+      console.warn("Failed to start shortcuts in copy mode:", result.error);
+    }
+    await completeOnboarding();
+  };
+
   const handleGrantMicrophone = async () => {
     try {
       if (isWindows) {
@@ -464,6 +483,20 @@ const AccessibilityOnboarding: React.FC<AccessibilityOnboardingProps> = ({
             </div>
           )}
         </div>
+        {showAccessibilityPermission &&
+        permissions.microphone === "granted" &&
+        permissions.accessibility !== "granted" ? (
+          <div className="permission-skip">
+            <p>{t("onboarding.permissions.accessibility.skipDescription")}</p>
+            <button
+              type="button"
+              onClick={() => void handleContinueWithoutAccessibility()}
+              className="permission-action is-secondary"
+            >
+              {t("onboarding.permissions.accessibility.skip")}
+            </button>
+          </div>
+        ) : null}
         <p className="onboarding-footnote permission-footnote">
           {t("accessibility.permissionsDescription")}
         </p>

@@ -2477,7 +2477,7 @@
   padding: 0 4px;
 }
 
-.account-unavailable {
+.account-warning {
   display: grid;
   grid-template-columns: auto minmax(0, 1fr) auto;
   align-items: start;
@@ -2488,7 +2488,7 @@
   background: color-mix(in srgb, var(--color-warning), transparent 94%);
 }
 
-.account-unavailable-icon {
+.account-warning-icon {
   width: 32px;
   height: 32px;
   display: grid;
@@ -2498,15 +2498,7 @@
   background: color-mix(in srgb, var(--color-warning), transparent 87%);
 }
 
-.account-unavailable code {
-  display: block;
-  margin-top: 9px;
-  color: var(--color-muted);
-  font-family: ui-monospace, "SFMono-Regular", Menlo, monospace;
-  font-size: 9px;
-}
-
-.account-unavailable button {
+.account-warning button {
   display: inline-flex;
   align-items: center;
   gap: 5px;
@@ -2675,8 +2667,7 @@
   position: relative;
 }
 
-.cloud-auth-progress,
-.account-unavailable {
+.cloud-auth-progress {
   border-radius: 11px;
   background:
     radial-gradient(
@@ -3246,6 +3237,18 @@
 .permission-footnote {
   max-width: 500px;
   margin-top: 16px;
+}
+
+.permission-skip {
+  display: flex;
+  max-width: 500px;
+  margin-top: 16px;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--color-mid-gray);
 }
 
 .permission-success-panel {

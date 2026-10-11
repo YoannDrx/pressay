@@ -166,7 +166,7 @@
     "notARerunOfEarlierTests": true
   },
   "initialCandidate": {
-    "path": "/Users/yoannandrieux/Projets/Pressay-release-candidates/2.0.0-2.0.1",
+    "path": "<dossier local>/Pressay-release-candidates/2.0.0-2.0.1",
     "version": "2.0.0",
     "build": "2.0.1",
     "environment": "staging-mac-app-store",
@@ -196,7 +196,7 @@
     "localPackageSha256": "c845893c806ee8fd8507fa2c8da79d566789905afc8d91a20bde3d024b025ebf",
     "symbolsMatch": true,
     "uploaded": true,
-    "path": "/Users/yoannandrieux/Projets/Pressay-release-candidates/2.0.0-2.0.2",
+    "path": "<dossier local>/Pressay-release-candidates/2.0.0-2.0.2",
     "environment": "staging-mac-app-store",
     "sourceVersion": "2.0.0-beta.2",
     "rustReleaseBuild": "passed",
