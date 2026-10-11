@@ -1325,12 +1325,13 @@ pub fn change_filler_word_removal_enabled_setting(
 #[tauri::command]
 #[specta::specta]
 pub fn change_app_language_setting(app: AppHandle, language: String) -> Result<(), String> {
+    let language = settings::reviewed_app_language(&language);
     let mut settings = settings::get_settings(&app);
-    settings.app_language = language.clone();
+    settings.app_language = language.to_string();
     settings::write_settings(&app, settings);
 
     // Refresh the tray menu with the new language
-    tray::update_tray_menu(&app, Some(&language));
+    tray::update_tray_menu(&app, Some(language));
 
     Ok(())
 }

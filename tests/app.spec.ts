@@ -142,14 +142,15 @@ test.describe("Pressay App", () => {
     ).toBeVisible();
   });
 
-  test("keeps onboarding readable in RTL and reduced-motion environments", async ({
+  test("falls back to English for unreviewed locales and honours reduced motion", async ({
     page,
   }) => {
     await page.emulateMedia({ reducedMotion: "reduce" });
+    // Only English and French are reviewed; an Arabic system gets English.
     await page.goto("/?screen=welcome&lang=ar");
 
-    await expect(page.locator("html")).toHaveAttribute("dir", "rtl");
-    await expect(page.locator("html")).toHaveAttribute("lang", "ar");
+    await expect(page.locator("html")).toHaveAttribute("lang", "en");
+    await expect(page.locator("html")).toHaveAttribute("dir", "ltr");
     await expect(page.locator(".onboarding-trust-card")).toBeVisible();
     const overflow = await page.evaluate(
       () =>

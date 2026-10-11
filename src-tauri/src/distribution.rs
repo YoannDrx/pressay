@@ -76,13 +76,10 @@ const APP_STORE_SUBSCRIPTIONS_URL: &str = "https://apps.apple.com/account/subscr
 #[cfg(feature = "direct")]
 const DIRECT_BILLING_URL: &str = "https://press-say.app/account/billing";
 
-/// The web legal and support routes exist only in French and English.
+/// The web legal and support routes exist only in French and English, the
+/// two reviewed app languages.
 fn site_locale(app_language: &str) -> &'static str {
-    if app_language.to_ascii_lowercase().starts_with("fr") {
-        "fr"
-    } else {
-        "en"
-    }
+    crate::settings::reviewed_app_language(app_language)
 }
 
 pub fn external_page_url(page: ExternalPage, app_language: &str) -> Result<String, String> {

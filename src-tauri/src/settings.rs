@@ -722,10 +722,19 @@ fn default_post_process_enabled() -> bool {
     false
 }
 
+/// Only English and French have had a human translation review. The other
+/// inherited catalogues stay on disk but are not offered: a French system
+/// gets French, every other system gets English.
+pub fn reviewed_app_language(language: &str) -> &'static str {
+    if language.trim().to_ascii_lowercase().starts_with("fr") {
+        "fr"
+    } else {
+        "en"
+    }
+}
+
 fn default_app_language() -> String {
-    tauri_plugin_os::locale()
-        .map(|l| l.replace('_', "-"))
-        .unwrap_or_else(|| "en".to_string())
+    reviewed_app_language(&tauri_plugin_os::locale().unwrap_or_default()).to_string()
 }
 
 fn default_show_tray_icon() -> bool {
@@ -1912,6 +1921,11 @@ fn enforce_build_constraints(settings: &mut AppSettings) -> bool {
         settings.paste_method = PasteMethod::default();
         updated = true;
     }
+    let language = reviewed_app_language(&settings.app_language);
+    if settings.app_language != language {
+        settings.app_language = language.to_string();
+        updated = true;
+    }
     updated
 }
 
@@ -1984,6 +1998,25 @@ mod tests {
             assert_eq!(settings.paste_method, PasteMethod::default());
         }
         assert!(!enforce_build_constraints(&mut settings));
+    }
+
+    #[test]
+    fn only_reviewed_languages_are_kept() {
+        for (input, expected) in [
+            ("fr", "fr"),
+            ("fr-CA", "fr"),
+            ("FR_fr", "fr"),
+            ("en-US", "en"),
+            ("de-DE", "en"),
+            ("ar", "en"),
+            ("", "en"),
+        ] {
+            assert_eq!(reviewed_app_language(input), expected, "{input}");
+        }
+        let mut settings = get_default_settings();
+        settings.app_language = "zh-TW".to_string();
+        assert!(enforce_build_constraints(&mut settings));
+        assert_eq!(settings.app_language, "en");
     }
 
     #[test]

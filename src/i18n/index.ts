@@ -24,8 +24,19 @@ const availableLanguageCodes = [
     .filter((code): code is string => Boolean(code)),
 ];
 
+/**
+ * Only English and French have had a human translation review. The other
+ * inherited catalogues stay packaged but are not offered (App Review 2.3.8:
+ * a half-translated UI reads as broken). Keep in sync with
+ * `reviewed_app_language` in src-tauri/src/settings.rs.
+ */
+export const REVIEWED_LANGUAGE_CODES = ["en", "fr"] as const;
+
 // Build supported languages list from discovered locales + metadata
 export const SUPPORTED_LANGUAGES = availableLanguageCodes
+  .filter((code) =>
+    (REVIEWED_LANGUAGE_CODES as readonly string[]).includes(code),
+  )
   .map((code) => {
     const meta = LANGUAGE_METADATA[code];
     if (!meta) {
@@ -51,38 +62,13 @@ export const SUPPORTED_LANGUAGES = availableLanguageCodes
 
 export type SupportedLanguageCode = string;
 
-// Check if a language code is supported
+/** French systems get French; every other locale gets English. */
 export const getSupportedLanguage = (
   langCode: string | null | undefined,
 ): SupportedLanguageCode | null => {
   if (!langCode) return null;
-
-  const normalized = langCode.toLowerCase().replace(/_/g, "-");
-  const subtags = normalized.split("-");
-  const language = subtags[0];
-  const isHant = subtags.includes("hant");
-  const isHans = subtags.includes("hans");
-  const isTraditionalRegion = ["tw", "hk", "mo"].some((region) =>
-    subtags.includes(region),
-  );
-
-  // Try exact match first
-  let supported = SUPPORTED_LANGUAGES.find(
-    (lang) => lang.code.toLowerCase() === normalized,
-  );
-  if (!supported) {
-    let fallback = language;
-    if (language === "zh" && (isHant || (!isHans && isTraditionalRegion))) {
-      fallback = "zh-tw";
-    } else if (language === "yue") {
-      // Cantonese uses Traditional Chinese unless explicitly tagged as Hans.
-      fallback = isHans ? "zh" : "zh-tw";
-    }
-    supported = SUPPORTED_LANGUAGES.find(
-      (lang) => lang.code.toLowerCase() === fallback,
-    );
-  }
-  return supported ? supported.code : null;
+  const language = langCode.trim().toLowerCase().replace(/_/g, "-");
+  return language.split("-")[0] === "fr" ? "fr" : "en";
 };
 
 // Initialize i18n with English as default
