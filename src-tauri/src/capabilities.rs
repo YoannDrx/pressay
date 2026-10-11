@@ -78,8 +78,14 @@ impl Capabilities {
             apple_intelligence: pro,
             encrypted_sync: pro,
             pressay_cloud: pro,
-            // Kept closed until their respective end-to-end payment matrices pass.
-            direct_checkout: CapabilityAccess::ReleaseGate,
+            // Kept closed until their respective end-to-end payment matrices
+            // pass. Direct checkout opens only with the Direct-only
+            // `stripe-purchases` feature, which can never join a MAS build.
+            direct_checkout: if cfg!(feature = "stripe-purchases") {
+                CapabilityAccess::Enabled
+            } else {
+                CapabilityAccess::ReleaseGate
+            },
             app_store_purchase: if cfg!(feature = "storekit-purchases") {
                 CapabilityAccess::Enabled
             } else {
@@ -211,7 +217,24 @@ mod tests {
             CapabilityAccess::Enabled
         );
         assert_eq!(capabilities.byok, CapabilityAccess::UpgradeRequired);
-        assert_eq!(capabilities.direct_checkout, CapabilityAccess::ReleaseGate);
+        assert_eq!(
+            capabilities.direct_checkout,
+            if cfg!(feature = "stripe-purchases") {
+                CapabilityAccess::Enabled
+            } else {
+                CapabilityAccess::ReleaseGate
+            }
+        );
+    }
+
+    #[test]
+    fn direct_checkout_never_opens_in_the_app_store_build() {
+        if cfg!(feature = "mas") {
+            assert_eq!(
+                Capabilities::local_free().direct_checkout,
+                CapabilityAccess::ReleaseGate
+            );
+        }
     }
 
     #[test]
