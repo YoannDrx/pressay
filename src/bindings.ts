@@ -539,23 +539,14 @@ async openExternalPage(page: ExternalPage) : Promise<Result<null, string>> {
     else return { status: "error", error: e  as any };
 }
 },
-async getCloudAuthConfig() : Promise<Result<CloudAuthConfig, string>> {
-    try {
-    return { status: "ok", data: await TAURI_INVOKE("get_cloud_auth_config") };
-} catch (e) {
-    if(e instanceof Error) throw e;
-    else return { status: "error", error: e  as any };
-}
+async getCloudAuthConfig() : Promise<CloudAuthConfig> {
+    return await TAURI_INVOKE("get_cloud_auth_config");
 },
-async requestCloudMagicLink(email: string) : Promise<Result<null, string>> {
-    try {
-    return { status: "ok", data: await TAURI_INVOKE("request_cloud_magic_link", { email }) };
-} catch (e) {
-    if(e instanceof Error) throw e;
-    else return { status: "error", error: e  as any };
-}
-},
-async beginCloudSocialLogin(provider: CloudAuthProvider) : Promise<Result<null, string>> {
+/**
+ * Open the web issuer sign-in in the browser. `provider` is an optional hint
+ * (Apple or Google); `None` shows every option, including passkeys and email.
+ */
+async beginCloudSocialLogin(provider: CloudAuthProvider | null) : Promise<Result<null, string>> {
     try {
     return { status: "ok", data: await TAURI_INVOKE("begin_cloud_social_login", { provider }) };
 } catch (e) {
@@ -582,9 +573,9 @@ async disconnectCloudAccount() : Promise<Result<null, string>> {
     else return { status: "error", error: e  as any };
 }
 },
-async deleteCloudAccount() : Promise<Result<null, string>> {
+async deleteCloudAccount(acknowledgeAppleSubscription: boolean) : Promise<Result<null, string>> {
     try {
-    return { status: "ok", data: await TAURI_INVOKE("delete_cloud_account") };
+    return { status: "ok", data: await TAURI_INVOKE("delete_cloud_account", { acknowledgeAppleSubscription }) };
 } catch (e) {
     if(e instanceof Error) throw e;
     else return { status: "error", error: e  as any };
@@ -1375,7 +1366,12 @@ entitlementsEnforced: boolean; tier: EntitlementTier; entitlementSource: Entitle
 export type CapabilityAccess = "enabled" | "upgrade_required" | "release_gate"
 export type ClipboardHandling = "dont_modify" | "copy_to_clipboard"
 export type CloudAccountSnapshot = { connected: boolean; accountId: string | null; email: string | null; deviceId: string | null; entitlement: EntitlementSnapshot | null; usage: UsageSnapshot | null }
-export type CloudAuthConfig = { magicLink: boolean; providers: CloudAuthProvider[]; callbackUrl: string }
+/**
+ * How the desktop app signs in. Every provider goes through the web issuer's
+ * OAuth 2.1 PKCE flow; `providers` only lists the hints the sign-in page
+ * understands, shown with equal prominence (Sign in with Apple first).
+ */
+export type CloudAuthConfig = { providers: CloudAuthProvider[]; callbackUrl: string }
 export type CloudAuthProvider = "google" | "apple"
 export type CloudSyncDevice = { id: string; displayName: string; status: CloudSyncStatus; current: boolean }
 export type CloudSyncRecoveryCode = { code: string }
@@ -1420,7 +1416,12 @@ export type ExternalPage = "support" | "terms" | "privacy" |
 /**
  * Web checkout; only exists in the Direct channel.
  */
-"direct_checkout"
+"direct_checkout" | 
+/**
+ * Apple's subscription settings, whatever the channel: an App Store
+ * subscription keeps billing after account deletion until cancelled there.
+ */
+"apple_subscriptions"
 export type GpuDeviceOption = { id: number; name: string; total_vram_mb: number }
 export type HistorySearchPage = { entries: HistoryEntry[]; next_cursor: number | null; has_more: boolean }
 export type HistoryEntry = { id: number; file_name: string; timestamp: number; saved: boolean; title: string; transcription_text: string; post_processed_text: string | null; post_process_prompt: string | null; post_process_requested: boolean; audio_available: boolean; audio_saved: boolean; metadata: HistoryMetadata }
@@ -1530,7 +1531,13 @@ uncovered_bindings: string[];
 recorder_blocked: boolean }
 export type ShortcutBinding = { id: string; name: string; description: string; default_binding: string; current_binding: string }
 export type SoundTheme = "marimba" | "pop" | "minimal" | "soft" | "glass" | "mechanical" | "dreamy" | "scifi" | "studio" | "zen" | "custom"
-export type StoreKitProduct = { id: string; displayName: string; description: string; displayPrice: string }
+export type StoreKitProduct = { id: string; displayName: string; description: string; displayPrice: string;
+/**
+ * Billing period shown next to the price (App Review 3.1.2). Filled from
+ * StoreKit, or from the closed catalogue when StoreKit omits it.
+ */
+subscriptionPeriodUnit?: SubscriptionPeriodUnit | null; subscriptionPeriodValue?: number | null }
+export type SubscriptionPeriodUnit = "day" | "week" | "month" | "year"
 /**
  * Phase of the streaming overlay card, emitted to drive its UI state.
  */

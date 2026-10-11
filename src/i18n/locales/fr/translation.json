@@ -21,28 +21,37 @@
       "managedByApple": "La facturation et la résiliation sont gérées par Apple.",
       "purchased": "Pressay Pro est maintenant actif.",
       "restored": "Les achats App Store ont été restaurés.",
-      "error": "Impossible de terminer l’opération App Store."
-    },
-    "email": {
-      "label": "Email",
-      "placeholder": "vous@exemple.com",
-      "send": "Envoyer le lien",
-      "sent": "Consultez votre boîte mail pour continuer."
+      "error": "Impossible de terminer l’opération App Store.",
+      "period": {
+        "day": "{{price}} / jour",
+        "week": "{{price}} / semaine",
+        "month": "{{price}} / mois",
+        "year": "{{price}} / an",
+        "dayMultiple": "{{price}} tous les {{count}} jours",
+        "weekMultiple": "{{price}} toutes les {{count}} semaines",
+        "monthMultiple": "{{price}} tous les {{count}} mois",
+        "yearMultiple": "{{price}} tous les {{count}} ans"
+      },
+      "autoRenew": "Abonnement à renouvellement automatique. Le paiement est débité de votre compte Apple à la confirmation de l’achat. L’abonnement se renouvelle automatiquement pour la même durée et au même prix, sauf résiliation au moins 24 heures avant la fin de la période en cours ; le renouvellement est facturé dans les 24 heures précédant la fin de la période. Gérez-le ou résiliez-le à tout moment dans les réglages de votre compte App Store.",
+      "terms": "Conditions d’utilisation (CLUF)",
+      "privacy": "Politique de confidentialité",
+      "manage": "Gérer l’abonnement",
+      "pendingTitle": "Achat en attente d’approbation",
+      "unavailable": "Les abonnements ne peuvent pas être chargés depuis l’App Store pour le moment."
     },
     "providers": {
-      "or": "ou",
       "google": "Continuer avec Google",
       "apple": "Continuer avec Apple",
-      "unavailableTitle": "Service de connexion indisponible",
-      "unavailable": "Cette version ne peut pas encore proposer de méthode de connexion. La dictée locale reste entièrement disponible."
+      "other": "Autres options",
+      "browserNote": "La connexion se poursuit sur press-say.app dans votre navigateur, puis revient dans Pressay."
     },
     "actions": {
-      "loading": "Vérification de la disponibilité du Cloud…",
+      "loading": "Vérification de votre compte…",
       "refresh": "Actualiser",
       "retry": "Réessayer",
       "disconnect": "Déconnecter",
       "delete": "Supprimer le compte",
-      "confirmDelete": "Supprimer votre compte Pressay Cloud et les réglages synchronisés ? Cette action est irréversible.",
+      "confirmDelete": "Supprimer votre compte Pressay Cloud et les réglages synchronisés ? Cette action est irréversible. Supprimer votre compte n’annule pas un abonnement App Store.",
       "confirmDeleteTitle": "Supprimer votre compte Pressay ?"
     },
     "sync": {
@@ -110,6 +119,27 @@
       "start": "Impossible de démarrer la connexion Cloud.",
       "disconnect": "Impossible de déconnecter le compte.",
       "delete": "Impossible de supprimer le compte."
+    },
+    "signIn": {
+      "whyAccount": "Un compte permet de retrouver Pressay Pro sur tous vos Mac et de synchroniser vos réglages. La dictée locale fonctionne sans compte."
+    },
+    "deletion": {
+      "appleSubscriptionTitle": "Votre abonnement App Store est toujours actif",
+      "appleSubscriptionMessage": "Supprimer votre compte Pressay n’annule pas un abonnement App Store : Apple continue de le facturer tant que vous ne l’avez pas résilié dans vos abonnements App Store. Résiliez-le d’abord, ou supprimez quand même votre compte.",
+      "manage": "Gérer les abonnements App Store",
+      "deleteAnyway": "Supprimer quand même"
+    },
+    "direct": {
+      "title": "Pressay Pro",
+      "description": "Abonnez-vous sur press-say.app, connecté avec ce même compte. Le paiement est traité par Stripe, et Pro s’active ici automatiquement une fois confirmé.",
+      "subscribe": "Voir les offres et s’abonner",
+      "waiting": "Terminez le paiement dans votre navigateur. Pressay vérifie votre abonnement à votre retour.",
+      "checkNow": "Vérifier maintenant",
+      "manage": "Gérer la facturation"
+    },
+    "legal": {
+      "terms": "Conditions",
+      "privacy": "Confidentialité"
     }
   },
   "tray": {

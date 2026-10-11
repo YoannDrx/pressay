@@ -66,10 +66,12 @@ pub enum ExternalPage {
     ManageSubscription,
     /// Web checkout; only exists in the Direct channel.
     DirectCheckout,
+    /// Apple's subscription settings, whatever the channel: an App Store
+    /// subscription keeps billing after account deletion until cancelled there.
+    AppleSubscriptions,
 }
 
 const SITE_ORIGIN: &str = "https://press-say.app";
-#[cfg(not(feature = "direct"))]
 const APP_STORE_SUBSCRIPTIONS_URL: &str = "https://apps.apple.com/account/subscriptions";
 #[cfg(feature = "direct")]
 const DIRECT_BILLING_URL: &str = "https://press-say.app/account/billing";
@@ -91,6 +93,7 @@ pub fn external_page_url(page: ExternalPage, app_language: &str) -> Result<Strin
         ExternalPage::Privacy => Ok(format!("{SITE_ORIGIN}/{locale}/privacy")),
         ExternalPage::ManageSubscription => manage_subscription_url(),
         ExternalPage::DirectCheckout => direct_checkout_url(locale),
+        ExternalPage::AppleSubscriptions => Ok(APP_STORE_SUBSCRIPTIONS_URL.to_string()),
     }
 }
 
@@ -176,5 +179,9 @@ mod tests {
             assert_eq!(manage, "https://apps.apple.com/account/subscriptions");
             assert_eq!(checkout.unwrap_err(), "direct_checkout_unavailable");
         }
+        assert_eq!(
+            external_page_url(ExternalPage::AppleSubscriptions, "fr").unwrap(),
+            "https://apps.apple.com/account/subscriptions"
+        );
     }
 }

@@ -701,7 +701,6 @@ pub fn run(cli_args: CliArgs) {
             distribution::get_distribution_info,
             distribution::open_external_page,
             commands::cloud::get_cloud_auth_config,
-            commands::cloud::request_cloud_magic_link,
             commands::cloud::begin_cloud_social_login,
             commands::cloud::cancel_cloud_social_login,
             commands::cloud::get_cloud_account_snapshot,

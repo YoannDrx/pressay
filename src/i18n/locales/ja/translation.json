@@ -20,27 +20,36 @@
       "managedByApple": "請求と解約はAppleが管理します。",
       "purchased": "Pressay Proが有効になりました。",
       "restored": "App Storeの購入を復元しました。",
-      "error": "App Storeの操作を完了できませんでした。"
-    },
-    "email": {
-      "label": "Email",
-      "placeholder": "you@example.com",
-      "send": "Send link",
-      "sent": "Check your inbox to continue."
+      "error": "App Storeの操作を完了できませんでした。",
+      "period": {
+        "day": "{{price}} / day",
+        "week": "{{price}} / week",
+        "month": "{{price}} / month",
+        "year": "{{price}} / year",
+        "dayMultiple": "{{price}} every {{count}} days",
+        "weekMultiple": "{{price}} every {{count}} weeks",
+        "monthMultiple": "{{price}} every {{count}} months",
+        "yearMultiple": "{{price}} every {{count}} years"
+      },
+      "autoRenew": "Auto-renewable subscription. Payment is charged to your Apple Account at confirmation of purchase. The subscription renews automatically for the same period and price unless it is cancelled at least 24 hours before the end of the current period; the renewal is charged within the 24 hours before the period ends. Manage or cancel it at any time in your App Store account settings.",
+      "terms": "Terms of Use (EULA)",
+      "privacy": "Privacy Policy",
+      "manage": "Manage subscription",
+      "pendingTitle": "Purchase awaiting approval",
+      "unavailable": "Subscriptions cannot be loaded from the App Store right now."
     },
     "providers": {
-      "or": "or",
       "google": "Continue with Google",
       "apple": "Continue with Apple",
-      "unavailable": "Cloud sign-in is not enabled on this environment yet.",
-      "unavailableTitle": "Sign-in service unavailable"
+      "other": "Other options",
+      "browserNote": "Sign-in continues on press-say.app in your browser, then returns to Pressay."
     },
     "actions": {
-      "loading": "Checking Cloud availability…",
+      "loading": "Checking your account…",
       "refresh": "Refresh",
       "disconnect": "Disconnect",
       "delete": "Delete account",
-      "confirmDelete": "Delete your Pressay Cloud account and synced settings? This cannot be undone.",
+      "confirmDelete": "Delete your Pressay Cloud account and synced settings? This cannot be undone. Deleting your account does not cancel an App Store subscription.",
       "retry": "Retry",
       "confirmDeleteTitle": "Delete your Pressay account?"
     },
@@ -110,7 +119,28 @@
       "disconnect": "The account could not be disconnected.",
       "delete": "The account could not be deleted."
     },
-    "eyebrow": "ACCOUNT & ENTITLEMENTS"
+    "eyebrow": "ACCOUNT & ENTITLEMENTS",
+    "signIn": {
+      "whyAccount": "An account keeps Pressay Pro on all your Macs and syncs your settings. Local dictation works without one."
+    },
+    "deletion": {
+      "appleSubscriptionTitle": "Your App Store subscription is still active",
+      "appleSubscriptionMessage": "Deleting your Pressay account does not cancel an App Store subscription: Apple keeps billing it until you cancel it in your App Store subscriptions. Cancel it first, or delete your account anyway.",
+      "manage": "Manage App Store subscriptions",
+      "deleteAnyway": "Delete anyway"
+    },
+    "direct": {
+      "title": "Pressay Pro",
+      "description": "Subscribe on press-say.app, signed in with this same account. Payment is handled by Stripe, and Pro activates here automatically once it is confirmed.",
+      "subscribe": "See plans and subscribe",
+      "waiting": "Finish checkout in your browser. Pressay checks your subscription when you come back.",
+      "checkNow": "Check now",
+      "manage": "Manage billing"
+    },
+    "legal": {
+      "terms": "Terms",
+      "privacy": "Privacy"
+    }
   },
   "tray": {
     "settings": "設定…",

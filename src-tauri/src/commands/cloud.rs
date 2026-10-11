@@ -16,44 +16,27 @@ fn public_error(error: cloud::CloudFailure) -> String {
 
 #[tauri::command]
 #[specta::specta]
-pub async fn get_cloud_auth_config(app: AppHandle) -> Result<CloudAuthConfig, String> {
-    cloud::get_auth_config(&get_settings(&app))
-        .await
-        .map_err(public_error)
+pub fn get_cloud_auth_config() -> CloudAuthConfig {
+    cloud::auth_config()
 }
 
-#[tauri::command]
-#[specta::specta]
-pub async fn request_cloud_magic_link(app: AppHandle, email: String) -> Result<(), String> {
-    let runtime = app.state::<CloudAuthRuntime>();
-    let state = runtime.begin().map_err(public_error)?;
-    if let Err(error) = cloud::request_magic_link(&get_settings(&app), email.trim(), &state).await {
-        runtime.clear();
-        return Err(public_error(error));
-    }
-    Ok(())
-}
-
+/// Open the web issuer sign-in in the browser. `provider` is an optional hint
+/// (Apple or Google); `None` shows every option, including passkeys and email.
 #[tauri::command]
 #[specta::specta]
 pub async fn begin_cloud_social_login(
     app: AppHandle,
-    provider: CloudAuthProvider,
+    provider: Option<CloudAuthProvider>,
 ) -> Result<(), String> {
     let runtime = app.state::<CloudAuthRuntime>();
-    let (state, verifier) = if cloud::uses_native_oauth_pkce(provider) {
-        runtime.begin_oauth().map_err(public_error)?
-    } else {
-        (runtime.begin().map_err(public_error)?, String::new())
+    let (state, verifier) = runtime.begin_oauth().map_err(public_error)?;
+    let authorization_url = match cloud::login_url(provider, &state, &verifier).await {
+        Ok(url) => url,
+        Err(error) => {
+            runtime.clear();
+            return Err(public_error(error));
+        }
     };
-    let authorization_url =
-        match cloud::social_login_url(&get_settings(&app), provider, &state, &verifier).await {
-            Ok(url) => url,
-            Err(error) => {
-                runtime.clear();
-                return Err(public_error(error));
-            }
-        };
     if app
         .opener()
         .open_url(authorization_url, None::<String>)
@@ -90,8 +73,13 @@ pub async fn disconnect_cloud_account(app: AppHandle) -> Result<(), String> {
 
 #[tauri::command]
 #[specta::specta]
-pub async fn delete_cloud_account(app: AppHandle) -> Result<(), String> {
-    cloud::delete_account(&app).await.map_err(public_error)
+pub async fn delete_cloud_account(
+    app: AppHandle,
+    acknowledge_apple_subscription: bool,
+) -> Result<(), String> {
+    cloud::delete_account(&app, acknowledge_apple_subscription)
+        .await
+        .map_err(public_error)
 }
 
 #[tauri::command]
@@ -199,12 +187,24 @@ async fn reconcile_transaction(
     let snapshot = cloud::restore_app_store_transaction(app, signed_transaction, transaction_id)
         .await
         .map_err(public_error)?;
-    tokio::task::spawn_blocking({
+    // The server has verified the purchase and granted Pro: the user paid and
+    // must see success. An unfinished transaction is redelivered by
+    // Transaction.unfinished and finished at the next reconciliation (the
+    // restore endpoint is idempotent per transaction id).
+    let finished = tokio::task::spawn_blocking({
         let transaction_id = transaction_id.to_string();
         move || storekit::finish(&transaction_id)
     })
-    .await
-    .map_err(|_| "storekit_finish_failed".to_string())??;
+    .await;
+    match finished {
+        Ok(Ok(())) => {}
+        Ok(Err(code)) => log::warn!(
+            "StoreKit finish failed after server confirmation ({code}); retrying at next reconciliation"
+        ),
+        Err(_) => log::warn!(
+            "StoreKit finish task failed after server confirmation; retrying at next reconciliation"
+        ),
+    }
     crate::tray::update_tray_menu(app, None);
     Ok(snapshot)
 }
