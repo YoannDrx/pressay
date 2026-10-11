@@ -46,7 +46,7 @@ confidentialité dans le bundle et séparation des features MAS/direct.
 - Huit contrôles du contrat public réussis : santé, base, configuration auth,
   Apple, métadonnées OAuth PKCE, clé de signature et deux frontières d’accès.
 - Le backend local initial était en retard. Les modifications finales sont dans
-  le worktree `/Users/yoannandrieux/Projets/pressay-cloud-pre-sale`, branche `codex/pre-sale-hardening`,
+  le worktree `<dossier local>/pressay-cloud-pre-sale`, branche `codex/pre-sale-hardening`,
   basé sur le commit de production. Le checkout habituel a été préservé.
 - Le site est vérifié depuis `577b6ef`, dans `/tmp/pressay-release-web` : lint et
   TypeScript passent. Cinq scénarios en lecture sur `https://press-say.app`
@@ -101,7 +101,7 @@ permission de débogage n’est présente. Le Mach-O annonce macOS 14.0 minimum 
 le SDK 26.2. Le manifeste de confidentialité passe `plutil -lint`.
 
 Le paquet `.pkg` est signé avec le certificat Mac Installer Distribution et
-conservé dans `/Users/yoannandrieux/Projets/Pressay-release-candidates/2.0.0-2.0.1`,
+conservé dans `<dossier local>/Pressay-release-candidates/2.0.0-2.0.1`,
 avec SHA-256, configuration et logs. L’archive Xcode a été assemblée à partir de
 ce bundle Tauri signé ; Organizer la reconnaît comme archive macOS Apple Silicon.
 **La validation Apple réussit avec un avertissement dSYM manquant.** Ce premier
@@ -127,7 +127,7 @@ La relance release termine en 15 min 26 s. Le dSYM correspond à l’UUID
 `19A9E16E-E082-32A0-8255-CBCD01502C0C` de l’exécutable arm64 ;
 `dwarfdump --verify` ne signale aucune erreur. Le script
 `scripts/package-macos-store.py` a produit le `.pkg` signé et l’archive avec
-symboles dans `/Users/yoannandrieux/Projets/Pressay-release-candidates/2.0.0-2.0.2`.
+symboles dans `<dossier local>/Pressay-release-candidates/2.0.0-2.0.2`.
 
 Deux transcriptions par moteur ont été exécutées sur une copie identique du
 binaire compilé, en mode CLI portable avec données isolées et fichier audio

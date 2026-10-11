@@ -31,5 +31,5 @@ finale. Une version actualisée est remplie dans Chrome, catégorie
 « Configuration d’app > Chiffrement », et attend l’autorisation d’envoi.
 Aucun message n’a été envoyé. Ne pas joindre de justificatif d’identité
 ou d’adresse à cette demande. Le propriétaire confirme l’adresse actuelle
-7 allée des Jonquilles, 95130 Franconville ; l’ancien dossier de changement
-vers Paris (20000144124147) est obsolète.
+<adresse postale du propriétaire> ; l’ancien dossier de changement
+vers Paris (<numéro de dossier Apple>) est obsolète.

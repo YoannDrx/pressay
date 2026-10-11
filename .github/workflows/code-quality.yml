@@ -47,6 +47,11 @@ jobs:
       - name: Check release version
         run: bun run check:release-version
 
+      # The repository is public: contact details in operating notes must be
+      # placeholders. Prints locations only, never the matched values.
+      - name: Check for personal data
+        run: bun run check:personal-data
+
       - name: Validate StoreKit catalogue
         run: bun run storekit:validate
 
