@@ -86,6 +86,10 @@ mod platform {
         STORE_INITIALIZED
             .get_or_init(|| {
                 if std::env::var_os("APP_SANDBOX_CONTAINER_ID").is_some() {
+                    // The data-protection Keychain stores items in the first
+                    // `keychain-access-groups` entry of Entitlements.AppStore.plist,
+                    // `G9WFV7HNV6.fr.yodev.pressay`; no group is passed here so
+                    // the entitlement stays the single source of truth.
                     let store = apple_native_keyring_store::protected::Store::new()
                         .map_err(|_| "The macOS Keychain is unavailable".to_string())?;
                     keyring_core::set_default_store(store);

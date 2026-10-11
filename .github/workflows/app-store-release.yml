@@ -286,6 +286,10 @@ jobs:
             "$signed_entitlements" | grep -qx true
           /usr/libexec/PlistBuddy -c 'Print :com.apple.security.device.audio-input' \
             "$signed_entitlements" | grep -qx true
+          # The protected (data-protection) Keychain stores items in the first
+          # access group: it must be the app's own group, not a team wildcard.
+          /usr/libexec/PlistBuddy -c 'Print :keychain-access-groups:0' \
+            "$signed_entitlements" | grep -qx 'G9WFV7HNV6.fr.yodev.pressay'
           /usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' \
             "$app/Contents/Info.plist" | grep -qx 'fr.yodev.pressay'
           /usr/libexec/PlistBuddy -c 'Print :CFBundleVersion' \
