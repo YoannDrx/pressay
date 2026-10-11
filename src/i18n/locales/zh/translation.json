@@ -235,7 +235,9 @@
       },
       "accessibility": {
         "title": "辅助功能访问",
-        "description": "需要将转录文本输入到您的应用程序中。"
+        "description": "需要将转录文本输入到您的应用程序中。",
+        "skip": "Continue without Accessibility",
+        "skipDescription": "Without it, Pressay copies each dictation to the clipboard so you can paste it yourself. You can allow it later."
       },
       "grant": "授予权限",
       "granted": "已授予",
@@ -830,7 +832,12 @@
   },
   "accessibility": {
     "permissionsDescription": "Pressay 需要辅助功能权限才能输入转录的文字。",
-    "openSettings": "打开系统设置"
+    "openSettings": "打开系统设置",
+    "copyModeTitle": "Copy mode: dictations go to the clipboard",
+    "copyModeDescription": "Allow Accessibility in System Settings so Pressay can paste text into your apps automatically.",
+    "useCopyMode": "Use copy mode",
+    "copiedTitle": "Copied to the clipboard",
+    "copiedDescription": "Press ⌘V to paste. Allow Accessibility to paste automatically."
   },
   "errors": {
     "loadDirectory": "加载目录时出错: {{error}}",

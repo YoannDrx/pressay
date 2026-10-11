@@ -235,7 +235,9 @@
       },
       "accessibility": {
         "title": "접근성 권한",
-        "description": "녹음된 텍스트를 애플리케이션에 입력하기 위해 필요합니다."
+        "description": "녹음된 텍스트를 애플리케이션에 입력하기 위해 필요합니다.",
+        "skip": "Continue without Accessibility",
+        "skipDescription": "Without it, Pressay copies each dictation to the clipboard so you can paste it yourself. You can allow it later."
       },
       "grant": "권한 부여",
       "granted": "승인됨",
@@ -830,7 +832,12 @@
   },
   "accessibility": {
     "permissionsDescription": "Pressay는 녹음된 텍스트를 입력하기 위해 접근성 권한이 필요합니다.",
-    "openSettings": "시스템 설정 열기"
+    "openSettings": "시스템 설정 열기",
+    "copyModeTitle": "Copy mode: dictations go to the clipboard",
+    "copyModeDescription": "Allow Accessibility in System Settings so Pressay can paste text into your apps automatically.",
+    "useCopyMode": "Use copy mode",
+    "copiedTitle": "Copied to the clipboard",
+    "copiedDescription": "Press ⌘V to paste. Allow Accessibility to paste automatically."
   },
   "errors": {
     "loadDirectory": "디렉토리 로딩 오류: {{error}}",

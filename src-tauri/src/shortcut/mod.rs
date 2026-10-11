@@ -447,6 +447,26 @@ fn unregister_all_shortcuts(app: &AppHandle, implementation: KeyboardImplementat
     }
 }
 
+/// Reset, in place, every binding that `implementation` cannot register to its
+/// default. Returns the ids that were reset.
+pub fn reset_bindings_invalid_for(
+    settings: &mut settings::AppSettings,
+    implementation: KeyboardImplementation,
+) -> Vec<String> {
+    let mut reset = Vec::new();
+    for (id, default_binding) in settings::get_default_settings().bindings {
+        if let Some(binding) = settings.bindings.get_mut(&id) {
+            if validate_shortcut_for_implementation(&binding.current_binding, implementation)
+                .is_err()
+            {
+                binding.current_binding = default_binding.current_binding;
+                reset.push(id);
+            }
+        }
+    }
+    reset
+}
+
 /// Register all shortcuts for a specific implementation, validating and resetting invalid ones
 fn register_all_shortcuts_for_implementation(
     app: &AppHandle,

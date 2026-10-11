@@ -777,6 +777,31 @@ async initializeShortcuts() : Promise<Result<null, string>> {
     else return { status: "error", error: e  as any };
 }
 },
+/**
+ * Keep dictation usable when the user declines macOS Accessibility: switch
+ * shortcuts to Carbon hotkeys (no event tap) and let delivery fall back to
+ * the clipboard. Idempotent; a no-op once Accessibility is granted.
+ */
+async useShortcutsWithoutAccessibility() : Promise<Result<null, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("use_shortcuts_without_accessibility") };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+/**
+ * Restore the preferred event-tap shortcuts once Accessibility is granted
+ * after the user had continued without it. Safe to call repeatedly.
+ */
+async restoreAccessibilityShortcuts() : Promise<Result<null, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("restore_accessibility_shortcuts") };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
 async getAvailableModels() : Promise<Result<ModelInfo[], string>> {
     try {
     return { status: "ok", data: await TAURI_INVOKE("get_available_models") };
@@ -1307,7 +1332,13 @@ post_process_api_keys_configured?: Partial<{ [key in string]: boolean }>; post_p
  * Aggregate token metadata only; prompts, transcriptions and responses are
  * never included. Kept locally for twelve rolling monthly periods.
  */
-byok_usage?: ByokUsageSummary[]; mute_while_recording?: boolean; append_trailing_space?: boolean; app_language?: string; theme?: Theme; experimental_enabled?: boolean; lazy_stream_close?: boolean; keyboard_implementation?: KeyboardImplementation; show_tray_icon?: boolean; paste_delay_ms?: number; paste_delay_after_ms?: number;
+byok_usage?: ByokUsageSummary[]; mute_while_recording?: boolean; append_trailing_space?: boolean; app_language?: string; theme?: Theme; experimental_enabled?: boolean; lazy_stream_close?: boolean; keyboard_implementation?: KeyboardImplementation; 
+/**
+ * Set when the user continued without macOS Accessibility: shortcuts run
+ * on Carbon hotkeys and dictation is copied instead of pasted. Cleared,
+ * and the preferred implementation restored, once access is granted.
+ */
+accessibility_fallback_active?: boolean; show_tray_icon?: boolean; paste_delay_ms?: number; paste_delay_after_ms?: number;
 /**
  * Debug-gated ("beta") receipt-sequenced paste: restore the clipboard only
  * after the target app actually reads the transcript, instead of after a

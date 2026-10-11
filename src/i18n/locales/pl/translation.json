@@ -235,7 +235,9 @@
       },
       "accessibility": {
         "title": "Dostęp do dostępności",
-        "description": "Wymagany do wpisywania transkrybowanego tekstu w Twoich aplikacjach."
+        "description": "Wymagany do wpisywania transkrybowanego tekstu w Twoich aplikacjach.",
+        "skip": "Continue without Accessibility",
+        "skipDescription": "Without it, Pressay copies each dictation to the clipboard so you can paste it yourself. You can allow it later."
       },
       "grant": "Przyznaj uprawnienie",
       "granted": "Przyznano",
@@ -830,7 +832,12 @@
   },
   "accessibility": {
     "permissionsDescription": "Pressay potrzebuje uprawnień dostępności, aby wpisywać transkrybowany tekst.",
-    "openSettings": "Otwórz ustawienia systemowe"
+    "openSettings": "Otwórz ustawienia systemowe",
+    "copyModeTitle": "Copy mode: dictations go to the clipboard",
+    "copyModeDescription": "Allow Accessibility in System Settings so Pressay can paste text into your apps automatically.",
+    "useCopyMode": "Use copy mode",
+    "copiedTitle": "Copied to the clipboard",
+    "copiedDescription": "Press ⌘V to paste. Allow Accessibility to paste automatically."
   },
   "errors": {
     "loadDirectory": "Błąd wczytywania katalogu: {{error}}",

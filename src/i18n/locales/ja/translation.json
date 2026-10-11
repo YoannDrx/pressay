@@ -235,7 +235,9 @@
       },
       "accessibility": {
         "title": "アクセシビリティへのアクセス",
-        "description": "アプリに文字起こししたテキストを入力するために必要です。"
+        "description": "アプリに文字起こししたテキストを入力するために必要です。",
+        "skip": "Continue without Accessibility",
+        "skipDescription": "Without it, Pressay copies each dictation to the clipboard so you can paste it yourself. You can allow it later."
       },
       "grant": "権限を許可",
       "granted": "許可済み",
@@ -830,7 +832,12 @@
   },
   "accessibility": {
     "permissionsDescription": "Pressay が文字起こしテキストを入力するには、アクセシビリティ権限が必要です。",
-    "openSettings": "システム設定を開く"
+    "openSettings": "システム設定を開く",
+    "copyModeTitle": "Copy mode: dictations go to the clipboard",
+    "copyModeDescription": "Allow Accessibility in System Settings so Pressay can paste text into your apps automatically.",
+    "useCopyMode": "Use copy mode",
+    "copiedTitle": "Copied to the clipboard",
+    "copiedDescription": "Press ⌘V to paste. Allow Accessibility to paste automatically."
   },
   "errors": {
     "loadDirectory": "ディレクトリの読み込みエラー: {{error}}",

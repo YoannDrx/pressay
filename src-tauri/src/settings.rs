@@ -528,6 +528,11 @@ pub struct AppSettings {
     pub lazy_stream_close: bool,
     #[serde(default)]
     pub keyboard_implementation: KeyboardImplementation,
+    /// Set when the user continued without macOS Accessibility: shortcuts run
+    /// on Carbon hotkeys and dictation is copied instead of pasted. Cleared,
+    /// and the preferred implementation restored, once access is granted.
+    #[serde(default)]
+    pub accessibility_fallback_active: bool,
     #[serde(default = "default_show_tray_icon")]
     pub show_tray_icon: bool,
     #[serde(default = "default_paste_delay_ms")]
@@ -1037,6 +1042,7 @@ pub fn get_default_settings() -> AppSettings {
         experimental_enabled: false,
         lazy_stream_close: false,
         keyboard_implementation: KeyboardImplementation::default(),
+        accessibility_fallback_active: false,
         show_tray_icon: default_show_tray_icon(),
         paste_delay_ms: default_paste_delay_ms(),
         paste_delay_after_ms: default_paste_delay_after_ms(),

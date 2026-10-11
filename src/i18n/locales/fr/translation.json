@@ -235,7 +235,9 @@
       },
       "accessibility": {
         "title": "Accès à l'accessibilité",
-        "description": "Nécessaire pour taper le texte transcrit dans vos applications."
+        "description": "Nécessaire pour taper le texte transcrit dans vos applications.",
+        "skip": "Continuer sans Accessibilité",
+        "skipDescription": "Sans elle, Pressay copie chaque dictée dans le presse-papiers pour que vous la colliez vous-même. Vous pourrez l’autoriser plus tard."
       },
       "grant": "Accorder l'autorisation",
       "granted": "Accordé",
@@ -830,7 +832,12 @@
   },
   "accessibility": {
     "permissionsDescription": "Pressay a besoin des autorisations d'accessibilité pour taper le texte transcrit.",
-    "openSettings": "Ouvrir les Préférences Système"
+    "openSettings": "Ouvrir les Préférences Système",
+    "copyModeTitle": "Mode copie : les dictées vont dans le presse-papiers",
+    "copyModeDescription": "Autorisez l’Accessibilité dans Réglages Système pour que Pressay colle le texte automatiquement dans vos apps.",
+    "useCopyMode": "Utiliser le mode copie",
+    "copiedTitle": "Copié dans le presse-papiers",
+    "copiedDescription": "Appuyez sur ⌘V pour coller. Autorisez l’Accessibilité pour coller automatiquement."
   },
   "errors": {
     "loadDirectory": "Erreur lors du chargement du répertoire : {{error}}",

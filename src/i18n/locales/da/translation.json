@@ -235,7 +235,9 @@
       },
       "accessibility": {
         "title": "Tilgængelighedsadgang",
-        "description": "Påkrævet for at skrive den transskriberede tekst ind i dine programmer."
+        "description": "Påkrævet for at skrive den transskriberede tekst ind i dine programmer.",
+        "skip": "Continue without Accessibility",
+        "skipDescription": "Without it, Pressay copies each dictation to the clipboard so you can paste it yourself. You can allow it later."
       },
       "grant": "Giv tilladelse",
       "granted": "Givet",
@@ -833,7 +835,12 @@
   },
   "accessibility": {
     "permissionsDescription": "Pressay har brug for tilgængelighedstilladelser for at skrive den transskriberede tekst.",
-    "openSettings": "Åbn systemindstillinger"
+    "openSettings": "Åbn systemindstillinger",
+    "copyModeTitle": "Copy mode: dictations go to the clipboard",
+    "copyModeDescription": "Allow Accessibility in System Settings so Pressay can paste text into your apps automatically.",
+    "useCopyMode": "Use copy mode",
+    "copiedTitle": "Copied to the clipboard",
+    "copiedDescription": "Press ⌘V to paste. Allow Accessibility to paste automatically."
   },
   "errors": {
     "loadDirectory": "Fejl ved indlæsning af mappe: {{error}}",

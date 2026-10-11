@@ -235,7 +235,9 @@
       },
       "accessibility": {
         "title": "إمكانية الوصول",
-        "description": ".مطلوب لكتابة النص المفرغ في تطبيقاتك"
+        "description": ".مطلوب لكتابة النص المفرغ في تطبيقاتك",
+        "skip": "Continue without Accessibility",
+        "skipDescription": "Without it, Pressay copies each dictation to the clipboard so you can paste it yourself. You can allow it later."
       },
       "grant": "منح الإذن",
       "granted": "تم المنح",
@@ -830,7 +832,12 @@
   },
   "accessibility": {
     "permissionsDescription": ".يحتاج Pressay إلى أذونات إمكانية الوصول لكتابة النص المفرغ",
-    "openSettings": "فتح إعدادات النظام"
+    "openSettings": "فتح إعدادات النظام",
+    "copyModeTitle": "Copy mode: dictations go to the clipboard",
+    "copyModeDescription": "Allow Accessibility in System Settings so Pressay can paste text into your apps automatically.",
+    "useCopyMode": "Use copy mode",
+    "copiedTitle": "Copied to the clipboard",
+    "copiedDescription": "Press ⌘V to paste. Allow Accessibility to paste automatically."
   },
   "errors": {
     "loadDirectory": "خطأ في تحميل المجلد: {{error}}",

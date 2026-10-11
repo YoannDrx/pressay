@@ -3248,6 +3248,18 @@
   margin-top: 16px;
 }
 
+.permission-skip {
+  display: flex;
+  max-width: 500px;
+  margin-top: 16px;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--color-mid-gray);
+}
+
 .permission-success-panel {
   width: min(100%, 410px);
   min-height: 240px;
