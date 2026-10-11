@@ -369,7 +369,9 @@
           "restore": "无法恢复原始快捷键",
           "set": "无法设置快捷键: {{error}}",
           "reset": "无法将快捷键重置为原始值"
-        }
+        },
+        "changeLabel": "Change the {{name}}, currently {{binding}}",
+        "recordingLabel": "Recording a new {{name}}. Press the keys to use."
       },
       "language": {
         "title": "语言",

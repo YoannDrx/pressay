@@ -522,6 +522,7 @@ export function AccountSettings() {
                 onClick={() => void refresh()}
                 disabled={loading}
                 title={t("cloud.actions.refresh")}
+                aria-label={t("cloud.actions.refresh")}
               >
                 <RefreshCw
                   className={`h-4 w-4 ${loading ? "animate-spin" : ""}`}

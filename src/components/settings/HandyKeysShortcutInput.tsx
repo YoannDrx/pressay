@@ -38,6 +38,8 @@ export const HandyKeysShortcutInput: React.FC<HandyKeysShortcutInputProps> = ({
   const [currentKeys, setCurrentKeys] = useState<string>("");
   const [originalBinding, setOriginalBinding] = useState<string>("");
   const shortcutRef = useRef<HTMLDivElement | null>(null);
+  const shortcutButtonRef = useRef<HTMLButtonElement | null>(null);
+  const wasRecordingRef = useRef(false);
   const unlistenRef = useRef<(() => void) | null>(null);
   // Use a ref to track currentKeys for the event handler (avoids stale closure)
   const currentKeysRef = useRef<string>("");
@@ -190,6 +192,14 @@ export const HandyKeysShortcutInput: React.FC<HandyKeysShortcutInputProps> = ({
     t,
   ]);
 
+  // Give keyboard focus back to the shortcut button once recording ends.
+  useEffect(() => {
+    if (wasRecordingRef.current && !isRecording) {
+      shortcutButtonRef.current?.focus();
+    }
+    wasRecordingRef.current = isRecording;
+  }, [isRecording]);
+
   // Handle click outside
   useEffect(() => {
     if (!isRecording) return;
@@ -334,13 +344,31 @@ export const HandyKeysShortcutInput: React.FC<HandyKeysShortcutInputProps> = ({
     >
       <div className="flex items-center space-x-1">
         {isRecording ? (
-          <div ref={shortcutRef} className="shortcut-key-button is-recording">
+          <div
+            ref={shortcutRef}
+            className="shortcut-key-button is-recording"
+            role="status"
+            aria-live="polite"
+            aria-label={t("settings.general.shortcut.recordingLabel", {
+              name: translatedName,
+            })}
+          >
             {formatCurrentKeys()}
           </div>
         ) : (
-          <div className="shortcut-key-button" onClick={startRecording}>
+          <button
+            ref={shortcutButtonRef}
+            type="button"
+            className="shortcut-key-button"
+            onClick={() => void startRecording()}
+            disabled={disabled}
+            aria-label={t("settings.general.shortcut.changeLabel", {
+              name: translatedName,
+              binding: formatKeyCombination(binding.current_binding, osType),
+            })}
+          >
             {formatKeyCombination(binding.current_binding, osType)}
-          </div>
+          </button>
         )}
         <ResetButton
           onClick={handleReset}

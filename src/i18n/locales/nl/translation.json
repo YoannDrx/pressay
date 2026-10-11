@@ -349,7 +349,9 @@
           "restore": "Herstellen van originele sneltoets mislukt",
           "set": "Instellen van sneltoets mislukt: {{error}}",
           "reset": "Sneltoets terugzetten naar standaardwaarde mislukt"
-        }
+        },
+        "changeLabel": "Change the {{name}}, currently {{binding}}",
+        "recordingLabel": "Recording a new {{name}}. Press the keys to use."
       },
       "language": {
         "title": "Taal",

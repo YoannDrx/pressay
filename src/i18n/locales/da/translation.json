@@ -349,7 +349,9 @@
           "restore": "Kunne ikke gendanne den oprindelige genvej",
           "set": "Kunne ikke indstille genvej: {{error}}",
           "reset": "Kunne ikke nulstille genvej til oprindelig indstilling"
-        }
+        },
+        "changeLabel": "Change the {{name}}, currently {{binding}}",
+        "recordingLabel": "Recording a new {{name}}. Press the keys to use."
       },
       "language": {
         "title": "Sprog",

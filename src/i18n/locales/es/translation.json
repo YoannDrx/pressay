@@ -369,7 +369,9 @@
           "restore": "Error al restaurar el atajo original",
           "set": "Error al configurar el atajo: {{error}}",
           "reset": "Error al restablecer el atajo al valor original"
-        }
+        },
+        "changeLabel": "Change the {{name}}, currently {{binding}}",
+        "recordingLabel": "Recording a new {{name}}. Press the keys to use."
       },
       "language": {
         "title": "Idioma",

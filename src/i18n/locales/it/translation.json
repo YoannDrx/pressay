@@ -369,7 +369,9 @@
           "restore": "Errore nel ripristino della scorciatoia originale",
           "set": "Errore nella configurazione della scorciatoia: {{error}}",
           "reset": "Errore nella reinizializzazione della scorciatoia al valore originale"
-        }
+        },
+        "changeLabel": "Change the {{name}}, currently {{binding}}",
+        "recordingLabel": "Recording a new {{name}}. Press the keys to use."
       },
       "language": {
         "title": "Lingua",

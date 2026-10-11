@@ -349,7 +349,9 @@
           "restore": "Falha ao restaurar atalho original",
           "set": "Falha ao definir atalho: {{error}}",
           "reset": "Falha ao redefinir atalho para o valor original"
-        }
+        },
+        "changeLabel": "Change the {{name}}, currently {{binding}}",
+        "recordingLabel": "Recording a new {{name}}. Press the keys to use."
       },
       "language": {
         "title": "Idioma",

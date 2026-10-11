@@ -349,7 +349,9 @@
           "restore": "मूल सर्टकट पुनर्स्थापना गर्न सकिएन",
           "set": "सर्टकट सेट गर्न सकिएन: {{error}}",
           "reset": "सर्टकटलाई मूल मानमा रिसेट गर्न सकिएन"
-        }
+        },
+        "changeLabel": "Change the {{name}}, currently {{binding}}",
+        "recordingLabel": "Recording a new {{name}}. Press the keys to use."
       },
       "language": {
         "title": "भाषा",

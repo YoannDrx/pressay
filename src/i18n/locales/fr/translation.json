@@ -372,7 +372,9 @@
           "restore": "Échec de la restauration du raccourci original",
           "set": "Échec de la définition du raccourci : {{error}}",
           "reset": "Échec de la réinitialisation du raccourci à sa valeur d'origine"
-        }
+        },
+        "changeLabel": "Modifier : {{name}}, actuellement {{binding}}",
+        "recordingLabel": "Enregistrement : {{name}}. Appuyez sur les touches à utiliser."
       },
       "language": {
         "title": "Langue",

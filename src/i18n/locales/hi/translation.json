@@ -349,7 +349,9 @@
           "restore": "पहले वाला शॉर्टकट वापस नहीं लाया जा सका",
           "set": "शॉर्टकट सेट नहीं हो सका: {{error}}",
           "reset": "शॉर्टकट को पहले जैसा रीसेट नहीं किया जा सका"
-        }
+        },
+        "changeLabel": "Change the {{name}}, currently {{binding}}",
+        "recordingLabel": "Recording a new {{name}}. Press the keys to use."
       },
       "language": {
         "title": "भाषा",

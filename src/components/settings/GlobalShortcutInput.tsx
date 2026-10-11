@@ -35,6 +35,17 @@ export const GlobalShortcutInput: React.FC<GlobalShortcutInputProps> = ({
   );
   const [originalBinding, setOriginalBinding] = useState<string>("");
   const shortcutRefs = useRef<Map<string, HTMLDivElement | null>>(new Map());
+  const shortcutButtonRef = useRef<HTMLButtonElement | null>(null);
+  const wasEditingRef = useRef(false);
+  const isEditing = editingShortcutId === shortcutId;
+
+  // Give keyboard focus back to the shortcut button once recording ends.
+  useEffect(() => {
+    if (wasEditingRef.current && !isEditing) {
+      shortcutButtonRef.current?.focus();
+    }
+    wasEditingRef.current = isEditing;
+  }, [isEditing]);
   const osType = useOsType();
 
   const bindings = getSetting("bindings") || {};
@@ -289,16 +300,28 @@ export const GlobalShortcutInput: React.FC<GlobalShortcutInputProps> = ({
           <div
             ref={(ref) => setShortcutRef(shortcutId, ref)}
             className="shortcut-key-button is-recording"
+            role="status"
+            aria-live="polite"
+            aria-label={t("settings.general.shortcut.recordingLabel", {
+              name: translatedName,
+            })}
           >
             {formatCurrentKeys()}
           </div>
         ) : (
-          <div
+          <button
+            ref={shortcutButtonRef}
+            type="button"
             className="shortcut-key-button"
-            onClick={() => startRecording(shortcutId)}
+            onClick={() => void startRecording(shortcutId)}
+            disabled={disabled}
+            aria-label={t("settings.general.shortcut.changeLabel", {
+              name: translatedName,
+              binding: formatKeyCombination(binding.current_binding, osType),
+            })}
           >
             {formatKeyCombination(binding.current_binding, osType)}
-          </div>
+          </button>
         )}
         <ResetButton
           onClick={handleReset}

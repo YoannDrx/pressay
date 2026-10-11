@@ -349,7 +349,9 @@
           "restore": "שחזור קיצור הדרך המקורי נכשל",
           "set": "הגדרת קיצור הדרך נכשלה: {{error}}",
           "reset": "איפוס קיצור הדרך לערך המקורי נכשל"
-        }
+        },
+        "changeLabel": "Change the {{name}}, currently {{binding}}",
+        "recordingLabel": "Recording a new {{name}}. Press the keys to use."
       },
       "language": {
         "title": "שפה",

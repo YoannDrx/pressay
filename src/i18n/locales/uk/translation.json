@@ -349,7 +349,9 @@
           "restore": "Не вдалося відновити початкове скорочення",
           "set": "Не вдалося встановити скорочення: {{error}}",
           "reset": "Не вдалося скинути скорочення до початкового значення"
-        }
+        },
+        "changeLabel": "Change the {{name}}, currently {{binding}}",
+        "recordingLabel": "Recording a new {{name}}. Press the keys to use."
       },
       "language": {
         "title": "Мова",

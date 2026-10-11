@@ -349,7 +349,9 @@
           "restore": "Неуспешно възстановяване на оригиналния бърз клавиш",
           "set": "Неуспешно задаване на бързия клавиш: {{error}}",
           "reset": "Неуспешно нулиране на бързия клавиш към първоначалната стойност"
-        }
+        },
+        "changeLabel": "Change the {{name}}, currently {{binding}}",
+        "recordingLabel": "Recording a new {{name}}. Press the keys to use."
       },
       "language": {
         "title": "Език",
