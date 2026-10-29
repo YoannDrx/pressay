@@ -670,6 +670,9 @@ jobs:
         working-directory: src-tauri
         shell: pwsh
         run: |
+          # Outside the Tauri CLI, tauri-build only sees tauri.conf.json and
+          # rejects the macos-private-api feature the updater build enables.
+          $env:TAURI_CONFIG = Get-Content tauri.updater.conf.json -Raw
           $target = "${{ inputs.target }}"
           if ($target -and $target -ne "x86_64-pc-windows-msvc") {
             cargo test --release --lib --features updater --target $target
