@@ -1,6 +1,6 @@
 # Pressay distribution channels
 
-Pressay has two independently gated macOS distributions.
+Pressay has two independently gated macOS distributions and a Windows build.
 
 ## Direct DMG
 
@@ -13,6 +13,30 @@ Pressay has two independently gated macOS distributions.
 
 Tags matching `v*` may start the DMG workflow. The workflow must fail before
 building if Apple signing or notarization secrets are absent.
+
+## Windows
+
+- Targets: Windows 10 22H2 and Windows 11, `x86_64-pc-windows-msvc` and
+  `aarch64-pc-windows-msvc`
+- NSIS installer, per-user install, WebView2 bootstrapper embedded
+- Same updater key and `latest.json` as the DMG (`windows-x86_64`,
+  `windows-aarch64`); the NSIS installer is the update payload
+- Canonical download assets: `Pressay-windows-x64.exe`,
+  `Pressay-windows-arm64.exe` and their `.sha256`
+- Stripe/web billing like the DMG; no Microsoft Store build yet
+
+The release workflow builds Windows only when the repository variable
+`WINDOWS_RELEASE_ENABLED` is `true`. That switch requires Authenticode signing:
+
+| Kind     | Name                                                        | Value                                                     |
+| -------- | ----------------------------------------------------------- | --------------------------------------------------------- |
+| Secret   | `AZURE_CLIENT_ID`, `AZURE_CLIENT_SECRET`, `AZURE_TENANT_ID` | Service principal allowed to sign                         |
+| Variable | `AZURE_SIGNING_ENDPOINT`                                    | Region endpoint, e.g. `https://weu.codesigning.azure.net` |
+| Variable | `AZURE_SIGNING_ACCOUNT`                                     | Artifact Signing account name                             |
+| Variable | `AZURE_SIGNING_PROFILE`                                     | Certificate profile name                                  |
+
+A signed build fails if any of them is missing, and the release refuses an
+installer whose Authenticode signature is not valid.
 
 ## Mac App Store
 
