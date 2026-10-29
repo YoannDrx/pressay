@@ -381,7 +381,8 @@
         "description": "Konuşma tanıma dilini seçin. 'Otomatik' seçeneği dili kendisi belirler, ancak belirli bir dil seçmek o dildeki doğruluğu artırabilir.",
         "searchPlaceholder": "Dil ara...",
         "noResults": "Dil bulunamadı",
-        "auto": "Otomatik"
+        "auto": "Otomatik",
+        "autoDetectOnly": "Bu model konuşulan dili kendisi algılar ve tek bir dile sabitlenemez; bu yüzden kısa dikteler başka bir dilde çıkabilir. Her zaman tek bir dilde yazıya dökmek için bir Whisper modeli seçin."
       },
       "pushToTalk": {
         "label": "Bas Konuş",
