@@ -925,9 +925,9 @@ jobs:
           function Assert-PackageContents {
             param([string]$Root, [string]$Label)
 
-            $handy = Get-ChildItem $Root -Filter "handy.exe" -Recurse -ErrorAction SilentlyContinue | Select-Object -First 1
-            if (-not $handy) {
-              throw "$Label package is missing handy.exe"
+            $app = Get-ChildItem $Root -Filter "pressay.exe" -Recurse -ErrorAction SilentlyContinue | Select-Object -First 1
+            if (-not $app) {
+              throw "$Label package is missing pressay.exe"
             }
             foreach ($dll in $stagedDlls) {
               if (-not (Get-ChildItem $Root -Filter $dll.Name -Recurse -ErrorAction SilentlyContinue)) {
@@ -935,10 +935,10 @@ jobs:
               }
             }
 
-            $deviceOutput = (& $handy.FullName --list-devices | Out-String)
+            $deviceOutput = (& $app.FullName --list-devices | Out-String)
             $deviceOutput | Write-Host
             if ($LASTEXITCODE -ne 0) {
-              throw "$Label handy.exe --list-devices failed"
+              throw "$Label pressay.exe --list-devices failed"
             }
             if ("${{ inputs.target }}" -like "aarch64*" -and $deviceOutput -match "kind=(vulkan|cuda|metal|gpu)") {
               throw "$Label Windows ARM64 package unexpectedly exposed a GPU compute device"
@@ -966,10 +966,8 @@ jobs:
           }
 
           # Administrative install extracts the MSI payload without elevation.
+          # Pressay ships NSIS only; an MSI is audited when a build produces one.
           $msiPackages = Get-ChildItem (Join-Path $bundleBase "msi") -Filter "*.msi" -ErrorAction SilentlyContinue
-          if (-not $msiPackages) {
-            throw "No MSI packages found under $bundleBase for runtime DLL audit"
-          }
 
           foreach ($pkg in $msiPackages) {
             Write-Host "Auditing MSI package: $($pkg.FullName)"
