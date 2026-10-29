@@ -1,7 +1,7 @@
 {
   "name": "pressay-app",
   "private": true,
-  "version": "2.0.0",
+  "version": "2.0.0-beta.5",
   "type": "module",
   "scripts": {
     "dev": "vite",
@@ -18,7 +18,7 @@
     "test:playwright:ui": "playwright test --ui",
     "test:unit": "bun test unit-tests",
     "check:translations": "bun scripts/check-translations.ts",
-    "check:release-version": "bun scripts/check-release-version.ts --environment production-mac-app-store --environment production-direct",
+    "check:release-version": "bun scripts/check-release-version.ts --for-release",
     "check:personal-data": "bun scripts/check-personal-data.ts",
     "models:sign": "bash scripts/sign-model-catalog.sh",
     "storekit:validate": "bun scripts/validate-storekit-config.ts",

@@ -1,8 +1,9 @@
 # Building Pressay
 
-Pressay currently targets macOS 14 or newer on Apple Silicon. The inherited
-cross-platform core remains in the repository where keeping it compilable is
-low-cost, but Linux, Windows, and Intel builds are not release targets.
+Pressay targets macOS 14 or newer on Apple Silicon, and Windows 10 22H2 or
+Windows 11 on x64 and ARM64. The inherited Linux and Intel Mac paths remain in
+the repository where keeping them compilable is low-cost, but they are not
+release targets.
 
 ## Prerequisites
 
@@ -50,6 +51,26 @@ bun tauri build --target aarch64-apple-darwin \
 
 Signing, notarization, updater signing, and publication are performed only by
 the tagged release workflow. See `docs/RELEASES.md`.
+
+## Windows build
+
+Windows builds run in CI (`.github/workflows/windows-build.yml` on every pull
+request, `build.yml` for the steps). Building locally needs Visual Studio 2022
+Build Tools with the C++ workload, CMake, the Vulkan SDK and SPIRV-Headers on
+x64, and clang-cl on ARM64; follow the Windows steps of `build.yml`.
+
+```powershell
+bun install --frozen-lockfile
+bun tauri build --bundles nsis --config src-tauri/tauri.updater.conf.json --features updater
+```
+
+- The installer is NSIS, per user (no administrator prompt), with the WebView2
+  bootstrapper embedded.
+- Secrets are sealed with DPAPI for the current Windows user under
+  `%LOCALAPPDATA%\app.pressay.desktop\secrets`.
+- Unsigned builds trigger SmartScreen. Releases are signed with Azure Artifact
+  Signing once the `AZURE_*` secrets and `AZURE_SIGNING_*` variables exist and
+  `WINDOWS_RELEASE_ENABLED` is `true`; see `docs/RELEASES.md`.
 
 ## Mac App Store candidate
 

@@ -206,12 +206,122 @@ pub fn verify_correction_target(target: &TargetApplication, expected_text: &str)
         .is_some_and(|value| value_matches_expected(&value.to_string(), expected_text))
 }
 
-#[cfg(not(target_os = "macos"))]
+/// UI Automation, the Windows counterpart of the macOS AX queries above. The
+/// same rules apply: the focused element must belong to the target process,
+/// password fields are never read, and any failure exposes nothing.
+#[cfg(target_os = "windows")]
+mod uia {
+    use windows::core::Interface;
+    use windows::Win32::System::Com::{
+        CoCreateInstance, CoInitializeEx, CLSCTX_INPROC_SERVER, COINIT_MULTITHREADED,
+    };
+    use windows::Win32::UI::Accessibility::{
+        CUIAutomation, IUIAutomation, IUIAutomationElement, IUIAutomationTextPattern,
+        IUIAutomationValuePattern, UIA_TextPatternId, UIA_ValuePatternId,
+    };
+
+    /// Focused element of `process_id`, unless it is a password field.
+    pub fn focused_element(process_id: i32) -> Option<IUIAutomationElement> {
+        if process_id <= 0 {
+            return None;
+        }
+        // SAFETY: COM calls on interfaces owned by this function. A thread that
+        // already joined another apartment keeps it; UIA works from both.
+        unsafe {
+            let _ = CoInitializeEx(None, COINIT_MULTITHREADED);
+            let automation: IUIAutomation =
+                CoCreateInstance(&CUIAutomation, None, CLSCTX_INPROC_SERVER).ok()?;
+            let focused = automation.GetFocusedElement().ok()?;
+            if focused.CurrentProcessId().ok()? != process_id
+                || focused.CurrentIsPassword().ok()?.as_bool()
+            {
+                return None;
+            }
+            Some(focused)
+        }
+    }
+
+    fn pattern<T: Interface>(
+        element: &IUIAutomationElement,
+        id: windows::Win32::UI::Accessibility::UIA_PATTERN_ID,
+    ) -> Option<T> {
+        // SAFETY: `element` is a live UIA element.
+        unsafe { element.GetCurrentPatternAs::<T>(id) }.ok()
+    }
+
+    pub fn selected_text(element: &IUIAutomationElement, max_chars: usize) -> Option<String> {
+        let text_pattern: IUIAutomationTextPattern = pattern(element, UIA_TextPatternId)?;
+        // SAFETY: COM calls on live interfaces.
+        unsafe {
+            let ranges = text_pattern.GetSelection().ok()?;
+            let mut selected = String::new();
+            for index in 0..ranges.Length().ok()? {
+                let range = ranges.GetElement(index).ok()?;
+                selected.push_str(&range.GetText(max_chars as i32).ok()?.to_string());
+            }
+            Some(selected)
+        }
+    }
+
+    /// The element's whole value: ValuePattern for plain fields, else the
+    /// TextPattern document for rich editors.
+    pub fn current_value(element: &IUIAutomationElement) -> Option<String> {
+        if let Some(value) = pattern::<IUIAutomationValuePattern>(element, UIA_ValuePatternId) {
+            // SAFETY: COM call on a live interface.
+            if let Ok(value) = unsafe { value.CurrentValue() } {
+                return Some(value.to_string());
+            }
+        }
+        let text_pattern: IUIAutomationTextPattern = pattern(element, UIA_TextPatternId)?;
+        // SAFETY: COM calls on live interfaces.
+        unsafe {
+            Some(
+                text_pattern
+                    .DocumentRange()
+                    .ok()?
+                    .GetText(-1)
+                    .ok()?
+                    .to_string(),
+            )
+        }
+    }
+}
+
+#[cfg(target_os = "windows")]
+pub fn capture_selected_text(target: &TargetApplication) -> Option<SelectionContext> {
+    let focused = uia::focused_element(target.process_id)?;
+    let selected = uia::selected_text(&focused, MAX_SELECTION_CHARS)?;
+    let selected_text = bounded_selection(&selected)?;
+    Some(SelectionContext {
+        selected_text,
+        source_bundle_id: target.bundle_id.clone(),
+        source_app_name: target.app_name.clone(),
+        available: true,
+    })
+}
+
+/// Same contract as macOS: fail closed unless the target still owns focus and
+/// its value ends with the text Pressay inserted.
+#[cfg(target_os = "windows")]
+pub fn verify_correction_target(target: &TargetApplication, expected_text: &str) -> bool {
+    if expected_text.trim().is_empty()
+        || frontmost_application().is_none_or(|frontmost| {
+            frontmost.bundle_id != target.bundle_id || frontmost.process_id != target.process_id
+        })
+    {
+        return false;
+    }
+    uia::focused_element(target.process_id)
+        .and_then(|focused| uia::current_value(&focused))
+        .is_some_and(|value| value_matches_expected(&value, expected_text))
+}
+
+#[cfg(not(any(target_os = "macos", target_os = "windows")))]
 pub fn capture_selected_text(_target: &TargetApplication) -> Option<SelectionContext> {
     None
 }
 
-#[cfg(not(target_os = "macos"))]
+#[cfg(not(any(target_os = "macos", target_os = "windows")))]
 pub fn verify_correction_target(_target: &TargetApplication, _expected_text: &str) -> bool {
     false
 }

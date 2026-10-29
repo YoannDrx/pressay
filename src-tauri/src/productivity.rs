@@ -458,7 +458,58 @@ pub fn frontmost_application() -> Option<TargetApplication> {
     })
 }
 
-#[cfg(not(target_os = "macos"))]
+/// On Windows the profile key is the lower-case executable name
+/// (`winword.exe`), the closest stable equivalent of a bundle identifier.
+#[cfg(target_os = "windows")]
+pub fn frontmost_application() -> Option<TargetApplication> {
+    use std::ffi::OsString;
+    use std::os::windows::ffi::OsStringExt;
+    use std::path::PathBuf;
+    use windows::core::PWSTR;
+    use windows::Win32::Foundation::CloseHandle;
+    use windows::Win32::System::Threading::{
+        OpenProcess, QueryFullProcessImageNameW, PROCESS_NAME_WIN32,
+        PROCESS_QUERY_LIMITED_INFORMATION,
+    };
+    use windows::Win32::UI::WindowsAndMessaging::{GetForegroundWindow, GetWindowThreadProcessId};
+
+    // SAFETY: plain Win32 queries on handles owned by this function.
+    unsafe {
+        let window = GetForegroundWindow();
+        if window.is_invalid() {
+            return None;
+        }
+        let mut process_id = 0u32;
+        GetWindowThreadProcessId(window, Some(&mut process_id as *mut u32));
+        if process_id == 0 || process_id == std::process::id() {
+            return None;
+        }
+        let process = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, false, process_id).ok()?;
+        let mut buffer = [0u16; 1024];
+        let mut length = buffer.len() as u32;
+        let queried = QueryFullProcessImageNameW(
+            process,
+            PROCESS_NAME_WIN32,
+            PWSTR(buffer.as_mut_ptr()),
+            &mut length,
+        );
+        let _ = CloseHandle(process);
+        queried.ok()?;
+        let path = PathBuf::from(OsString::from_wide(&buffer[..length as usize]));
+        let bundle_id = path.file_name()?.to_string_lossy().to_lowercase();
+        let app_name = path
+            .file_stem()
+            .map(|stem| stem.to_string_lossy().to_string())
+            .unwrap_or_else(|| bundle_id.clone());
+        Some(TargetApplication {
+            bundle_id,
+            app_name,
+            process_id: process_id as i32,
+        })
+    }
+}
+
+#[cfg(not(any(target_os = "macos", target_os = "windows")))]
 pub fn frontmost_application() -> Option<TargetApplication> {
     None
 }
@@ -1020,7 +1071,9 @@ pub fn validate_profile(
     validate_text(&profile.bundle_id, "Bundle ID", 255)?;
     static BUNDLE_ID_PATTERN: OnceLock<Regex> = OnceLock::new();
     let bundle_pattern = BUNDLE_ID_PATTERN
-        .get_or_init(|| Regex::new(r"^[A-Za-z0-9-]+(?:\.[A-Za-z0-9-]+)+$").unwrap());
+        // Reverse-DNS bundle IDs on macOS, executable names (`ms_teams.exe`)
+        // on Windows.
+        .get_or_init(|| Regex::new(r"^[A-Za-z0-9_-]+(?:\.[A-Za-z0-9_-]+)+$").unwrap());
     if !bundle_pattern.is_match(profile.bundle_id.trim()) {
         return Err("Bundle ID must use reverse-DNS notation".to_string());
     }

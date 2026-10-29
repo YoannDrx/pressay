@@ -87,6 +87,7 @@ export function presentError(t: Translate, raw: string | null | undefined) {
   if (CODE_PATTERN.test(raw.trim())) return describeAppError(t, raw);
   // Keychain failures from the native layer are English sentences; give the
   // user the translated, actionable version instead.
-  if (/\bKeychain\b/.test(raw)) return t("errors.codes.keychain");
+  if (/\bKeychain\b|secure storage/.test(raw))
+    return t("errors.codes.keychain");
   return raw;
 }

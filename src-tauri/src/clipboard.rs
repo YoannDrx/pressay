@@ -730,6 +730,9 @@ pub enum PasteDispatch {
     AwaitingReceipt,
 }
 
+/// Failure code when Windows refuses simulated input to the target window.
+pub const PASTE_TARGET_ELEVATED: &str = "paste_target_elevated";
+
 pub fn paste(text: String, app_handle: AppHandle) -> Result<PasteDispatch, String> {
     let settings = get_settings(&app_handle);
     let paste_method = settings.paste_method;
@@ -742,6 +745,15 @@ pub fn paste(text: String, app_handle: AppHandle) -> Result<PasteDispatch, Strin
     } else {
         text
     };
+
+    // Windows drops simulated keystrokes sent to a window running at a higher
+    // integrity level (an app started as administrator) without any error, so
+    // the dictation would vanish. Leave it on the clipboard and say so.
+    #[cfg(target_os = "windows")]
+    if paste_method != PasteMethod::None && crate::windows_integrity::foreground_is_elevated() {
+        write_text_to_clipboard(&app_handle, &text)?;
+        return Err(PASTE_TARGET_ELEVATED.to_string());
+    }
 
     info!(
         "Using paste method: {:?}, delay before: {}ms, delay after: {}ms",

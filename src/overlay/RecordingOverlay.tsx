@@ -322,6 +322,7 @@ const RecordingOverlay: React.FC = () => {
       "silent_input",
       "microphone_permission_denied",
       "paste_failed",
+      "paste_target_elevated",
       "transform_timeout",
     ];
     const errorLabel =

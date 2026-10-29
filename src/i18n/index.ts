@@ -1,10 +1,11 @@
 import i18n from "i18next";
 import { initReactI18next } from "react-i18next";
 import { isTauri } from "@tauri-apps/api/core";
-import { locale } from "@tauri-apps/plugin-os";
+import { locale, platform } from "@tauri-apps/plugin-os";
 import { LANGUAGE_METADATA } from "./languages";
 import { commands } from "@/bindings";
 import english from "./locales/en/translation.json";
+import { windowsOverrides } from "./platform/windows";
 import {
   getLanguageDirection,
   updateDocumentDirection,
@@ -85,12 +86,24 @@ i18n.use(initReactI18next).init({
   },
 });
 
+const isWindows = isTauri() && platform() === "windows";
+
+/** Swap Mac wording for Windows wording on top of a loaded catalogue. */
+const applyPlatformOverrides = (langCode: string) => {
+  const overrides = isWindows ? windowsOverrides[langCode] : undefined;
+  if (overrides)
+    i18n.addResourceBundle(langCode, "translation", overrides, true, true);
+};
+
+applyPlatformOverrides("en");
+
 const loadLanguage = async (langCode: string) => {
   if (i18n.hasResourceBundle(langCode, "translation")) return;
   const loader = localeModules[`./locales/${langCode}/translation.json`];
   if (!loader) return;
   const module = await loader();
   i18n.addResourceBundle(langCode, "translation", module.default, true, true);
+  applyPlatformOverrides(langCode);
 };
 
 export const changeAppLanguage = async (langCode: string) => {

@@ -3,6 +3,7 @@ import {
   checkEnvironmentAcceptsVersion,
   checkVersionsMatch,
   readVersionSources,
+  releaseEnvironmentsFor,
 } from "../scripts/check-release-version";
 
 describe("release version consistency", () => {
@@ -33,5 +34,13 @@ describe("release version consistency", () => {
         channel: "beta",
       }),
     ).not.toThrow();
+  });
+
+  test("a release checks the environments release.yml builds for", () => {
+    expect(releaseEnvironmentsFor("2.0.0-beta.5")).toEqual(["staging-direct"]);
+    expect(releaseEnvironmentsFor("2.0.0")).toEqual([
+      "production-mac-app-store",
+      "production-direct",
+    ]);
   });
 });

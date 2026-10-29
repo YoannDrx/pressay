@@ -1,0 +1,6 @@
+# Signed or hashed artifacts are verified byte for byte at runtime. Keep them
+# out of line-ending conversion so a Windows checkout (core.autocrlf) cannot
+# change their bytes and break the bundled catalog signature.
+src-tauri/src/catalog/catalog.json -text
+src-tauri/src/catalog/catalog.sig binary
+src-tauri/src/catalog/catalog.pub binary

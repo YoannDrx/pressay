@@ -29,3 +29,32 @@ test("rejects a DMG, unsigned payload, wrong host and mismatched version", () =>
   expect(() => checkUpdaterManifest(value, "2.0.0")).toThrow();
   expect(() => checkUpdaterManifest(manifest(), "2.0.1")).toThrow();
 });
+
+test("requires signed Windows installers when Windows ships", () => {
+  const signature = manifest().platforms["darwin-aarch64"].signature;
+  const base = "https://github.com/YoannDrx/pressay/releases/download/v2.0.0";
+  const value = {
+    ...manifest(),
+    platforms: {
+      ...manifest().platforms,
+      "windows-x86_64": {
+        url: `${base}/Pressay_2.0.0_x64-setup.exe`,
+        signature,
+      },
+      "windows-aarch64": {
+        url: `${base}/Pressay_2.0.0_arm64-setup.exe`,
+        signature,
+      },
+    },
+  };
+  expect(() =>
+    checkUpdaterManifest(value, "2.0.0", { requireWindows: true }),
+  ).not.toThrow();
+  expect(() =>
+    checkUpdaterManifest(manifest(), "2.0.0", { requireWindows: true }),
+  ).toThrow();
+  value.platforms["windows-x86_64"].url = `${base}/Pressay_2.0.0_x64_en-US.msi`;
+  expect(() =>
+    checkUpdaterManifest(value, "2.0.0", { requireWindows: true }),
+  ).toThrow();
+});

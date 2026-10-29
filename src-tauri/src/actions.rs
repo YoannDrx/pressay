@@ -1926,7 +1926,27 @@ impl ShortcutAction for TranscribeAction {
                                         );
                                     }
                                     Some(PasteCompletion::Cancelled) => {}
-                                    Some(PasteCompletion::Finished(Err(_))) | None => {
+                                    Some(PasteCompletion::Finished(Err(error))) => {
+                                        // An elevated target already has the text on the
+                                        // clipboard; any other failure is a paste failure.
+                                        let code =
+                                            if error == crate::clipboard::PASTE_TARGET_ELEVATED {
+                                                crate::clipboard::PASTE_TARGET_ELEVATED
+                                            } else {
+                                                "paste_failed"
+                                            };
+                                        if let Some(coordinator) =
+                                            ah.try_state::<TranscriptionCoordinator>()
+                                        {
+                                            coordinator.fail(
+                                                operation_id,
+                                                PipelinePhase::Pasting,
+                                                code,
+                                                true,
+                                            );
+                                        }
+                                    }
+                                    None => {
                                         if let Some(coordinator) =
                                             ah.try_state::<TranscriptionCoordinator>()
                                         {

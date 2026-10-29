@@ -3,6 +3,16 @@
     "resources": {
       "resources": "resources",
       "transcribe-libs": "."
+    },
+    "windows": {
+      "webviewInstallMode": {
+        "type": "embedBootstrapper"
+      },
+      "nsis": {
+        "installMode": "currentUser",
+        "languages": ["English", "French"],
+        "displayLanguageSelector": false
+      }
     }
   }
 }

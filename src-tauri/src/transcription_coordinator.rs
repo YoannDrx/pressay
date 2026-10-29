@@ -797,6 +797,7 @@ fn failure_actions(code: &str, recoverable: bool) -> Vec<VoiceSurfaceAction> {
             VoiceSurfaceAction::Copy,
             VoiceSurfaceAction::OpenAccessibilitySettings,
         ],
+        "paste_target_elevated" => vec![VoiceSurfaceAction::Copy],
         _ => Vec::new(),
     };
     if recoverable && !actions.contains(&VoiceSurfaceAction::Retry) {

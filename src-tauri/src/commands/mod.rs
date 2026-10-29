@@ -93,26 +93,129 @@ pub fn get_local_readiness(app: AppHandle) -> LocalReadiness {
             .and_then(|value| value.parse::<u64>().ok()),
         command_output("/usr/bin/sw_vers", &["-productVersion"]),
     );
-    #[cfg(not(target_os = "macos"))]
+    #[cfg(target_os = "windows")]
+    let (chip, memory_bytes, macos_version) = windows_readiness::hardware();
+    #[cfg(not(any(target_os = "macos", target_os = "windows")))]
     let (chip, memory_bytes, macos_version): (Option<String>, Option<u64>, Option<String>) =
         (None, None, None);
 
-    let supported = cfg!(all(target_os = "macos", target_arch = "aarch64"))
+    #[cfg(target_os = "macos")]
+    let supported = cfg!(target_arch = "aarch64")
         && macos_version
             .as_deref()
             .and_then(|version| version.split('.').next())
             .and_then(|major| major.parse::<u32>().ok())
             .is_some_and(|major| major >= 14);
+    #[cfg(target_os = "windows")]
+    let supported = windows_readiness::supported_build();
+    #[cfg(not(any(target_os = "macos", target_os = "windows")))]
+    let supported = false;
     let recommended_preset = recommended_preset(memory_bytes).to_string();
+
+    #[cfg(target_os = "windows")]
+    let available_storage = app_data_dir
+        .as_deref()
+        .and_then(windows_readiness::available_storage_bytes);
+    #[cfg(not(target_os = "windows"))]
+    let available_storage = app_data_dir.as_deref().and_then(available_storage_bytes);
 
     LocalReadiness {
         architecture,
         chip,
         memory_bytes,
-        available_storage_bytes: app_data_dir.as_deref().and_then(available_storage_bytes),
+        available_storage_bytes: available_storage,
         macos_version,
         supported,
         recommended_preset,
+    }
+}
+
+/// Windows counterpart of the macOS `sysctl`/`sw_vers`/`df` probes. The OS
+/// version travels in `macos_version` (the field names the platform's
+/// version; the UI labels it per platform).
+#[cfg(target_os = "windows")]
+mod windows_readiness {
+    use std::os::windows::ffi::OsStrExt;
+    use std::path::Path;
+    use windows::core::PCWSTR;
+    use windows::Win32::Storage::FileSystem::GetDiskFreeSpaceExW;
+    use windows::Win32::System::SystemInformation::{GlobalMemoryStatusEx, MEMORYSTATUSEX};
+    use winreg::enums::HKEY_LOCAL_MACHINE;
+    use winreg::RegKey;
+
+    /// Windows 10 22H2. Older builds are out of Microsoft support.
+    const MINIMUM_BUILD: u32 = 19045;
+
+    fn current_build() -> Option<u32> {
+        RegKey::predef(HKEY_LOCAL_MACHINE)
+            .open_subkey(r"SOFTWARE\Microsoft\Windows NT\CurrentVersion")
+            .ok()?
+            .get_value::<String, _>("CurrentBuildNumber")
+            .ok()?
+            .parse()
+            .ok()
+    }
+
+    pub fn supported_build() -> bool {
+        current_build().is_some_and(|build| build >= MINIMUM_BUILD)
+    }
+
+    fn version_label() -> Option<String> {
+        let build = current_build()?;
+        let display = RegKey::predef(HKEY_LOCAL_MACHINE)
+            .open_subkey(r"SOFTWARE\Microsoft\Windows NT\CurrentVersion")
+            .ok()
+            .and_then(|key| key.get_value::<String, _>("DisplayVersion").ok());
+        // ProductName still says "Windows 10" on Windows 11; the build decides.
+        let product = if build >= 22000 {
+            "Windows 11"
+        } else {
+            "Windows 10"
+        };
+        Some(match display {
+            Some(display) => format!("{product} {display} ({build})"),
+            None => format!("{product} ({build})"),
+        })
+    }
+
+    fn processor_name() -> Option<String> {
+        RegKey::predef(HKEY_LOCAL_MACHINE)
+            .open_subkey(r"HARDWARE\DESCRIPTION\System\CentralProcessor\0")
+            .ok()?
+            .get_value::<String, _>("ProcessorNameString")
+            .ok()
+            .map(|name| name.trim().to_string())
+            .filter(|name| !name.is_empty())
+    }
+
+    fn memory_bytes() -> Option<u64> {
+        let mut status = MEMORYSTATUSEX {
+            dwLength: std::mem::size_of::<MEMORYSTATUSEX>() as u32,
+            ..Default::default()
+        };
+        // SAFETY: `status` is a live, correctly sized MEMORYSTATUSEX.
+        unsafe { GlobalMemoryStatusEx(&mut status) }.ok()?;
+        Some(status.ullTotalPhys)
+    }
+
+    pub fn hardware() -> (Option<String>, Option<u64>, Option<String>) {
+        (processor_name(), memory_bytes(), version_label())
+    }
+
+    pub fn available_storage_bytes(path: &Path) -> Option<u64> {
+        let wide: Vec<u16> = path.as_os_str().encode_wide().chain(Some(0)).collect();
+        let mut available = 0u64;
+        // SAFETY: `wide` is NUL-terminated and outlives the call.
+        unsafe {
+            GetDiskFreeSpaceExW(
+                PCWSTR(wide.as_ptr()),
+                Some(&mut available as *mut u64),
+                None,
+                None,
+            )
+        }
+        .ok()?;
+        Some(available)
     }
 }
 

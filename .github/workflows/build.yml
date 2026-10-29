@@ -51,6 +51,16 @@ on:
         required: false
         type: boolean
         default: false
+      run-rust-tests:
+        required: false
+        type: boolean
+        default: false
+      # Authenticode on Windows. A release may opt out (unsigned public beta)
+      # while the updater payload stays minisign-signed through sign-binaries.
+      windows-authenticode:
+        required: false
+        type: boolean
+        default: true
 
 env:
   TSC_VERSION: "0.9.0"
@@ -178,7 +188,7 @@ jobs:
           cache: true
 
       - name: Cache trusted-signing-cli
-        if: contains(inputs.platform, 'windows') && inputs.sign-binaries
+        if: contains(inputs.platform, 'windows') && inputs.sign-binaries && inputs.windows-authenticode
         id: cache-tsc
         uses: actions/cache@v6
         with:
@@ -186,8 +196,34 @@ jobs:
           key: trusted-signing-cli-${{ env.TSC_VERSION }}-${{ runner.os }}-${{ runner.arch }}
 
       - name: Install trusted-signing-cli
-        if: contains(inputs.platform, 'windows') && inputs.sign-binaries && steps.cache-tsc.outputs.cache-hit != 'true'
+        if: contains(inputs.platform, 'windows') && inputs.sign-binaries && inputs.windows-authenticode && steps.cache-tsc.outputs.cache-hit != 'true'
         run: cargo install trusted-signing-cli@${{ env.TSC_VERSION }}
+
+      # Authenticode through Azure Artifact Signing. The account and profile are
+      # repository variables; the service principal is a secret. Signed Windows
+      # builds fail closed when any of them is missing.
+      - name: Configure Windows code signing
+        if: contains(inputs.platform, 'windows') && inputs.sign-binaries && inputs.windows-authenticode
+        shell: pwsh
+        env:
+          SIGNING_ENDPOINT: ${{ vars.AZURE_SIGNING_ENDPOINT }}
+          SIGNING_ACCOUNT: ${{ vars.AZURE_SIGNING_ACCOUNT }}
+          SIGNING_PROFILE: ${{ vars.AZURE_SIGNING_PROFILE }}
+          AZURE_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
+          AZURE_CLIENT_SECRET: ${{ secrets.AZURE_CLIENT_SECRET }}
+          AZURE_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          foreach ($name in 'SIGNING_ENDPOINT','SIGNING_ACCOUNT','SIGNING_PROFILE','AZURE_CLIENT_ID','AZURE_CLIENT_SECRET','AZURE_TENANT_ID') {
+            if (-not (Get-Item "env:$name" -ErrorAction SilentlyContinue).Value) {
+              throw "Windows signing is enabled but $name is not configured"
+            }
+          }
+          $path = "src-tauri/tauri.windows.conf.json"
+          $config = Get-Content $path -Raw | ConvertFrom-Json
+          $command = "trusted-signing-cli -e $env:SIGNING_ENDPOINT -a $env:SIGNING_ACCOUNT -c $env:SIGNING_PROFILE -d Pressay %1"
+          $config.bundle.windows | Add-Member -NotePropertyName signCommand -NotePropertyValue $command -Force
+          $config | ConvertTo-Json -Depth 20 | Set-Content $path -Encoding utf8
 
       - name: Prepare Vulkan SDK for Ubuntu 24.04
         if: contains(inputs.platform, 'ubuntu-24.04') && !contains(inputs.platform, 'arm')
@@ -227,6 +263,12 @@ jobs:
       - name: install frontend dependencies (Windows ARM64)
         if: ${{ contains(inputs.platform, 'windows') && contains(inputs.target, 'aarch64') }}
         run: bun install --frozen-lockfile --cpu=arm64
+
+      # Bun on windows-11-arm skips the win32/arm64 native packages; install
+      # the exact versions bun.lock pins, integrity-checked.
+      - name: Ensure native Node bindings (Windows ARM64)
+        if: ${{ contains(inputs.platform, 'windows') && contains(inputs.target, 'aarch64') }}
+        run: bun scripts/ci/ensure-windows-arm64-bindings.ts
 
       - name: rustup install target
         if: ${{ inputs.target != '' && !contains(inputs.target, 'x86_64-unknown-linux-gnu') && !contains(inputs.target, 'aarch64-unknown-linux-gnu') && !contains(inputs.target, 'x86_64-pc-windows-msvc') }}
@@ -539,6 +581,9 @@ jobs:
           # multi-identity PKCS#12 again and may select Apple Development instead
           # of the verified Developer ID Application identity.
           APPLE_SIGNING_IDENTITY: ${{ inputs.sign-binaries && env.CERT_ID || '' }}
+          AZURE_CLIENT_ID: ${{ contains(inputs.platform, 'windows') && inputs.sign-binaries && inputs.windows-authenticode && secrets.AZURE_CLIENT_ID || '' }}
+          AZURE_CLIENT_SECRET: ${{ contains(inputs.platform, 'windows') && inputs.sign-binaries && inputs.windows-authenticode && secrets.AZURE_CLIENT_SECRET || '' }}
+          AZURE_TENANT_ID: ${{ contains(inputs.platform, 'windows') && inputs.sign-binaries && inputs.windows-authenticode && secrets.AZURE_TENANT_ID || '' }}
           TAURI_SIGNING_PRIVATE_KEY: ${{ inputs.sign-binaries && secrets.TAURI_SIGNING_PRIVATE_KEY || '' }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ inputs.sign-binaries && secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD || '' }}
           # The Vulkan loader and Wayland client library must come from the host
@@ -556,6 +601,9 @@ jobs:
           releaseName: ${{ inputs.release-id && format('v{0}', steps.get-version.outputs.version) || '' }}
           releaseId: ${{ inputs.release-id }}
           includeUpdaterJson: true
+          # Without this the generic windows-x86_64 key points at an MSI, which
+          # Pressay does not ship.
+          updaterJsonPreferNsis: true
           assetNamePattern: ${{ steps.patch-release-name.outputs.platform }}
           args: ${{ inputs.build-args }}
 
@@ -620,6 +668,53 @@ jobs:
           shasum -a 256 Pressay.dmg > Pressay.dmg.sha256
           gh release upload "v${{ steps.get-version.outputs.version }}" \
             Pressay.dmg Pressay.dmg.sha256 "$ARCH_DMG" --clobber
+
+      # Reuses the release-profile dependencies the bundle just compiled, so
+      # only the Pressay crate is rebuilt for its unit tests.
+      - name: Run Rust tests (Windows)
+        if: contains(inputs.platform, 'windows') && inputs.run-rust-tests
+        working-directory: src-tauri
+        shell: pwsh
+        run: |
+          # Outside the Tauri CLI, tauri-build only sees tauri.conf.json and
+          # rejects the macos-private-api feature the updater build enables.
+          $env:TAURI_CONFIG = Get-Content tauri.updater.conf.json -Raw
+          $target = "${{ inputs.target }}"
+          if ($target -and $target -ne "x86_64-pc-windows-msvc") {
+            cargo test --release --lib --features updater --target $target
+          } else {
+            cargo test --release --lib --features updater
+          }
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - name: Publish canonical Windows download assets
+        if: inputs.release-id != '' && contains(inputs.platform, 'windows')
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $profile = "${{ steps.build-profile.outputs.profile }}"
+          $target = "${{ inputs.target }}"
+          if ($target -and $target -ne "x86_64-pc-windows-msvc") {
+            $bundle = "src-tauri/target/$target/$profile/bundle/nsis"
+          } else {
+            $bundle = "src-tauri/target/$profile/bundle/nsis"
+          }
+          $installer = Get-ChildItem $bundle -Filter "*-setup.exe" | Select-Object -First 1
+          if (-not $installer) { throw "No NSIS installer produced for the release" }
+          if ("${{ inputs.sign-binaries && inputs.windows-authenticode }}" -eq "true") {
+            $signature = Get-AuthenticodeSignature $installer.FullName
+            if ($signature.Status -ne 'Valid') {
+              throw "The installer is not validly signed: $($signature.Status)"
+            }
+          }
+          $arch = if ($target -like "aarch64*") { "arm64" } else { "x64" }
+          $name = "Pressay-windows-$arch.exe"
+          Copy-Item $installer.FullName $name
+          $hash = (Get-FileHash $name -Algorithm SHA256).Hash.ToLower()
+          Set-Content "$name.sha256" "$hash  $name" -NoNewline -Encoding ascii
+          gh release upload "v${{ steps.get-version.outputs.version }}" $name "$name.sha256" --clobber
 
       # tauri-action uploads release assets before returning. All AppImage
       # filtering therefore happens inside linuxdeploy above; this verifies the
@@ -925,9 +1020,9 @@ jobs:
           function Assert-PackageContents {
             param([string]$Root, [string]$Label)
 
-            $handy = Get-ChildItem $Root -Filter "handy.exe" -Recurse -ErrorAction SilentlyContinue | Select-Object -First 1
-            if (-not $handy) {
-              throw "$Label package is missing handy.exe"
+            $app = Get-ChildItem $Root -Filter "pressay.exe" -Recurse -ErrorAction SilentlyContinue | Select-Object -First 1
+            if (-not $app) {
+              throw "$Label package is missing pressay.exe"
             }
             foreach ($dll in $stagedDlls) {
               if (-not (Get-ChildItem $Root -Filter $dll.Name -Recurse -ErrorAction SilentlyContinue)) {
@@ -935,10 +1030,10 @@ jobs:
               }
             }
 
-            $deviceOutput = (& $handy.FullName --list-devices | Out-String)
+            $deviceOutput = (& $app.FullName --list-devices | Out-String)
             $deviceOutput | Write-Host
             if ($LASTEXITCODE -ne 0) {
-              throw "$Label handy.exe --list-devices failed"
+              throw "$Label pressay.exe --list-devices failed"
             }
             if ("${{ inputs.target }}" -like "aarch64*" -and $deviceOutput -match "kind=(vulkan|cuda|metal|gpu)") {
               throw "$Label Windows ARM64 package unexpectedly exposed a GPU compute device"
@@ -962,14 +1057,27 @@ jobs:
               throw "Silent portable install failed for $($pkg.FullName) with exit code $($proc.ExitCode)"
             }
             Assert-PackageContents -Root $installDir -Label "Installed NSIS"
+
+            # Launch the real app, not just the CLI: a startup panic (for
+            # example a catalog that fails its signature) exits within seconds.
+            $app = Get-ChildItem $installDir -Filter "pressay.exe" -Recurse | Select-Object -First 1
+            $running = Start-Process -FilePath $app.FullName -ArgumentList "--start-hidden" -PassThru
+            Start-Sleep -Seconds 25
+            $running.Refresh()
+            if ($running.HasExited) {
+              $logs = Join-Path $env:APPDATA "app.pressay.desktop\logs"
+              if (Test-Path $logs) { Get-ChildItem $logs -Recurse -File | ForEach-Object { Get-Content $_.FullName -Tail 80 } }
+              throw "Installed pressay.exe exited during startup with code $($running.ExitCode)"
+            }
+            Write-Host "Installed pressay.exe is still running after 25 seconds"
+            Stop-Process -Id $running.Id -Force
+            Start-Sleep -Seconds 2
             Remove-Item -Recurse -Force $installDir
           }
 
           # Administrative install extracts the MSI payload without elevation.
+          # Pressay ships NSIS only; an MSI is audited when a build produces one.
           $msiPackages = Get-ChildItem (Join-Path $bundleBase "msi") -Filter "*.msi" -ErrorAction SilentlyContinue
-          if (-not $msiPackages) {
-            throw "No MSI packages found under $bundleBase for runtime DLL audit"
-          }
 
           foreach ($pkg in $msiPackages) {
             Write-Host "Auditing MSI package: $($pkg.FullName)"

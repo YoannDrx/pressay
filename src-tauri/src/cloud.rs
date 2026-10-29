@@ -554,7 +554,22 @@ struct BootstrapRequest<'a> {
     display_name: &'a str,
     app_variant: &'a str,
     app_version: &'a str,
+    /// Omitted on macOS: the Cloud defaults to `macos`, so older servers and
+    /// clients keep their exact request shape.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    platform: Option<&'a str>,
 }
+
+/// Generic on purpose: a computer name often carries a person's name.
+#[cfg(target_os = "windows")]
+const DEVICE_DISPLAY_NAME: &str = "Pressay PC";
+#[cfg(not(target_os = "windows"))]
+const DEVICE_DISPLAY_NAME: &str = "Pressay Mac";
+
+#[cfg(target_os = "windows")]
+const DEVICE_PLATFORM: Option<&str> = Some("windows");
+#[cfg(not(target_os = "windows"))]
+const DEVICE_PLATFORM: Option<&str> = None;
 
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -1230,13 +1245,14 @@ async fn bootstrap_device(app: &AppHandle) -> Result<(), CloudFailure> {
         .bearer_auth(token)
         .json(&BootstrapRequest {
             device_identifier: &settings.pressay_cloud_device_identifier,
-            display_name: "Pressay Mac",
+            display_name: DEVICE_DISPLAY_NAME,
             app_variant: if cfg!(feature = "mas") {
                 "mas"
             } else {
                 "direct"
             },
             app_version: env!("CARGO_PKG_VERSION"),
+            platform: DEVICE_PLATFORM,
         })
         .send()
         .await
