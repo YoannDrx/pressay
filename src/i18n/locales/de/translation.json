@@ -381,7 +381,8 @@
         "description": "Wähle die Sprache für die Spracherkennung. Auto erkennt die Sprache automatisch, die Auswahl einer bestimmten Sprache kann die Genauigkeit verbessern.",
         "searchPlaceholder": "Sprachen suchen...",
         "noResults": "Keine Sprachen gefunden",
-        "auto": "Automatisch"
+        "auto": "Automatisch",
+        "autoDetectOnly": "Dieses Modell erkennt die gesprochene Sprache selbst und lässt sich nicht auf eine Sprache festlegen, daher können kurze Diktate in einer anderen Sprache erscheinen. Wähle ein Whisper-Modell, um immer in einer Sprache zu transkribieren."
       },
       "pushToTalk": {
         "label": "Push-to-Talk",

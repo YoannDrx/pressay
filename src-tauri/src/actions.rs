@@ -957,11 +957,7 @@ fn resolve_effective_language(
         .get_current_model()
         .unwrap_or_else(|| settings.selected_model.clone());
     match model_manager.get_model_info(&active_model) {
-        Some(info) => crate::managers::model::effective_language(
-            language_intent,
-            &info.supported_languages,
-            info.supports_language_detection,
-        ),
+        Some(info) => info.effective_language(language_intent),
         None => language_intent.to_string(),
     }
 }

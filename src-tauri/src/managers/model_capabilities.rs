@@ -56,6 +56,9 @@ const KEY_LANGUAGES: &str = "general.languages";
 const KEY_CAP_STREAMING: &str = "stt.capability.streaming";
 const KEY_CAP_TRANSLATE: &str = "stt.capability.translate";
 const KEY_CAP_LANG_DETECT: &str = "stt.capability.lang_detect";
+// Parakeet's language conditioning table. transcribe-cpp only reads a language
+// hint when this is present and non-zero; Parakeet TDT V3 ships without it.
+const KEY_PARAKEET_PROMPTS: &str = "stt.parakeet.prompt.num_prompts";
 const PROBE_KEYS: &[&str] = &[
     KEY_ARCH,
     KEY_NAME,
@@ -64,6 +67,7 @@ const PROBE_KEYS: &[&str] = &[
     KEY_CAP_STREAMING,
     KEY_CAP_TRANSLATE,
     KEY_CAP_LANG_DETECT,
+    KEY_PARAKEET_PROMPTS,
 ];
 
 /// How confident we are that Handy can run a given model, judged from its GGUF
@@ -104,6 +108,9 @@ pub struct CapabilityProbe {
     pub supports_translation: Option<bool>,
     /// `stt.capability.lang_detect` — automatic language detection.
     pub supports_language_detect: Option<bool>,
+    /// `stt.parakeet.prompt.num_prompts` — size of Parakeet's language prompt
+    /// table; absent on models that cannot be steered to a language.
+    pub language_prompts: Option<u32>,
 }
 
 impl CapabilityProbe {
@@ -136,7 +143,26 @@ impl CapabilityProbe {
             supports_streaming: meta.get_bool(KEY_CAP_STREAMING),
             supports_translation: meta.get_bool(KEY_CAP_TRANSLATE),
             supports_language_detect: meta.get_bool(KEY_CAP_LANG_DETECT),
+            language_prompts: meta.get_u32(KEY_PARAKEET_PROMPTS),
         }
+    }
+
+    /// Whether a requested transcription language actually reaches the model.
+    pub fn honors_language_hint(&self) -> bool {
+        honors_language_hint(self.architecture.as_deref(), self.language_prompts)
+    }
+}
+
+/// Whether transcribe-cpp applies a language hint for this architecture.
+///
+/// Parakeet ignores the hint unless the GGUF carries a language prompt table
+/// (`resolve_prompt_id` in transcribe-cpp); Parakeet TDT V3 has none, so it
+/// re-detects the language on every utterance whatever the user selected.
+/// Every other architecture either uses the hint or rejects an unsupported one.
+pub fn honors_language_hint(architecture: Option<&str>, language_prompts: Option<u32>) -> bool {
+    match architecture {
+        Some("parakeet") => language_prompts.is_some_and(|count| count > 0),
+        _ => true,
     }
 }
 
@@ -252,6 +278,24 @@ mod tests {
         assert_eq!(probe.languages, Some(vec!["en".to_string()]));
         // Absent key stays unknown rather than defaulting to false.
         assert_eq!(probe.supports_translation, None);
+    }
+
+    #[test]
+    fn parakeet_without_prompt_table_ignores_language_hint() {
+        let arch = ("general.architecture", GgufValue::String("parakeet".into()));
+        let v3 = CapabilityProbe::from_metadata(&meta_with(vec![arch.clone()]));
+        assert_eq!(v3.language_prompts, None);
+        assert!(!v3.honors_language_hint());
+
+        let prompted = CapabilityProbe::from_metadata(&meta_with(vec![
+            arch,
+            ("stt.parakeet.prompt.num_prompts", GgufValue::U32(128)),
+        ]));
+        assert_eq!(prompted.language_prompts, Some(128));
+        assert!(prompted.honors_language_hint());
+
+        assert!(honors_language_hint(Some("whisper"), None));
+        assert!(!honors_language_hint(Some("parakeet"), Some(0)));
     }
 
     #[test]

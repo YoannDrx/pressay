@@ -364,7 +364,8 @@
         "description": "Select the language for speech recognition. Auto will automatically determine the language, while selecting a specific language can improve accuracy for that language.",
         "searchPlaceholder": "Search languages...",
         "noResults": "No languages found",
-        "auto": "Auto"
+        "auto": "Auto",
+        "autoDetectOnly": "This model detects the spoken language on its own and cannot be locked to one, so short dictations may come out in another language. To always transcribe in one language, choose a Whisper model."
       },
       "pushToTalk": {
         "label": "Push To Talk",

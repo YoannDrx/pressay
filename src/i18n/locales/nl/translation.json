@@ -361,7 +361,8 @@
         "description": "Selecteer de taal voor spraakherkenning. 'Automatisch' detecteert de taal vanzelf, terwijl het kiezen van een specifieke taal de nauwkeurigheid voor die taal kan verbeteren.",
         "searchPlaceholder": "Talen zoeken...",
         "noResults": "Geen talen gevonden",
-        "auto": "Automatisch"
+        "auto": "Automatisch",
+        "autoDetectOnly": "Dit model herkent de gesproken taal zelf en kan niet op één taal worden vastgezet, dus korte dictaten kunnen in een andere taal verschijnen. Kies een Whisper-model om altijd in één taal te transcriberen."
       },
       "pushToTalk": {
         "label": "Push-to-talk",

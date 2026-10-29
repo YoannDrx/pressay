@@ -381,7 +381,8 @@
         "description": "选择语音识别的语言。自动将自动确定语言，选择特定语言可以提高该语言的准确度。",
         "searchPlaceholder": "搜索语言...",
         "noResults": "未找到语言",
-        "auto": "自动"
+        "auto": "自动",
+        "autoDetectOnly": "此模型会自行识别所说的语言，无法锁定为某一种语言，因此简短的听写可能会以其他语言输出。若要始终以同一种语言转写，请选择 Whisper 模型。"
       },
       "pushToTalk": {
         "label": "按住说话",
