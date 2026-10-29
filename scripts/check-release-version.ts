@@ -96,20 +96,37 @@ function findEnvironment(id: string): BuildEnvironment {
   return environment;
 }
 
+/**
+ * The environments the tagged DMG/Windows release builds for this version,
+ * mirroring release.yml: a prerelease ships to staging-direct, a stable
+ * version to the production direct and Mac App Store environments.
+ */
+export function releaseEnvironmentsFor(version: string): string[] {
+  return version.includes("-")
+    ? ["staging-direct"]
+    : ["production-mac-app-store", "production-direct"];
+}
+
 if (import.meta.main) {
   const args = process.argv.slice(2);
   const environments: string[] = [];
+  let forRelease = false;
   for (let index = 0; index < args.length; index++) {
+    if (args[index] === "--for-release") {
+      forRelease = true;
+      continue;
+    }
     assert.equal(
       args[index],
       "--environment",
-      "Usage: bun scripts/check-release-version.ts [--environment <id>]...",
+      "Usage: bun scripts/check-release-version.ts [--for-release] [--environment <id>]...",
     );
     const id = args[++index];
     assert(id, "--environment requires a build environment id");
     environments.push(id);
   }
   const version = checkVersionsMatch(readVersionSources());
+  if (forRelease) environments.push(...releaseEnvironmentsFor(version));
   for (const id of environments) {
     checkEnvironmentAcceptsVersion(version, findEnvironment(id));
   }
