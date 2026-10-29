@@ -258,21 +258,11 @@ jobs:
         if: ${{ contains(inputs.platform, 'windows') && contains(inputs.target, 'aarch64') }}
         run: bun install --frozen-lockfile --cpu=arm64
 
-      # Bun on windows-11-arm can skip the CLI's native optional package; fetch
-      # the exact version the lockfile resolved so `tauri build` can load it.
-      - name: Ensure the Tauri CLI native binding (Windows ARM64)
+      # Bun on windows-11-arm skips the win32/arm64 native packages; install
+      # the exact versions bun.lock pins, integrity-checked.
+      - name: Ensure native Node bindings (Windows ARM64)
         if: ${{ contains(inputs.platform, 'windows') && contains(inputs.target, 'aarch64') }}
-        shell: pwsh
-        run: |
-          $ErrorActionPreference = 'Stop'
-          $binding = "node_modules/@tauri-apps/cli-win32-arm64-msvc"
-          if (-not (Test-Path $binding)) {
-            $version = (Get-Content node_modules/@tauri-apps/cli/package.json | ConvertFrom-Json).version
-            $tarball = npm pack "@tauri-apps/cli-win32-arm64-msvc@$version" --pack-destination $env:RUNNER_TEMP
-            tar -xzf (Join-Path $env:RUNNER_TEMP $tarball) -C $env:RUNNER_TEMP
-            Move-Item (Join-Path $env:RUNNER_TEMP "package") $binding
-          }
-          Get-ChildItem $binding
+        run: bun scripts/ci/ensure-windows-arm64-bindings.ts
 
       - name: rustup install target
         if: ${{ inputs.target != '' && !contains(inputs.target, 'x86_64-unknown-linux-gnu') && !contains(inputs.target, 'aarch64-unknown-linux-gnu') && !contains(inputs.target, 'x86_64-pc-windows-msvc') }}
