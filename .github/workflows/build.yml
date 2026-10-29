@@ -51,6 +51,10 @@ on:
         required: false
         type: boolean
         default: false
+      run-rust-tests:
+        required: false
+        type: boolean
+        default: false
 
 env:
   TSC_VERSION: "0.9.0"
@@ -668,6 +672,21 @@ jobs:
           shasum -a 256 Pressay.dmg > Pressay.dmg.sha256
           gh release upload "v${{ steps.get-version.outputs.version }}" \
             Pressay.dmg Pressay.dmg.sha256 "$ARCH_DMG" --clobber
+
+      # Reuses the release-profile dependencies the bundle just compiled, so
+      # only the Pressay crate is rebuilt for its unit tests.
+      - name: Run Rust tests (Windows)
+        if: contains(inputs.platform, 'windows') && inputs.run-rust-tests
+        working-directory: src-tauri
+        shell: pwsh
+        run: |
+          $target = "${{ inputs.target }}"
+          if ($target -and $target -ne "x86_64-pc-windows-msvc") {
+            cargo test --release --lib --features updater --target $target
+          } else {
+            cargo test --release --lib --features updater
+          }
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
       - name: Publish canonical Windows download assets
         if: inputs.release-id != '' && contains(inputs.platform, 'windows')

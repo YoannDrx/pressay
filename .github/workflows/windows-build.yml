@@ -40,4 +40,5 @@ jobs:
       sign-binaries: false
       asset-prefix: "pressay-windows-${{ github.event.pull_request.number || github.run_number }}"
       upload-artifacts: true
+      run-rust-tests: true
     secrets: inherit
