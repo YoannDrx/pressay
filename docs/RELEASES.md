@@ -38,6 +38,12 @@ The release workflow builds Windows only when the repository variable
 A signed build fails if any of them is missing, and the release refuses an
 installer whose Authenticode signature is not valid.
 
+Setting `WINDOWS_AUTHENTICODE` to `false` publishes an unsigned public beta
+instead: the update payload is still minisign-signed, but Windows SmartScreen
+shows "Windows protected your PC" and Smart App Control may block the
+installer. Remove the variable as soon as signing is available; SmartScreen
+reputation then builds on the signing identity.
+
 ## Mac App Store
 
 - Bundle ID: `fr.yodev.pressay`

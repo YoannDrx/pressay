@@ -97,8 +97,9 @@ jobs:
       no-cache: true
     secrets: inherit
 
-  # Windows ships only once code signing is configured: set the repository
-  # variable WINDOWS_RELEASE_ENABLED to "true" (see docs/WINDOWS_LAUNCH_PLAN.md).
+  # Windows ships when the repository variable WINDOWS_RELEASE_ENABLED is
+  # "true". Authenticode is required unless WINDOWS_AUTHENTICODE is "false"
+  # (unsigned public beta; SmartScreen warns). See docs/RELEASES.md.
   # It runs after the DMG so the two jobs never merge latest.json concurrently.
   build-windows:
     needs: [create-release, build-dmg]
@@ -121,6 +122,7 @@ jobs:
       build-args: "${{ matrix.args }} --features ${{ needs.create-release.outputs.features }}"
       build-environment: ${{ needs.create-release.outputs.environment }}
       sign-binaries: true
+      windows-authenticode: ${{ vars.WINDOWS_AUTHENTICODE != 'false' }}
       asset-prefix: "pressay"
       upload-artifacts: false
       release-id: ${{ needs.create-release.outputs.release-id }}

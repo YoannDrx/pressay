@@ -55,6 +55,12 @@ on:
         required: false
         type: boolean
         default: false
+      # Authenticode on Windows. A release may opt out (unsigned public beta)
+      # while the updater payload stays minisign-signed through sign-binaries.
+      windows-authenticode:
+        required: false
+        type: boolean
+        default: true
 
 env:
   TSC_VERSION: "0.9.0"
@@ -182,7 +188,7 @@ jobs:
           cache: true
 
       - name: Cache trusted-signing-cli
-        if: contains(inputs.platform, 'windows') && inputs.sign-binaries
+        if: contains(inputs.platform, 'windows') && inputs.sign-binaries && inputs.windows-authenticode
         id: cache-tsc
         uses: actions/cache@v6
         with:
@@ -190,14 +196,14 @@ jobs:
           key: trusted-signing-cli-${{ env.TSC_VERSION }}-${{ runner.os }}-${{ runner.arch }}
 
       - name: Install trusted-signing-cli
-        if: contains(inputs.platform, 'windows') && inputs.sign-binaries && steps.cache-tsc.outputs.cache-hit != 'true'
+        if: contains(inputs.platform, 'windows') && inputs.sign-binaries && inputs.windows-authenticode && steps.cache-tsc.outputs.cache-hit != 'true'
         run: cargo install trusted-signing-cli@${{ env.TSC_VERSION }}
 
       # Authenticode through Azure Artifact Signing. The account and profile are
       # repository variables; the service principal is a secret. Signed Windows
       # builds fail closed when any of them is missing.
       - name: Configure Windows code signing
-        if: contains(inputs.platform, 'windows') && inputs.sign-binaries
+        if: contains(inputs.platform, 'windows') && inputs.sign-binaries && inputs.windows-authenticode
         shell: pwsh
         env:
           SIGNING_ENDPOINT: ${{ vars.AZURE_SIGNING_ENDPOINT }}
@@ -575,9 +581,9 @@ jobs:
           # multi-identity PKCS#12 again and may select Apple Development instead
           # of the verified Developer ID Application identity.
           APPLE_SIGNING_IDENTITY: ${{ inputs.sign-binaries && env.CERT_ID || '' }}
-          AZURE_CLIENT_ID: ${{ contains(inputs.platform, 'windows') && inputs.sign-binaries && secrets.AZURE_CLIENT_ID || '' }}
-          AZURE_CLIENT_SECRET: ${{ contains(inputs.platform, 'windows') && inputs.sign-binaries && secrets.AZURE_CLIENT_SECRET || '' }}
-          AZURE_TENANT_ID: ${{ contains(inputs.platform, 'windows') && inputs.sign-binaries && secrets.AZURE_TENANT_ID || '' }}
+          AZURE_CLIENT_ID: ${{ contains(inputs.platform, 'windows') && inputs.sign-binaries && inputs.windows-authenticode && secrets.AZURE_CLIENT_ID || '' }}
+          AZURE_CLIENT_SECRET: ${{ contains(inputs.platform, 'windows') && inputs.sign-binaries && inputs.windows-authenticode && secrets.AZURE_CLIENT_SECRET || '' }}
+          AZURE_TENANT_ID: ${{ contains(inputs.platform, 'windows') && inputs.sign-binaries && inputs.windows-authenticode && secrets.AZURE_TENANT_ID || '' }}
           TAURI_SIGNING_PRIVATE_KEY: ${{ inputs.sign-binaries && secrets.TAURI_SIGNING_PRIVATE_KEY || '' }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ inputs.sign-binaries && secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD || '' }}
           # The Vulkan loader and Wayland client library must come from the host
@@ -697,7 +703,7 @@ jobs:
           }
           $installer = Get-ChildItem $bundle -Filter "*-setup.exe" | Select-Object -First 1
           if (-not $installer) { throw "No NSIS installer produced for the release" }
-          if ("${{ inputs.sign-binaries }}" -eq "true") {
+          if ("${{ inputs.sign-binaries && inputs.windows-authenticode }}" -eq "true") {
             $signature = Get-AuthenticodeSignature $installer.FullName
             if ($signature.Status -ne 'Valid') {
               throw "The installer is not validly signed: $($signature.Status)"
