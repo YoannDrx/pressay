@@ -2,6 +2,8 @@ name: "Pressay Windows Build"
 
 # Unsigned Windows installers for every pull request that touches the app, so
 # the Windows code paths are compiled, packaged and smoke-tested continuously.
+# Pull requests have no updater key, so tauri.unsigned.conf.json skips the
+# signed update payload.
 on:
   workflow_dispatch:
   pull_request:
@@ -25,10 +27,10 @@ jobs:
         include:
           - platform: "windows-latest"
             target: "x86_64-pc-windows-msvc"
-            args: "--bundles nsis --config src-tauri/tauri.updater.conf.json --features updater"
+            args: "--bundles nsis --config src-tauri/tauri.updater.conf.json --config src-tauri/tauri.unsigned.conf.json --features updater"
           - platform: "windows-11-arm"
             target: "aarch64-pc-windows-msvc"
-            args: "--target aarch64-pc-windows-msvc --bundles nsis --config src-tauri/tauri.updater.conf.json --features updater"
+            args: "--target aarch64-pc-windows-msvc --bundles nsis --config src-tauri/tauri.updater.conf.json --config src-tauri/tauri.unsigned.conf.json --features updater"
     permissions:
       contents: write
     uses: ./.github/workflows/build.yml
