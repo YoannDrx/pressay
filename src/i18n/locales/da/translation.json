@@ -361,7 +361,8 @@
         "description": "Vælg sproget til talegenkendelse. Auto tyder automatisk sproget, mens valg af et specifikt sprog kan forbedre nøjagtigheden for det pågældende sprog.",
         "searchPlaceholder": "Søg efter sprog...",
         "noResults": "Ingen sprog fundet",
-        "auto": "Automatisk"
+        "auto": "Automatisk",
+        "autoDetectOnly": "Denne model registrerer selv det talte sprog og kan ikke låses til ét sprog, så korte dikteringer kan komme ud på et andet sprog. Vælg en Whisper-model for altid at transskribere på ét sprog."
       },
       "pushToTalk": {
         "label": "Tryk-for-at-tale",

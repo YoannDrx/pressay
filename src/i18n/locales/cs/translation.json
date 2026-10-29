@@ -381,7 +381,8 @@
         "description": "Vyberte jazyk rozpoznávání řeči. Auto jazyk určí automaticky, zatímco výběr konkrétního jazyka může zlepšit přesnost.",
         "searchPlaceholder": "Hledat jazyky...",
         "noResults": "Žádné jazyky nenalezeny",
-        "auto": "Automaticky"
+        "auto": "Automaticky",
+        "autoDetectOnly": "Tento model sám rozpoznává mluvený jazyk a nelze jej uzamknout na jeden jazyk, takže krátké diktáty mohou vyjít v jiném jazyce. Chcete-li vždy přepisovat v jednom jazyce, zvolte model Whisper."
       },
       "pushToTalk": {
         "label": "Stisk a mluv",

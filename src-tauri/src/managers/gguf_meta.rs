@@ -81,6 +81,19 @@ impl GgufValue {
         }
     }
 
+    /// Interpret the value as a non-negative integer that fits in a u32.
+    pub fn as_u32(&self) -> Option<u32> {
+        match self {
+            GgufValue::U8(v) => Some(u32::from(*v)),
+            GgufValue::U16(v) => Some(u32::from(*v)),
+            GgufValue::U32(v) => Some(*v),
+            GgufValue::I32(v) => u32::try_from(*v).ok(),
+            GgufValue::U64(v) => u32::try_from(*v).ok(),
+            GgufValue::I64(v) => u32::try_from(*v).ok(),
+            _ => None,
+        }
+    }
+
     /// Interpret the value as an array of strings (e.g. `general.languages`).
     /// Returns `None` if it isn't an array, or if any element isn't a string.
     pub fn as_string_array(&self) -> Option<Vec<String>> {
@@ -109,6 +122,9 @@ impl GgufMetadata {
     }
     pub fn get_bool(&self, key: &str) -> Option<bool> {
         self.kv.get(key).and_then(GgufValue::as_bool)
+    }
+    pub fn get_u32(&self, key: &str) -> Option<u32> {
+        self.kv.get(key).and_then(GgufValue::as_u32)
     }
     pub fn get_string_array(&self, key: &str) -> Option<Vec<String>> {
         self.kv.get(key).and_then(GgufValue::as_string_array)

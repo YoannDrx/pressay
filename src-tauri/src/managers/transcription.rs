@@ -4,6 +4,9 @@ use crate::audio_toolkit::{
 };
 use crate::managers::audio::AudioRecordingManager;
 use crate::managers::model::{EngineType, ModelManager};
+use crate::managers::model_capabilities::{
+    honors_language_hint, CapabilityProber, GgufHeaderProber,
+};
 use crate::productivity::dictionary_prompt_terms;
 use crate::settings::{
     get_settings, AppSettings, ModelUnloadTimeout, OrtAcceleratorSetting,
@@ -657,11 +660,16 @@ impl TranscriptionManager {
                 // reflect runtime truth, not the pre-download probe. The
                 // load-completed event below triggers the frontend refresh.
                 let caps = session.model().capabilities();
+                let honors_language_hint = honors_language_hint(
+                    Some(session.model().arch().as_str()),
+                    GgufHeaderProber.probe_file(&model_path).language_prompts,
+                );
                 self.model_manager.set_runtime_capabilities(
                     model_id,
                     caps.supports_streaming,
                     caps.supports_translate,
                     caps.supports_language_detect,
+                    honors_language_hint,
                     caps.languages.clone(),
                 );
                 info!(
@@ -1792,11 +1800,7 @@ fn effective_language_for_model(
     model_id: &str,
 ) -> String {
     match model_manager.get_model_info(model_id) {
-        Some(info) => crate::managers::model::effective_language(
-            &settings.selected_language,
-            &info.supported_languages,
-            info.supports_language_detection,
-        ),
+        Some(info) => info.effective_language(&settings.selected_language),
         None => settings.selected_language.clone(),
     }
 }

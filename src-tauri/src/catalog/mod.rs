@@ -100,6 +100,9 @@ impl CatalogModel {
                 supports_streaming: Some(m.capabilities.streaming),
                 supports_translation: Some(m.capabilities.translate),
                 supports_language_detect: Some(m.capabilities.lang_detect),
+                // Not in the signed catalog: absent means a parakeet entry is
+                // treated as unsteerable until a load proves otherwise.
+                language_prompts: None,
             },
             files: m.files.clone(),
             default_quant: m.default_quant.clone(),

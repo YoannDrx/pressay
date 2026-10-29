@@ -79,6 +79,23 @@ pub struct ModelInfo {
     pub is_custom: bool,            // Whether this is a user-provided custom model
     pub supports_streaming: bool, // Whether this model supports live streaming preview (transcribe-cpp)
     pub supports_language_detection: bool, // Whether the model can auto-detect language (gates the "Auto" option)
+    pub honors_language_hint: bool, // Whether a selected language reaches the model (Parakeet V3 always auto-detects)
+}
+
+impl ModelInfo {
+    /// The language this model will actually run in for a persisted intent.
+    /// A model that ignores language hints always runs in "auto", whatever the
+    /// user picked, so nothing downstream treats the pick as applied.
+    pub fn effective_language(&self, intent: &str) -> String {
+        if !self.honors_language_hint && self.supports_language_detection {
+            return "auto".to_string();
+        }
+        effective_language(
+            intent,
+            &self.supported_languages,
+            self.supports_language_detection,
+        )
+    }
 }
 
 const CHINESE_LANGUAGE_CODE: &str = "zh";
@@ -248,6 +265,7 @@ impl ModelDescriptor {
             is_custom: false,
             supports_streaming: self.caps.supports_streaming.unwrap_or(false),
             supports_language_detection: self.caps.supports_language_detect.unwrap_or(false),
+            honors_language_hint: self.caps.honors_language_hint(),
         }
     }
 }
@@ -354,6 +372,7 @@ struct LocalCaps {
     supports_translation: bool,
     supports_language_selection: bool,
     supports_language_detection: bool,
+    honors_language_hint: bool,
     supported_languages: Vec<String>,
 }
 
@@ -365,6 +384,7 @@ fn local_caps(probe: &CapabilityProbe) -> LocalCaps {
         // Only offer a language picker when there's more than one to choose.
         supports_language_selection: languages.len() > 1,
         supports_language_detection: probe.supports_language_detect.unwrap_or(false),
+        honors_language_hint: probe.honors_language_hint(),
         supported_languages: languages,
     }
 }
@@ -690,6 +710,7 @@ impl ModelManager {
         supports_streaming: bool,
         supports_translation: bool,
         supports_language_detection: bool,
+        honors_language_hint: bool,
         supported_languages: Vec<String>,
     ) {
         let supported_languages = canonicalize_supported_languages(supported_languages);
@@ -698,6 +719,7 @@ impl ModelManager {
             model.supports_streaming = supports_streaming;
             model.supports_translation = supports_translation;
             model.supports_language_detection = supports_language_detection;
+            model.honors_language_hint = honors_language_hint;
             // An empty set means the model is language-agnostic — but it is also
             // what a failed capability read leaves behind, so keep the probed /
             // catalog list rather than blanking a known one to nothing.
@@ -1100,6 +1122,7 @@ impl ModelManager {
                     is_custom: true,
                     supports_streaming: caps.supports_streaming,
                     supports_language_detection: caps.supports_language_detection,
+                    honors_language_hint: caps.honors_language_hint,
                 },
             );
         }
@@ -1235,6 +1258,7 @@ impl ModelManager {
                         is_custom: false,
                         supports_streaming: caps.supports_streaming,
                         supports_language_detection: caps.supports_language_detection,
+                        honors_language_hint: caps.honors_language_hint,
                     },
                 );
             }
@@ -2171,6 +2195,7 @@ mod tests {
                 // Legacy entry: preserve the historical "Auto offered" behavior.
                 // (Catalog GGUFs and on-disk probes derive this from metadata.)
                 supports_language_detection: true,
+                honors_language_hint: true,
             },
         );
 
@@ -2223,6 +2248,41 @@ mod tests {
 
         // No new models should be added
         assert_eq!(models.len(), count_before);
+    }
+
+    #[test]
+    fn model_ignoring_language_hint_always_runs_in_auto() {
+        let parakeet_v3 = ModelInfo {
+            id: "pressay/parakeet-v3/parakeet-tdt-0.6b-v3-Q8_0.gguf".to_string(),
+            name: "Parakeet V3".to_string(),
+            description: String::new(),
+            filename: "parakeet-tdt-0.6b-v3-Q8_0.gguf".to_string(),
+            source: ModelSource::Local,
+            size_mb: 0,
+            is_downloaded: true,
+            is_downloading: false,
+            partial_size: 0,
+            is_directory: false,
+            engine_type: EngineType::TranscribeCpp,
+            accuracy_score: 0.0,
+            speed_score: 0.0,
+            supports_translation: false,
+            is_recommended: false,
+            supported_languages: vec!["en".to_string(), "fr".to_string()],
+            supports_language_selection: true,
+            is_custom: false,
+            supports_streaming: false,
+            supports_language_detection: true,
+            honors_language_hint: false,
+        };
+        assert_eq!(parakeet_v3.effective_language("fr"), "auto");
+
+        let steerable = ModelInfo {
+            honors_language_hint: true,
+            ..parakeet_v3
+        };
+        assert_eq!(steerable.effective_language("fr"), "fr");
+        assert_eq!(steerable.effective_language("auto"), "auto");
     }
 
     #[test]

@@ -361,7 +361,8 @@
         "description": "Selecione o idioma para reconhecimento de fala. Auto detectará automaticamente o idioma, enquanto selecionar um idioma específico pode melhorar a precisão para esse idioma.",
         "searchPlaceholder": "Buscar idiomas...",
         "noResults": "Nenhum idioma encontrado",
-        "auto": "Automático"
+        "auto": "Automático",
+        "autoDetectOnly": "Este modelo deteta sozinho o idioma falado e não pode ser fixado num idioma, por isso ditados curtos podem sair noutro idioma. Para transcrever sempre num só idioma, escolha um modelo Whisper."
       },
       "pushToTalk": {
         "label": "Pressionar para Falar",

@@ -1,6 +1,7 @@
 import React from "react";
 import { useTranslation } from "react-i18next";
 import { SettingsGroup } from "../../ui/SettingsGroup";
+import { SettingContainer } from "../../ui/SettingContainer";
 import { LanguageSelector } from "../LanguageSelector";
 import { TranslateToEnglish } from "../TranslateToEnglish";
 import { useModelStore } from "../../../stores/modelStore";
@@ -26,6 +27,9 @@ export const ModelSettingsCard: React.FC = () => {
     capabilityLanguages[0] === CHINESE_LANGUAGE_CODE;
   const showLanguageSelector =
     supportsLanguageSelection || supportsChineseOnlyScriptSelection;
+  // Parakeet V3 re-detects the language on every utterance: a picker here
+  // would promise a choice the engine never receives.
+  const ignoresLanguageHint = currentModelInfo?.honors_language_hint === false;
   const supportsTranslation = currentModelInfo?.supports_translation ?? false;
   const hasAnySettings = showLanguageSelector || supportsTranslation;
 
@@ -40,7 +44,19 @@ export const ModelSettingsCard: React.FC = () => {
         model: currentModelInfo.name,
       })}
     >
-      {showLanguageSelector && (
+      {showLanguageSelector && ignoresLanguageHint && (
+        <SettingContainer
+          title={t("settings.general.language.title")}
+          description={t("settings.general.language.autoDetectOnly")}
+          descriptionMode="inline"
+          grouped={true}
+        >
+          <span className="text-sm text-mid-gray">
+            {t("settings.general.language.auto")}
+          </span>
+        </SettingContainer>
+      )}
+      {showLanguageSelector && !ignoresLanguageHint && (
         <LanguageSelector
           descriptionMode="tooltip"
           grouped={true}

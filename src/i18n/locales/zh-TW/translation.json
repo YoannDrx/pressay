@@ -361,7 +361,8 @@
         "description": "選擇語音辨識的語言。選擇自動將自動判定語言，選擇特定語言可以提高該語言的準確度",
         "searchPlaceholder": "搜尋語言...",
         "noResults": "未找到語言",
-        "auto": "自動"
+        "auto": "自動",
+        "autoDetectOnly": "此模型會自行辨識所說的語言，無法鎖定為某一種語言，因此簡短的聽寫可能會以其他語言輸出。若要始終以同一種語言轉寫，請選擇 Whisper 模型。"
       },
       "pushToTalk": {
         "label": "按住說話",
