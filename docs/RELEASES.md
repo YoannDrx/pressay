@@ -11,6 +11,21 @@ Pressay has two independently gated macOS distributions.
 - Pressay updater enabled and signed with the repository updater key
 - Stripe/web billing may be exposed after the Cloud gate passes
 
+### Update endpoints
+
+Clients ask `https://updates.press-say.app/{{target}}/{{arch}}/{{current_version}}`,
+served by pressay-web. It returns the `latest.json` of the newest published
+release, or `204` when the client is current. A client on a prerelease is
+offered betas and stables; a stable client is only offered stables. GitHub's
+`releases/latest/download/latest.json` is the fallback when that endpoint fails.
+
+Every public beta up to 2.0.0-beta.4 was built against
+`https://updates.press-say.app/latest.json`. pressay-web keeps that path alive
+and serves the newest manifest, betas included, so those installs can update
+once a release carries `latest.json`. Releases built before the updater
+verification job (beta.1 to beta.4) carry no `latest.json` and are never
+offered.
+
 Tags matching `v*` may start the DMG workflow. The workflow must fail before
 building if Apple signing or notarization secrets are absent.
 
