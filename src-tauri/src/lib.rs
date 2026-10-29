@@ -39,6 +39,8 @@ mod tray;
 mod tray_i18n;
 mod utils;
 mod voice_commands;
+#[cfg(target_os = "windows")]
+mod windows_integrity;
 
 pub use cli::CliArgs;
 #[cfg(debug_assertions)]

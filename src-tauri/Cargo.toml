@@ -133,6 +133,10 @@ tauri-plugin-updater = { version = "2.10.0", optional = true }
 # is inherited here, so Parakeet/Moonshine/etc. still run on CPU.
 windows = { version = "0.61.3", features = [
   "Win32_Media_Audio_Endpoints",
+  "Win32_Security",
+  "Win32_Security_Cryptography",
+  "Win32_Storage_FileSystem",
+  "Win32_System_SystemInformation",
   "Win32_System_Com_StructuredStorage",
   "Win32_System_DataExchange",
   "Win32_System_LibraryLoader",
@@ -143,6 +147,7 @@ windows = { version = "0.61.3", features = [
   "Win32_Foundation",
   "Win32_Graphics_Gdi",
   "Win32_UI_WindowsAndMessaging",
+  "Win32_UI_Accessibility",
 ] }
 winreg = "0.55"
 

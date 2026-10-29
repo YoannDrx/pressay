@@ -189,6 +189,32 @@ jobs:
         if: contains(inputs.platform, 'windows') && inputs.sign-binaries && steps.cache-tsc.outputs.cache-hit != 'true'
         run: cargo install trusted-signing-cli@${{ env.TSC_VERSION }}
 
+      # Authenticode through Azure Artifact Signing. The account and profile are
+      # repository variables; the service principal is a secret. Signed Windows
+      # builds fail closed when any of them is missing.
+      - name: Configure Windows code signing
+        if: contains(inputs.platform, 'windows') && inputs.sign-binaries
+        shell: pwsh
+        env:
+          SIGNING_ENDPOINT: ${{ vars.AZURE_SIGNING_ENDPOINT }}
+          SIGNING_ACCOUNT: ${{ vars.AZURE_SIGNING_ACCOUNT }}
+          SIGNING_PROFILE: ${{ vars.AZURE_SIGNING_PROFILE }}
+          AZURE_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
+          AZURE_CLIENT_SECRET: ${{ secrets.AZURE_CLIENT_SECRET }}
+          AZURE_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          foreach ($name in 'SIGNING_ENDPOINT','SIGNING_ACCOUNT','SIGNING_PROFILE','AZURE_CLIENT_ID','AZURE_CLIENT_SECRET','AZURE_TENANT_ID') {
+            if (-not (Get-Item "env:$name" -ErrorAction SilentlyContinue).Value) {
+              throw "Windows signing is enabled but $name is not configured"
+            }
+          }
+          $path = "src-tauri/tauri.windows.conf.json"
+          $config = Get-Content $path -Raw | ConvertFrom-Json
+          $command = "trusted-signing-cli -e $env:SIGNING_ENDPOINT -a $env:SIGNING_ACCOUNT -c $env:SIGNING_PROFILE -d Pressay %1"
+          $config.bundle.windows | Add-Member -NotePropertyName signCommand -NotePropertyValue $command -Force
+          $config | ConvertTo-Json -Depth 20 | Set-Content $path -Encoding utf8
+
       - name: Prepare Vulkan SDK for Ubuntu 24.04
         if: contains(inputs.platform, 'ubuntu-24.04') && !contains(inputs.platform, 'arm')
         run: |
@@ -227,6 +253,22 @@ jobs:
       - name: install frontend dependencies (Windows ARM64)
         if: ${{ contains(inputs.platform, 'windows') && contains(inputs.target, 'aarch64') }}
         run: bun install --frozen-lockfile --cpu=arm64
+
+      # Bun on windows-11-arm can skip the CLI's native optional package; fetch
+      # the exact version the lockfile resolved so `tauri build` can load it.
+      - name: Ensure the Tauri CLI native binding (Windows ARM64)
+        if: ${{ contains(inputs.platform, 'windows') && contains(inputs.target, 'aarch64') }}
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $binding = "node_modules/@tauri-apps/cli-win32-arm64-msvc"
+          if (-not (Test-Path $binding)) {
+            $version = (Get-Content node_modules/@tauri-apps/cli/package.json | ConvertFrom-Json).version
+            $tarball = npm pack "@tauri-apps/cli-win32-arm64-msvc@$version" --pack-destination $env:RUNNER_TEMP
+            tar -xzf (Join-Path $env:RUNNER_TEMP $tarball) -C $env:RUNNER_TEMP
+            Move-Item (Join-Path $env:RUNNER_TEMP "package") $binding
+          }
+          Get-ChildItem $binding
 
       - name: rustup install target
         if: ${{ inputs.target != '' && !contains(inputs.target, 'x86_64-unknown-linux-gnu') && !contains(inputs.target, 'aarch64-unknown-linux-gnu') && !contains(inputs.target, 'x86_64-pc-windows-msvc') }}
@@ -539,6 +581,9 @@ jobs:
           # multi-identity PKCS#12 again and may select Apple Development instead
           # of the verified Developer ID Application identity.
           APPLE_SIGNING_IDENTITY: ${{ inputs.sign-binaries && env.CERT_ID || '' }}
+          AZURE_CLIENT_ID: ${{ contains(inputs.platform, 'windows') && inputs.sign-binaries && secrets.AZURE_CLIENT_ID || '' }}
+          AZURE_CLIENT_SECRET: ${{ contains(inputs.platform, 'windows') && inputs.sign-binaries && secrets.AZURE_CLIENT_SECRET || '' }}
+          AZURE_TENANT_ID: ${{ contains(inputs.platform, 'windows') && inputs.sign-binaries && secrets.AZURE_TENANT_ID || '' }}
           TAURI_SIGNING_PRIVATE_KEY: ${{ inputs.sign-binaries && secrets.TAURI_SIGNING_PRIVATE_KEY || '' }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ inputs.sign-binaries && secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD || '' }}
           # The Vulkan loader and Wayland client library must come from the host
@@ -556,6 +601,9 @@ jobs:
           releaseName: ${{ inputs.release-id && format('v{0}', steps.get-version.outputs.version) || '' }}
           releaseId: ${{ inputs.release-id }}
           includeUpdaterJson: true
+          # Without this the generic windows-x86_64 key points at an MSI, which
+          # Pressay does not ship.
+          updaterJsonPreferNsis: true
           assetNamePattern: ${{ steps.patch-release-name.outputs.platform }}
           args: ${{ inputs.build-args }}
 
@@ -620,6 +668,35 @@ jobs:
           shasum -a 256 Pressay.dmg > Pressay.dmg.sha256
           gh release upload "v${{ steps.get-version.outputs.version }}" \
             Pressay.dmg Pressay.dmg.sha256 "$ARCH_DMG" --clobber
+
+      - name: Publish canonical Windows download assets
+        if: inputs.release-id != '' && contains(inputs.platform, 'windows')
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $profile = "${{ steps.build-profile.outputs.profile }}"
+          $target = "${{ inputs.target }}"
+          if ($target -and $target -ne "x86_64-pc-windows-msvc") {
+            $bundle = "src-tauri/target/$target/$profile/bundle/nsis"
+          } else {
+            $bundle = "src-tauri/target/$profile/bundle/nsis"
+          }
+          $installer = Get-ChildItem $bundle -Filter "*-setup.exe" | Select-Object -First 1
+          if (-not $installer) { throw "No NSIS installer produced for the release" }
+          if ("${{ inputs.sign-binaries }}" -eq "true") {
+            $signature = Get-AuthenticodeSignature $installer.FullName
+            if ($signature.Status -ne 'Valid') {
+              throw "The installer is not validly signed: $($signature.Status)"
+            }
+          }
+          $arch = if ($target -like "aarch64*") { "arm64" } else { "x64" }
+          $name = "Pressay-windows-$arch.exe"
+          Copy-Item $installer.FullName $name
+          $hash = (Get-FileHash $name -Algorithm SHA256).Hash.ToLower()
+          Set-Content "$name.sha256" "$hash  $name" -NoNewline -Encoding ascii
+          gh release upload "v${{ steps.get-version.outputs.version }}" $name "$name.sha256" --clobber
 
       # tauri-action uploads release assets before returning. All AppImage
       # filtering therefore happens inside linuxdeploy above; this verifies the

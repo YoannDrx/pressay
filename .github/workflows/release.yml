@@ -97,8 +97,39 @@ jobs:
       no-cache: true
     secrets: inherit
 
-  verify-updater-assets:
+  # Windows ships only once code signing is configured: set the repository
+  # variable WINDOWS_RELEASE_ENABLED to "true" (see docs/WINDOWS_LAUNCH_PLAN.md).
+  # It runs after the DMG so the two jobs never merge latest.json concurrently.
+  build-windows:
     needs: [create-release, build-dmg]
+    if: vars.WINDOWS_RELEASE_ENABLED == 'true'
+    strategy:
+      fail-fast: true
+      max-parallel: 1
+      matrix:
+        include:
+          - platform: "windows-latest"
+            target: "x86_64-pc-windows-msvc"
+            args: "--bundles nsis --config src-tauri/tauri.updater.conf.json"
+          - platform: "windows-11-arm"
+            target: "aarch64-pc-windows-msvc"
+            args: "--target aarch64-pc-windows-msvc --bundles nsis --config src-tauri/tauri.updater.conf.json"
+    uses: ./.github/workflows/build.yml
+    with:
+      platform: ${{ matrix.platform }}
+      target: ${{ matrix.target }}
+      build-args: "${{ matrix.args }} --features ${{ needs.create-release.outputs.features }}"
+      build-environment: ${{ needs.create-release.outputs.environment }}
+      sign-binaries: true
+      asset-prefix: "pressay"
+      upload-artifacts: false
+      release-id: ${{ needs.create-release.outputs.release-id }}
+      no-cache: true
+    secrets: inherit
+
+  verify-updater-assets:
+    needs: [create-release, build-dmg, build-windows]
+    if: ${{ !cancelled() && needs.build-dmg.result == 'success' && needs.build-windows.result != 'failure' }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
@@ -112,14 +143,17 @@ jobs:
         run: |
           mkdir -p release-check
           gh release download "v$RELEASE_VERSION" --pattern latest.json --dir release-check
-          bun scripts/check-updater-manifest.ts release-check/latest.json "$RELEASE_VERSION"
+          REQUIRE_WINDOWS="${{ vars.WINDOWS_RELEASE_ENABLED == 'true' && 'windows' || '' }}"
+          bun scripts/check-updater-manifest.ts release-check/latest.json "$RELEASE_VERSION" $REQUIRE_WINDOWS
 
   verify-published-assets:
     name: Verify downloaded release assets
     needs:
       - create-release
       - build-dmg
+      - build-windows
       - verify-updater-assets
+    if: ${{ !cancelled() && needs.verify-updater-assets.result == 'success' }}
     runs-on: macos-26
     env:
       GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -150,6 +184,13 @@ jobs:
 
           download_asset Pressay.dmg
           download_asset Pressay.dmg.sha256
+          if [[ "${{ vars.WINDOWS_RELEASE_ENABLED }}" == "true" ]]; then
+            for asset in Pressay-windows-x64.exe Pressay-windows-arm64.exe; do
+              download_asset "$asset"
+              download_asset "$asset.sha256"
+              (cd release-assets && shasum -a 256 -c "$asset.sha256")
+            done
+          fi
 
       - name: Verify checksum, Gatekeeper, signing and stapling
         shell: bash

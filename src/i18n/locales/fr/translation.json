@@ -1259,6 +1259,7 @@
         "silent_input": "Aucune voix détectée",
         "microphone_permission_denied": "Accès au microphone requis",
         "paste_failed": "Le texte n’a pas pu être inséré",
+        "paste_target_elevated": "App administrateur : texte copié, faites Ctrl+V",
         "transform_timeout": "La transformation a expiré",
         "fallback": "Pressay nécessite votre attention"
       }

@@ -1259,6 +1259,7 @@
         "silent_input": "No voice detected",
         "microphone_permission_denied": "Microphone access required",
         "paste_failed": "Text could not be inserted",
+        "paste_target_elevated": "Admin app: text copied, press Ctrl+V",
         "transform_timeout": "Transformation timed out",
         "fallback": "Pressay needs your attention"
       }

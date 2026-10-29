@@ -940,8 +940,11 @@ fn ensure_post_process_defaults(settings: &mut AppSettings) -> bool {
 pub const SETTINGS_STORE_PATH: &str = "settings_store.json";
 
 pub fn get_default_settings() -> AppSettings {
+    // Most PC keyboards hide Fn from the OS, and Ctrl+Space collides with
+    // editor completion and IME switching; a held Ctrl+Win collides with
+    // nothing and HandyKeys masks the Start menu on release.
     #[cfg(target_os = "windows")]
-    let default_shortcut = "ctrl+space";
+    let default_shortcut = "ctrl+super";
     #[cfg(target_os = "macos")]
     let default_shortcut = "option+space";
     #[cfg(target_os = "linux")]
@@ -961,7 +964,7 @@ pub fn get_default_settings() -> AppSettings {
         },
     );
     #[cfg(target_os = "windows")]
-    let default_post_process_shortcut = "ctrl+shift+space";
+    let default_post_process_shortcut = "ctrl+shift+super";
     #[cfg(target_os = "macos")]
     let default_post_process_shortcut = "option+shift+space";
     #[cfg(target_os = "linux")]
