@@ -1057,6 +1057,21 @@ jobs:
               throw "Silent portable install failed for $($pkg.FullName) with exit code $($proc.ExitCode)"
             }
             Assert-PackageContents -Root $installDir -Label "Installed NSIS"
+
+            # Launch the real app, not just the CLI: a startup panic (for
+            # example a catalog that fails its signature) exits within seconds.
+            $app = Get-ChildItem $installDir -Filter "pressay.exe" -Recurse | Select-Object -First 1
+            $running = Start-Process -FilePath $app.FullName -ArgumentList "--start-hidden" -PassThru
+            Start-Sleep -Seconds 25
+            $running.Refresh()
+            if ($running.HasExited) {
+              $logs = Join-Path $env:APPDATA "app.pressay.desktop\logs"
+              if (Test-Path $logs) { Get-ChildItem $logs -Recurse -File | ForEach-Object { Get-Content $_.FullName -Tail 80 } }
+              throw "Installed pressay.exe exited during startup with code $($running.ExitCode)"
+            }
+            Write-Host "Installed pressay.exe is still running after 25 seconds"
+            Stop-Process -Id $running.Id -Force
+            Start-Sleep -Seconds 2
             Remove-Item -Recurse -Force $installDir
           }
 
