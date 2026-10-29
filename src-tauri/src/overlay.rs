@@ -814,7 +814,7 @@ mod tests {
                 OVERLAY_HEIGHT,
                 OverlayPosition::Bottom,
             ),
-            (3648, 2031, 384, 69)
+            (3534, 2028, 612, 72)
         );
         assert_eq!(
             windows_overlay_bounds(
@@ -825,7 +825,7 @@ mod tests {
                 OVERLAY_HEIGHT,
                 OverlayPosition::Top,
             ),
-            (3648, 6, 384, 69)
+            (3534, 6, 612, 72)
         );
     }
 
@@ -841,7 +841,7 @@ mod tests {
                 OVERLAY_STREAM_HEIGHT,
                 OverlayPosition::Bottom,
             ),
-            (-1530, 1040, 500, 150)
+            (-1568, 1030, 575, 160)
         );
     }
 }
