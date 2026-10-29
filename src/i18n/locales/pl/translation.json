@@ -381,7 +381,8 @@
         "description": "Wybierz język rozpoznawania mowy. Opcja Auto automatycznie określi język, a wybór konkretnego języka może poprawić dokładność.",
         "searchPlaceholder": "Szukaj języka...",
         "noResults": "Nie znaleziono języków",
-        "auto": "Automatycznie"
+        "auto": "Automatycznie",
+        "autoDetectOnly": "Ten model sam wykrywa język mowy i nie da się go ustawić na jeden język, więc krótkie dyktowanie może wyjść w innym języku. Aby zawsze transkrybować w jednym języku, wybierz model Whisper."
       },
       "pushToTalk": {
         "label": "Naciśnij i mów",

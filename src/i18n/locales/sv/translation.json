@@ -361,7 +361,8 @@
         "description": "Välj språk för taligenkänning. Auto kommer automatiskt att bestämma språket, medan val av ett specifikt språk kan förbättra noggrannheten för det språket.",
         "searchPlaceholder": "Sök språk...",
         "noResults": "Inga språk hittades",
-        "auto": "Automatiskt"
+        "auto": "Automatiskt",
+        "autoDetectOnly": "Den här modellen känner själv av det talade språket och kan inte låsas till ett språk, så korta dikteringar kan komma ut på ett annat språk. Välj en Whisper-modell för att alltid transkribera på ett språk."
       },
       "pushToTalk": {
         "label": "Tryck för att tala",
