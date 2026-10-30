@@ -27,6 +27,8 @@ public static class Keys {
   // Windows only lets the foreground process hand focus over; a tapped Alt
   // key lifts that lock for the next SetForegroundWindow call.
   public static bool Focus(IntPtr window) {
+    // An Alt tap in a window that already has focus would open its menu.
+    if (GetForegroundWindow() == window) return true;
     keybd_event(0x12, 0, 0, UIntPtr.Zero);
     keybd_event(0x12, 0, KEYUP, UIntPtr.Zero);
     SetForegroundWindow(window);
