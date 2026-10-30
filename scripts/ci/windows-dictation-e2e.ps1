@@ -66,7 +66,8 @@ $settings = @{ settings = @{
   audio_feedback = $false
   update_checks_enabled = $false
 } }
-$settings | ConvertTo-Json -Depth 5 | Set-Content (Join-Path $data "settings_store.json") -Encoding UTF8
+# Windows PowerShell's UTF8 encoding writes a BOM, which the store rejects.
+[System.IO.File]::WriteAllText((Join-Path $data "settings_store.json"), ($settings | ConvertTo-Json -Depth 5), (New-Object System.Text.UTF8Encoding $false))
 
 # 4. The sentence, 16 kHz mono like a dictation.
 $wav = Join-Path $work "sentence.wav"
@@ -93,7 +94,11 @@ $VK_LCONTROL = 0xA2; $VK_LWIN = 0x5B
 Start-Sleep -Milliseconds 80
 [Keys]::keybd_event($VK_LWIN, 0, 0, [UIntPtr]::Zero)
 Start-Sleep -Milliseconds 900
-(New-Object System.Media.SoundPlayer $wav).PlaySync()
+$player = New-Object System.Media.SoundPlayer $wav
+$player.Play()
+Start-Sleep -Seconds 1
+Save-Screenshot "recording"
+Start-Sleep -Seconds 4
 Start-Sleep -Milliseconds 600
 [Keys]::keybd_event($VK_LWIN, 0, [Keys]::KEYUP, [UIntPtr]::Zero)
 Start-Sleep -Milliseconds 80
