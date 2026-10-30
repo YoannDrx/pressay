@@ -138,6 +138,35 @@ jobs:
       - uses: oven-sh/setup-bun@v2
         with:
           bun-version-file: ".bun-version"
+      # tauri-action writes API asset URLs (api.github.com/.../assets/<id>) into
+      # latest.json while the release is a draft. The updater cannot download
+      # those, so point every platform at the public download URL the release
+      # will have once published.
+      - name: Point latest.json at the public release downloads
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_ID: ${{ needs.create-release.outputs.release-id }}
+          RELEASE_VERSION: ${{ needs.create-release.outputs.version }}
+        run: |
+          set -euo pipefail
+          mkdir -p release-urls
+          gh api "repos/${GITHUB_REPOSITORY}/releases/${RELEASE_ID}/assets" \
+            --jq '.[] | "\(.id) \(.name)"' > release-urls/assets.txt
+          gh release download "v$RELEASE_VERSION" --pattern latest.json --dir release-urls --clobber
+          python3 - release-urls "$GITHUB_REPOSITORY" "$RELEASE_VERSION" <<'PY'
+          import json, re, sys
+          root, repository, version = sys.argv[1:4]
+          names = dict(line.split(" ", 1) for line in open(f"{root}/assets.txt").read().splitlines() if line)
+          manifest = json.load(open(f"{root}/latest.json"))
+          base = f"https://github.com/{repository}/releases/download/v{version}/"
+          for entry in manifest["platforms"].values():
+              match = re.search(r"/releases/assets/(\d+)$", entry["url"])
+              if match:
+                  entry["url"] = base + names[match.group(1)]
+          json.dump(manifest, open(f"{root}/latest.json", "w"), indent=2)
+          PY
+          gh release upload "v$RELEASE_VERSION" release-urls/latest.json --clobber
+
       - name: Check the draft contains a signed macOS updater
         env:
           GH_TOKEN: ${{ github.token }}
