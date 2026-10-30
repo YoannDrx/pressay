@@ -1095,6 +1095,87 @@ jobs:
             Remove-Item -Recurse -Force $installDir
           }
 
+      # End-to-end dictation on the installed app, without a microphone:
+      # Windows speech synthesis records a sentence, the real catalogue models
+      # are fetched from models.press-say.app and hash-checked like the app
+      # does, and the installed pressay.exe transcribes the recording through
+      # the same batch path a dictation uses. A normal (non-portable) install
+      # also proves the pressay:// sign-in callback is registered.
+      - name: Dictation end-to-end (Windows)
+        if: contains(inputs.platform, 'windows') && inputs.run-rust-tests
+        # Windows PowerShell 5.1 ships System.Speech; PowerShell 7 does not.
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $profile = "${{ steps.build-profile.outputs.profile }}"
+          $target = "${{ inputs.target }}"
+          if ($target -and $target -ne "x86_64-pc-windows-msvc") {
+            $bundle = "src-tauri/target/$target/$profile/bundle/nsis"
+          } else {
+            $bundle = "src-tauri/target/$profile/bundle/nsis"
+          }
+          $installer = (Get-ChildItem $bundle -Filter "*-setup.exe" | Select-Object -First 1).FullName
+
+          # 1. Portable install with the two models a Windows user picks first.
+          $dir = Join-Path $env:RUNNER_TEMP "pressay-e2e"
+          $proc = Start-Process -FilePath $installer -ArgumentList @("/S", "/PORTABLE", "/D=$dir") -Wait -PassThru
+          if ($proc.ExitCode -ne 0) { throw "Portable install failed: $($proc.ExitCode)" }
+          $app = (Get-ChildItem $dir -Filter "pressay.exe" -Recurse | Select-Object -First 1).FullName
+          $models = Join-Path (Split-Path $app) "Data\models"
+          New-Item -ItemType Directory -Force $models | Out-Null
+          $catalog = Get-Content "src-tauri/src/catalog/catalog.json" -Raw | ConvertFrom-Json
+          $ids = @()
+          foreach ($entry in @("pressay/whisper-small", "pressay/parakeet-v3")) {
+            $file = ($catalog.models | Where-Object { $_.id -eq $entry }).files[0]
+            $id = $entry
+            $path = Join-Path $models $file.filename
+            & curl.exe -sSL --fail --retry 3 -o $path "https://models.press-say.app/$id/v1/$($file.filename)"
+            if ($LASTEXITCODE -ne 0) { throw "Download failed for $id" }
+            $hash = (Get-FileHash $path -Algorithm SHA256).Hash.ToLower()
+            if ($hash -ne $file.sha256) { throw "$id does not match its catalogue SHA-256" }
+            # The app registers catalogue models as <catalogue id>/<file name>.
+            $ids += "$entry/$($file.filename)"
+          }
+
+          # 2. A spoken sentence, 16 kHz mono 16-bit like a Pressay recording.
+          Add-Type -AssemblyName System.Speech
+          $voice = New-Object System.Speech.Synthesis.SpeechSynthesizer
+          if (-not $voice.GetInstalledVoices()) { throw "No Windows speech voice is installed on this runner" }
+          $format = New-Object System.Speech.AudioFormat.SpeechAudioFormatInfo(16000, [System.Speech.AudioFormat.AudioBitsPerSample]::Sixteen, [System.Speech.AudioFormat.AudioChannel]::Mono)
+          $wav = Join-Path $env:RUNNER_TEMP "dictation.wav"
+          $voice.SetOutputToWaveFile($wav, $format)
+          $voice.Speak("Please send the quarterly report to the whole team before Friday morning.")
+          $voice.Dispose()
+
+          # 3. Transcribe with each model and check the words came through.
+          foreach ($id in $ids) {
+            # Windows PowerShell turns any stderr line (the app logs its data
+            # dir there) into a terminating error under 'Stop'.
+            $ErrorActionPreference = 'Continue'
+            $lines = & $app --transcribe-file $wav --model $id --language en --json 2>&1 | ForEach-Object { "$_" }
+            $code = $LASTEXITCODE
+            $ErrorActionPreference = 'Stop'
+            if ($code -ne 0) { $lines | Write-Host; throw "$id transcription exited with $code" }
+            $json = $lines | Where-Object { $_.TrimStart().StartsWith("{") } | Select-Object -Last 1
+            if (-not $json) { $lines | Write-Host; throw "$id printed no JSON result" }
+            $result = $json | ConvertFrom-Json
+            Write-Host "$id backend=$($result.bound_backend) load=$($result.load_ms)ms best=$($result.best_ms)ms rtf=$([math]::Round($result.rtf, 1))x"
+            Write-Host "$id text: $($result.text)"
+            foreach ($word in @("report", "team", "friday")) {
+              if ($result.text -notmatch "(?i)\b$word\b") { throw "$id transcription is missing '$word'" }
+            }
+          }
+          Remove-Item -Recurse -Force $dir
+
+          # 4. A normal per-user install registers the OAuth callback scheme.
+          $proc = Start-Process -FilePath $installer -ArgumentList @("/S") -Wait -PassThru
+          if ($proc.ExitCode -ne 0) { throw "Per-user install failed: $($proc.ExitCode)" }
+          $command = Get-ItemProperty "HKCU:\Software\Classes\pressay\shell\open\command" -ErrorAction SilentlyContinue
+          if (-not $command) { throw "The pressay:// sign-in callback is not registered" }
+          Write-Host "pressay:// -> $($command.'(default)')"
+          $uninstaller = Get-ChildItem (Join-Path $env:LOCALAPPDATA "Pressay") -Filter "uninstall.exe" -ErrorAction SilentlyContinue | Select-Object -First 1
+          if ($uninstaller) { Start-Process -FilePath $uninstaller.FullName -ArgumentList @("/S") -Wait | Out-Null }
+
       - name: Upload artifacts (Windows)
         if: inputs.upload-artifacts && contains(inputs.platform, 'windows')
         uses: actions/upload-artifact@v7
