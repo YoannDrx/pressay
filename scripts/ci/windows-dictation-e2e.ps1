@@ -24,6 +24,15 @@ public static class Keys {
   [DllImport("user32.dll", CharSet = CharSet.Unicode)] public static extern IntPtr SendMessage(IntPtr hWnd, uint msg, IntPtr wParam, System.Text.StringBuilder lParam);
   [DllImport("user32.dll")] public static extern IntPtr SendMessage(IntPtr hWnd, uint msg, IntPtr wParam, IntPtr lParam);
   public const uint KEYUP = 0x2;
+  // Windows only lets the foreground process hand focus over; a tapped Alt
+  // key lifts that lock for the next SetForegroundWindow call.
+  public static bool Focus(IntPtr window) {
+    keybd_event(0x12, 0, 0, UIntPtr.Zero);
+    keybd_event(0x12, 0, KEYUP, UIntPtr.Zero);
+    SetForegroundWindow(window);
+    System.Threading.Thread.Sleep(300);
+    return GetForegroundWindow() == window;
+  }
   public static string EditText(IntPtr window) {
     IntPtr edit = FindWindowEx(window, IntPtr.Zero, "Edit", null);
     if (edit == IntPtr.Zero) edit = FindWindowEx(window, IntPtr.Zero, "RichEditD2DPT", null);
@@ -96,8 +105,7 @@ if ($pressay.HasExited) { throw "Pressay exited during startup ($($pressay.ExitC
 $notepad = Start-Process notepad.exe -PassThru
 Start-Sleep -Seconds 3
 $notepad.Refresh()
-[Keys]::SetForegroundWindow($notepad.MainWindowHandle) | Out-Null
-Start-Sleep -Milliseconds 500
+if (-not [Keys]::Focus($notepad.MainWindowHandle)) { throw "Could not bring Notepad to the front" }
 Save-Screenshot "before-dictation"
 
 # 6. Hold Ctrl+Win, play the sentence into the virtual microphone, release.
@@ -172,19 +180,20 @@ if (-not $restricted) {
   throw "Pressay did not start with a restricted (medium integrity) token"
 }
 Write-Host "Restricted Pressay running: pid $($restricted.Id)"
-[Keys]::SetForegroundWindow($elevated.MainWindowHandle) | Out-Null
-Start-Sleep -Milliseconds 500
 & runas.exe /trustlevel:0x20000 "`"$app`" --toggle-transcription"
 Start-Sleep -Milliseconds 1500
 (New-Object System.Media.SoundPlayer $wav).PlaySync()
 Start-Sleep -Milliseconds 600
 & runas.exe /trustlevel:0x20000 "`"$app`" --toggle-transcription"
-[Keys]::SetForegroundWindow($elevated.MainWindowHandle) | Out-Null
-$clipboard = ""
-for ($i = 0; $i -lt 30 -and $clipboard -notmatch "(?i)report"; $i++) {
-  Start-Sleep -Seconds 1
-  $clipboard = (Get-Clipboard -Raw) -as [string]
+# Keep the elevated Notepad in front while the transcript is produced, and
+# leave the clipboard alone until Pressay has had time to act.
+for ($i = 0; $i -lt 8; $i++) {
+  if (-not [Keys]::Focus($elevated.MainWindowHandle)) { Write-Host "Notepad not in front yet" }
+  Start-Sleep -Milliseconds 500
 }
+if ([Keys]::GetForegroundWindow() -ne $elevated.MainWindowHandle) { throw "Could not bring the elevated Notepad to the front" }
+Start-Sleep -Seconds 4
+$clipboard = (Get-Clipboard -Raw) -as [string]
 Save-Screenshot "administrator-target"
 $elevatedText = [Keys]::EditText($elevated.MainWindowHandle)
 Write-Host "Elevated Notepad: '$elevatedText'"
