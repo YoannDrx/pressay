@@ -176,11 +176,15 @@ $elevated.Refresh()
 # The first, high-integrity run created the WebView2 profile; a medium process
 # cannot write to it, which a real user (always medium) never hits. Start the
 # medium instance from fresh WebView2 data.
-Get-Process pressay -ErrorAction SilentlyContinue | Stop-Process -Force
-Start-Sleep -Seconds 2
+# WebView2 browser processes outlive pressay.exe and keep the profile at
+# high integrity; stop them too.
+Get-Process pressay, msedgewebview2 -ErrorAction SilentlyContinue | Stop-Process -Force
+Start-Sleep -Seconds 3
 foreach ($profile in @((Join-Path $env:LOCALAPPDATA "app.pressay.desktop"), (Join-Path $data "EBWebView"))) {
   if (Test-Path $profile) { Remove-Item $profile -Recurse -Force -ErrorAction SilentlyContinue }
 }
+Get-ChildItem $data -Directory | ForEach-Object { Write-Host "Data folder: $($_.Name)" }
+Get-ChildItem $env:LOCALAPPDATA -Directory -Filter "*pressay*" -ErrorAction SilentlyContinue | ForEach-Object { Write-Host "Local folder left: $($_.FullName)" }
 # UAC is off on this runner, so runas /trustlevel keeps high integrity. A
 # medium mandatory label on the executable starts Pressay at medium instead.
 & icacls.exe $app /setintegritylevel medium | Out-Null
