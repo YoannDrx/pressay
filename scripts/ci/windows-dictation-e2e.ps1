@@ -149,3 +149,39 @@ foreach ($word in @("report", "team", "friday")) {
   if ($text -notmatch "(?i)\b$word\b") { throw "Notepad does not contain '$word' after the dictation" }
 }
 Write-Host "Dictation end to end: shortcut, microphone, transcription and paste all worked."
+
+# 8. Administrator target: Pressay at normal (medium) integrity, Notepad
+#    elevated like this runner shell. Windows would drop the simulated Ctrl+V,
+#    so Pressay must leave the transcript on the clipboard instead. The
+#    global hook cannot see keys aimed at an elevated window either, so the
+#    dictation is driven by the --toggle-transcription remote control.
+Start-Sleep -Seconds 2
+Set-Clipboard -Value "clipboard before dictation"
+$elevated = Start-Process notepad.exe -PassThru
+Start-Sleep -Seconds 3
+$elevated.Refresh()
+& runas.exe /trustlevel:0x20000 "`"$app`" --start-hidden"
+Start-Sleep -Seconds 20
+[Keys]::SetForegroundWindow($elevated.MainWindowHandle) | Out-Null
+Start-Sleep -Milliseconds 500
+& runas.exe /trustlevel:0x20000 "`"$app`" --toggle-transcription"
+Start-Sleep -Milliseconds 1500
+(New-Object System.Media.SoundPlayer $wav).PlaySync()
+Start-Sleep -Milliseconds 600
+& runas.exe /trustlevel:0x20000 "`"$app`" --toggle-transcription"
+[Keys]::SetForegroundWindow($elevated.MainWindowHandle) | Out-Null
+$clipboard = ""
+for ($i = 0; $i -lt 30 -and $clipboard -notmatch "(?i)report"; $i++) {
+  Start-Sleep -Seconds 1
+  $clipboard = (Get-Clipboard -Raw) -as [string]
+}
+Save-Screenshot "administrator-target"
+$elevatedText = [Keys]::EditText($elevated.MainWindowHandle)
+Write-Host "Elevated Notepad: '$elevatedText'"
+Write-Host "Clipboard: '$clipboard'"
+Get-Process pressay -ErrorAction SilentlyContinue | Stop-Process -Force
+Stop-Process -Id $elevated.Id -Force -ErrorAction SilentlyContinue
+if (Test-Path $logs) { Copy-Item $logs (Join-Path $OutDir "logs-administrator") -Recurse -Force }
+if ($clipboard -notmatch "(?i)\breport\b") { throw "The transcript was not left on the clipboard for the elevated window" }
+if ($elevatedText -match "(?i)report") { throw "Pressay pasted into an elevated window it should not reach" }
+Write-Host "Administrator target: transcript kept on the clipboard, nothing lost."
