@@ -180,7 +180,7 @@ $elevated.Refresh()
 # high integrity; stop them too.
 Get-Process pressay, msedgewebview2 -ErrorAction SilentlyContinue | Stop-Process -Force
 Start-Sleep -Seconds 3
-foreach ($profile in @((Join-Path $env:LOCALAPPDATA "app.pressay.desktop"), (Join-Path $data "EBWebView"))) {
+foreach ($profile in @((Join-Path $env:LOCALAPPDATA "app.pressay.desktop"), (Join-Path $data "webview"))) {
   if (Test-Path $profile) { Remove-Item $profile -Recurse -Force -ErrorAction SilentlyContinue }
 }
 Get-ChildItem $data -Directory | ForEach-Object { Write-Host "Data folder: $($_.Name)" }
