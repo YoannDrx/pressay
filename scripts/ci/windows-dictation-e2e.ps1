@@ -173,20 +173,25 @@ $elevated.Refresh()
 # The folder was created by the elevated shell; a restricted token sees the
 # Administrators group as deny-only, so grant the user itself.
 & icacls.exe $dir /grant "$($env:USERDOMAIN)\$($env:USERNAME):(OI)(CI)F" /T /Q | Out-Null
-& runas.exe /trustlevel:0x20000 "`"$app`" --start-hidden"
-Write-Host "runas exit code: $LASTEXITCODE"
+# UAC is off on this runner, so runas /trustlevel keeps high integrity. A
+# medium mandatory label on the executable starts Pressay at medium instead.
+& icacls.exe $app /setintegritylevel medium | Out-Null
+Start-Process -FilePath $app -ArgumentList "--start-hidden" | Out-Null
 Start-Sleep -Seconds 20
 $restricted = Get-Process pressay -ErrorAction SilentlyContinue
 if (-not $restricted) {
   if (Test-Path $logs) { Get-Content (Get-ChildItem $logs -File | Select-Object -First 1).FullName -Tail 20 | Write-Host }
-  throw "Pressay did not start with a restricted (medium integrity) token"
+  throw "Pressay did not start at medium integrity"
 }
 Write-Host "Restricted Pressay running: pid $($restricted.Id)"
-& runas.exe /trustlevel:0x20000 "`"$app`" --toggle-transcription"
+$label = & whoami.exe /groups | Select-String "Mandatory Label"
+Write-Host "Shell integrity: $label"
+& icacls.exe $app | Select-String "Mandatory" | ForEach-Object { Write-Host "Executable label: $_" }
+Start-Process -FilePath $app -ArgumentList "--toggle-transcription" -Wait
 Start-Sleep -Milliseconds 1500
 (New-Object System.Media.SoundPlayer $wav).PlaySync()
 Start-Sleep -Milliseconds 600
-& runas.exe /trustlevel:0x20000 "`"$app`" --toggle-transcription"
+Start-Process -FilePath $app -ArgumentList "--toggle-transcription" -Wait
 # Keep the elevated Notepad in front while the transcript is produced, and
 # leave the clipboard alone until Pressay has had time to act.
 for ($i = 0; $i -lt 8; $i++) {
