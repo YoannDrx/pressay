@@ -20,7 +20,19 @@ public static class Keys {
   [DllImport("user32.dll")] public static extern void keybd_event(byte vk, byte scan, uint flags, UIntPtr extra);
   [DllImport("user32.dll")] public static extern bool SetForegroundWindow(IntPtr hWnd);
   [DllImport("user32.dll")] public static extern IntPtr GetForegroundWindow();
+  [DllImport("user32.dll", CharSet = CharSet.Unicode)] public static extern IntPtr FindWindowEx(IntPtr parent, IntPtr after, string cls, string title);
+  [DllImport("user32.dll", CharSet = CharSet.Unicode)] public static extern IntPtr SendMessage(IntPtr hWnd, uint msg, IntPtr wParam, System.Text.StringBuilder lParam);
+  [DllImport("user32.dll")] public static extern IntPtr SendMessage(IntPtr hWnd, uint msg, IntPtr wParam, IntPtr lParam);
   public const uint KEYUP = 0x2;
+  public static string EditText(IntPtr window) {
+    IntPtr edit = FindWindowEx(window, IntPtr.Zero, "Edit", null);
+    if (edit == IntPtr.Zero) edit = FindWindowEx(window, IntPtr.Zero, "RichEditD2DPT", null);
+    if (edit == IntPtr.Zero) return null;
+    int length = (int)SendMessage(edit, 0x000E, IntPtr.Zero, IntPtr.Zero);
+    var text = new System.Text.StringBuilder(length + 1);
+    SendMessage(edit, 0x000D, (IntPtr)(length + 1), text);
+    return text.ToString();
+  }
 }
 "@
 
@@ -112,6 +124,9 @@ $isText = New-Object System.Windows.Automation.OrCondition(
 $text = ""
 for ($i = 0; $i -lt 30 -and $text.Trim() -eq ""; $i++) {
   Start-Sleep -Seconds 1
+  # The classic Edit control answers WM_GETTEXT; UI Automation covers the rest.
+  $direct = [Keys]::EditText($notepad.MainWindowHandle)
+  if ($direct) { $text = $direct; break }
   $editor = $root.FindFirst([System.Windows.Automation.TreeScope]::Descendants, $isText)
   if ($editor) {
     try {
