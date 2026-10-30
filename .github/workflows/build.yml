@@ -1124,14 +1124,17 @@ jobs:
           $models = Join-Path (Split-Path $app) "Data\models"
           New-Item -ItemType Directory -Force $models | Out-Null
           $catalog = Get-Content "src-tauri/src/catalog/catalog.json" -Raw | ConvertFrom-Json
-          $ids = @("pressay/whisper-small", "pressay/parakeet-v3")
-          foreach ($id in $ids) {
-            $file = ($catalog.models | Where-Object { $_.id -eq $id }).files[0]
+          $ids = @()
+          foreach ($entry in @("pressay/whisper-small", "pressay/parakeet-v3")) {
+            $file = ($catalog.models | Where-Object { $_.id -eq $entry }).files[0]
+            $id = $entry
             $path = Join-Path $models $file.filename
             & curl.exe -sSL --fail --retry 3 -o $path "https://models.press-say.app/$id/v1/$($file.filename)"
             if ($LASTEXITCODE -ne 0) { throw "Download failed for $id" }
             $hash = (Get-FileHash $path -Algorithm SHA256).Hash.ToLower()
             if ($hash -ne $file.sha256) { throw "$id does not match its catalogue SHA-256" }
+            # The app registers catalogue models as <catalogue id>/<file name>.
+            $ids += "$entry/$($file.filename)"
           }
 
           # 2. A spoken sentence, 16 kHz mono 16-bit like a Pressay recording.
