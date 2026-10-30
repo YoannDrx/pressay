@@ -160,8 +160,18 @@ Set-Clipboard -Value "clipboard before dictation"
 $elevated = Start-Process notepad.exe -PassThru
 Start-Sleep -Seconds 3
 $elevated.Refresh()
+# The folder was created by the elevated shell; a restricted token sees the
+# Administrators group as deny-only, so grant the user itself.
+& icacls.exe $dir /grant "$($env:USERDOMAIN)\$($env:USERNAME):(OI)(CI)F" /T /Q | Out-Null
 & runas.exe /trustlevel:0x20000 "`"$app`" --start-hidden"
+Write-Host "runas exit code: $LASTEXITCODE"
 Start-Sleep -Seconds 20
+$restricted = Get-Process pressay -ErrorAction SilentlyContinue
+if (-not $restricted) {
+  if (Test-Path $logs) { Get-Content (Get-ChildItem $logs -File | Select-Object -First 1).FullName -Tail 20 | Write-Host }
+  throw "Pressay did not start with a restricted (medium integrity) token"
+}
+Write-Host "Restricted Pressay running: pid $($restricted.Id)"
 [Keys]::SetForegroundWindow($elevated.MainWindowHandle) | Out-Null
 Start-Sleep -Milliseconds 500
 & runas.exe /trustlevel:0x20000 "`"$app`" --toggle-transcription"
