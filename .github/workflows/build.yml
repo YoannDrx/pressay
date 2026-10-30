@@ -1146,9 +1146,15 @@ jobs:
 
           # 3. Transcribe with each model and check the words came through.
           foreach ($id in $ids) {
-            $raw = & $app --transcribe-file $wav --model $id --language en --json 2>&1 | Out-String
-            if ($LASTEXITCODE -ne 0) { Write-Host $raw; throw "$id transcription exited with $LASTEXITCODE" }
-            $json = $raw.Substring($raw.IndexOf("{"))
+            # Windows PowerShell turns any stderr line (the app logs its data
+            # dir there) into a terminating error under 'Stop'.
+            $ErrorActionPreference = 'Continue'
+            $lines = & $app --transcribe-file $wav --model $id --language en --json 2>&1 | ForEach-Object { "$_" }
+            $code = $LASTEXITCODE
+            $ErrorActionPreference = 'Stop'
+            if ($code -ne 0) { $lines | Write-Host; throw "$id transcription exited with $code" }
+            $json = $lines | Where-Object { $_.TrimStart().StartsWith("{") } | Select-Object -Last 1
+            if (-not $json) { $lines | Write-Host; throw "$id printed no JSON result" }
             $result = $json | ConvertFrom-Json
             Write-Host "$id backend=$($result.bound_backend) load=$($result.load_ms)ms best=$($result.best_ms)ms rtf=$([math]::Round($result.rtf, 1))x"
             Write-Host "$id text: $($result.text)"
