@@ -1,0 +1,92 @@
+name: "Pressay Windows Dictation E2E"
+
+# Dictates into Notepad with the published Windows installer: a virtual
+# microphone, the real global shortcut, local transcription and the paste.
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Release tag to test (default: newest release)"
+        required: false
+        default: ""
+  release:
+    types: [published]
+  pull_request:
+    paths:
+      - ".github/workflows/windows-dictation-e2e.yml"
+      - "scripts/ci/windows-dictation-e2e.ps1"
+
+permissions:
+  contents: read
+
+jobs:
+  dictation:
+    runs-on: windows-2025
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Start Windows audio services
+        shell: pwsh
+        run: |
+          foreach ($service in "AudioEndpointBuilder", "Audiosrv") {
+            Set-Service -Name $service -StartupType Automatic
+            Start-Service -Name $service
+          }
+
+      # Same pinned packages as Mozilla's cubeb CI: VB-CABLE Driver Pack 43 and
+      # Microsoft's devcon, both checked against fixed SHA-256 values.
+      - name: Install the VB-CABLE virtual microphone
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $work = Join-Path $env:RUNNER_TEMP "vbcable"
+          New-Item -ItemType Directory -Force $work | Out-Null
+          $zip = Join-Path $work "VBCABLE_Driver_Pack43.zip"
+          $devcon = Join-Path $work "devcon.exe"
+          Invoke-WebRequest "https://download.vb-audio.com/Download_CABLE/VBCABLE_Driver_Pack43.zip" -OutFile $zip -MaximumRetryCount 3
+          Invoke-WebRequest "https://github.com/LABSN/sound-ci-helpers/raw/20a2b9bbd21fd005d8fe89933901506dba84ea4e/windows/devcon.exe" -OutFile $devcon -MaximumRetryCount 3
+          if ((Get-FileHash $zip).Hash.ToLower() -ne "66fd0a4d9f4896ff41632b7e3d53892c085c4561f53e8ae8d0f0bc10eedd1cdd") { throw "VB-CABLE package hash mismatch" }
+          if ((Get-FileHash $devcon).Hash.ToLower() -ne "97cff42f8c0fe4fbdf991273159516bf78090625a933c3983ebd6f62284e329a") { throw "devcon.exe hash mismatch" }
+          $driver = Join-Path $work "driver"
+          Expand-Archive $zip -DestinationPath $driver -Force
+          $signer = (Get-AuthenticodeSignature (Join-Path $driver "vbaudio_cable64_win7.cat")).SignerCertificate
+          $cert = Join-Path $work "vbcable.cer"
+          [System.IO.File]::WriteAllBytes($cert, $signer.Export([System.Security.Cryptography.X509Certificates.X509ContentType]::Cert))
+          & certutil.exe -addstore -f "TrustedPublisher" $cert | Out-Null
+          & $devcon install (Join-Path $driver "vbMmeCable64_win7.inf") VBAudioVACWDM
+          if ($LASTEXITCODE -ne 0) { throw "devcon failed: $LASTEXITCODE" }
+          Restart-Service Audiosrv -Force
+          Start-Sleep -Seconds 5
+          Get-PnpDevice -Class AudioEndpoint | Format-Table Status, FriendlyName -AutoSize
+          if (-not (Get-PnpDevice -Class AudioEndpoint | Where-Object FriendlyName -like "*CABLE*")) { throw "No VB-CABLE audio endpoint" }
+
+      - name: Allow microphone access for desktop apps
+        shell: pwsh
+        run: |
+          foreach ($path in @(
+            'HKCU:\Software\Microsoft\Windows\CurrentVersion\CapabilityAccessManager\ConsentStore\microphone',
+            'HKCU:\Software\Microsoft\Windows\CurrentVersion\CapabilityAccessManager\ConsentStore\microphone\NonPackaged',
+            'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\CapabilityAccessManager\ConsentStore\microphone')) {
+            New-Item -Path $path -Force | Out-Null
+            Set-ItemProperty -Path $path -Name Value -Value 'Allow'
+          }
+
+      - name: Dictate into Notepad
+        shell: powershell
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ inputs.tag || github.event.release.tag_name }}
+        run: |
+          $tag = $env:TAG
+          if (-not $tag) { $tag = (gh release list --repo YoannDrx/pressay --limit 1 --json tagName --jq '.[0].tagName') }
+          Write-Host "Testing release $tag"
+          ./scripts/ci/windows-dictation-e2e.ps1 -Tag $tag -OutDir "$env:RUNNER_TEMP/dictation-e2e"
+
+      - name: Upload screenshots and logs
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: windows-dictation-e2e
+          path: ${{ runner.temp }}/dictation-e2e
+          retention-days: 14
