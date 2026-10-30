@@ -173,6 +173,14 @@ $elevated.Refresh()
 # The folder was created by the elevated shell; a restricted token sees the
 # Administrators group as deny-only, so grant the user itself.
 & icacls.exe $dir /grant "$($env:USERDOMAIN)\$($env:USERNAME):(OI)(CI)F" /T /Q | Out-Null
+# The first, high-integrity run created the WebView2 profile; a medium process
+# cannot write to it, which a real user (always medium) never hits. Start the
+# medium instance from fresh WebView2 data.
+Get-Process pressay -ErrorAction SilentlyContinue | Stop-Process -Force
+Start-Sleep -Seconds 2
+foreach ($profile in @((Join-Path $env:LOCALAPPDATA "app.pressay.desktop"), (Join-Path $data "EBWebView"))) {
+  if (Test-Path $profile) { Remove-Item $profile -Recurse -Force -ErrorAction SilentlyContinue }
+}
 # UAC is off on this runner, so runas /trustlevel keeps high integrity. A
 # medium mandatory label on the executable starts Pressay at medium instead.
 & icacls.exe $app /setintegritylevel medium | Out-Null
@@ -208,6 +216,9 @@ Write-Host "Clipboard: '$clipboard'"
 Get-Process pressay -ErrorAction SilentlyContinue | Stop-Process -Force
 Stop-Process -Id $elevated.Id -Force -ErrorAction SilentlyContinue
 if (Test-Path $logs) { Copy-Item $logs (Join-Path $OutDir "logs-administrator") -Recurse -Force }
+$adminLog = Get-ChildItem (Join-Path $OutDir "logs-administrator") -File -ErrorAction SilentlyContinue | Get-Content -Raw
+if ($adminLog -match "failed to create webview") { throw "The medium-integrity Pressay could not create its webview" }
+if ($adminLog -notmatch "paste_target_elevated") { throw "Pressay did not detect the elevated window" }
 if ($clipboard -notmatch "(?i)\breport\b") { throw "The transcript was not left on the clipboard for the elevated window" }
 if ($elevatedText -match "(?i)report") { throw "Pressay pasted into an elevated window it should not reach" }
 Write-Host "Administrator target: transcript kept on the clipboard, nothing lost."
