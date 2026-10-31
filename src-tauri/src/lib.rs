@@ -1,5 +1,10 @@
 #[cfg(all(feature = "mas", feature = "direct"))]
 compile_error!("The mas distribution cannot include direct/private APIs or the updater. Build each channel separately.");
+// App Review 3.1.1: the Store build buys through StoreKit only, never through
+// the web checkout. `stripe-purchases` already implies `direct`; this keeps the
+// rule explicit if that implication ever changes.
+#[cfg(all(feature = "mas", feature = "stripe-purchases"))]
+compile_error!("The mas distribution cannot link to the web checkout (stripe-purchases).");
 
 mod actions;
 #[cfg(all(target_os = "macos", target_arch = "aarch64"))]

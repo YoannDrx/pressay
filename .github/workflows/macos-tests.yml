@@ -24,6 +24,9 @@ jobs:
         include:
           - features: updater
             environment: staging-direct
+          # The stable DMG and Windows feature set (see release.yml).
+          - features: updater,stripe-purchases
+            environment: staging-direct
           - features: mas
             environment: staging-mac-app-store
           - features: storekit-purchases

@@ -52,11 +52,15 @@ jobs:
             exit 1
           fi
           echo "version=$version" >> "$GITHUB_OUTPUT"
+          # Prereleases enforce no entitlement, so nothing is locked and no
+          # purchase is offered. Stable DMG and Windows builds enforce Pro and
+          # sell it through the web checkout: `stripe-purchases` implies
+          # `commercial-entitlements` and can never join the Store build.
           if [[ "$version" == *-* ]]; then
             echo "features=updater" >> "$GITHUB_OUTPUT"
             echo "environment=staging-direct" >> "$GITHUB_OUTPUT"
           else
-            echo "features=updater,commercial-entitlements" >> "$GITHUB_OUTPUT"
+            echo "features=updater,stripe-purchases" >> "$GITHUB_OUTPUT"
             echo "environment=production-direct" >> "$GITHUB_OUTPUT"
           fi
           package_version=$(jq -r '.version' package.json)

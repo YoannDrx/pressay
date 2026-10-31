@@ -135,9 +135,6 @@
     "direct": {
       "title": "Pressay Pro",
       "description": "Subscribe on press-say.app, signed in with this same account. Payment is handled by Stripe, and Pro activates here automatically once it is confirmed.",
-      "subscribe": "See plans and subscribe",
-      "waiting": "Finish checkout in your browser. Pressay checks your subscription when you come back.",
-      "checkNow": "Check now",
       "manage": "Manage billing"
     },
     "legal": {
@@ -1268,6 +1265,13 @@
   },
   "proGate": {
     "description": "Your local dictation stays free. Upgrade from the Account page to use it.",
-    "cta": "See Pro"
+    "cta": "See Pro",
+    "directDescription": "Místní diktování zůstává zdarma. Pro použití této funkce přejděte na Pro na press-say.app."
+  },
+  "upgrade": {
+    "cta": "Přejít na Pro",
+    "waiting": "Dokončete nákup na press-say.app, přihlášeni stejným účtem. Pro se zde odemkne, jakmile se vrátíte.",
+    "done": "Nákup jsem dokončil",
+    "notYet": "Pro zatím není aktivní. Potvrzení platby může trvat minutu; ověřte, že jste nakoupili s účtem přihlášeným zde."
   }
 }

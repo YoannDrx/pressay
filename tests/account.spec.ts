@@ -159,11 +159,37 @@ test("the direct checkout opens the web pricing behind its gate", async ({
   page,
 }) => {
   await page.goto("/tests/fixtures/account.html?scenario=direct-checkout");
-  await page.getByRole("button", { name: "See plans and subscribe" }).click();
+  await page.getByRole("button", { name: "Upgrade to Pro" }).click();
   await expect
     .poll(async () => (await payloads(page)).at(-1))
     .toEqual({ command: "open_external_page", page: "direct_checkout" });
-  await expect(page.getByText("Finish checkout in your browser")).toBeVisible();
+  const status = page.getByTestId("pro-upgrade-status");
+  await expect(status).toContainText("Finish your purchase on press-say.app");
+  // Still Free after the explicit check: explain instead of failing silently.
+  await status
+    .getByRole("button", { name: "I’ve finished my purchase" })
+    .click();
+  await expect(status).toContainText("Pro is not active yet");
+});
+
+test("finishing the web purchase unlocks Pro without a restart", async ({
+  page,
+}) => {
+  await page.goto("/tests/fixtures/account.html?scenario=direct-checkout-paid");
+  await expect(page.getByText("Free plan")).toBeVisible();
+  await page.getByRole("button", { name: "Upgrade to Pro" }).click();
+  const status = page.getByTestId("pro-upgrade-status");
+  await status
+    .getByRole("button", { name: "I’ve finished my purchase" })
+    .click();
+  await expect(status).toHaveCount(0);
+  await expect(page.getByText("Pro plan")).toBeVisible();
+  await expect(
+    page.getByRole("button", { name: "Upgrade to Pro" }),
+  ).toHaveCount(0);
+  await expect(
+    page.getByRole("button", { name: "Manage billing" }),
+  ).toBeVisible();
 });
 
 test("the direct checkout stays hidden while its release gate is closed", async ({
@@ -172,7 +198,7 @@ test("the direct checkout stays hidden while its release gate is closed", async 
   await page.goto("/tests/fixtures/account.html?scenario=direct");
   await expect(page.getByText("synthetic@example.invalid")).toBeVisible();
   await expect(
-    page.getByRole("button", { name: "See plans and subscribe" }),
+    page.getByRole("button", { name: "Upgrade to Pro" }),
   ).toHaveCount(0);
 });
 

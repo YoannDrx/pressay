@@ -135,9 +135,6 @@
     "direct": {
       "title": "Pressay Pro",
       "description": "Abonnez-vous sur press-say.app, connecté avec ce même compte. Le paiement est traité par Stripe, et Pro s’active ici automatiquement une fois confirmé.",
-      "subscribe": "Voir les offres et s’abonner",
-      "waiting": "Terminez le paiement dans votre navigateur. Pressay vérifie votre abonnement à votre retour.",
-      "checkNow": "Vérifier maintenant",
       "manage": "Gérer la facturation"
     },
     "legal": {
@@ -1268,6 +1265,13 @@
   },
   "proGate": {
     "description": "Votre dictée locale reste gratuite. Passez à Pro depuis la page Compte pour l’utiliser.",
-    "cta": "Voir Pro"
+    "cta": "Voir Pro",
+    "directDescription": "Votre dictée locale reste gratuite. Passez à Pro sur press-say.app pour utiliser cette fonction."
+  },
+  "upgrade": {
+    "cta": "Passer à Pro",
+    "waiting": "Terminez votre achat sur press-say.app, connecté avec ce même compte. Pro se débloque ici dès votre retour.",
+    "done": "J’ai terminé mon achat",
+    "notYet": "Pro n’est pas encore actif. La confirmation du paiement peut prendre une minute ; vérifiez que vous avez acheté avec le compte connecté ici."
   }
 }
