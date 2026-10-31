@@ -32,7 +32,7 @@
   },
   "dependencies": {
     "@tailwindcss/vite": "^4.3.3",
-    "@tauri-apps/api": "^2.11.1",
+    "@tauri-apps/api": "^2.12.4",
     "@tauri-apps/plugin-autostart": "~2.5.1",
     "@tauri-apps/plugin-clipboard-manager": "~2.3.2",
     "@tauri-apps/plugin-dialog": "~2.6.0",
@@ -41,12 +41,12 @@
     "@tauri-apps/plugin-opener": "^2.5.4",
     "@tauri-apps/plugin-os": "~2.3.2",
     "@tauri-apps/plugin-process": "~2.3.1",
-    "@tauri-apps/plugin-sql": "~2.3.2",
-    "@tauri-apps/plugin-store": "~2.4.4",
-    "@tauri-apps/plugin-updater": "~2.10.1",
+    "@tauri-apps/plugin-sql": "~2.4.1",
+    "@tauri-apps/plugin-store": "~2.5.0",
+    "@tauri-apps/plugin-updater": "~2.14.1",
     "i18next": "^26.4.2",
     "immer": "^11.1.17",
-    "lucide-react": "^0.542.0",
+    "lucide-react": "^1.66.0",
     "react": "^19.2.8",
     "react-dom": "^19.2.8",
     "react-i18next": "^16.6.6",
@@ -60,7 +60,7 @@
   },
   "devDependencies": {
     "@playwright/test": "^1.62.1",
-    "@tauri-apps/cli": "^2.11.4",
+    "@tauri-apps/cli": "^2.12.4",
     "@types/node": "^26.5.1",
     "@types/react": "^19.2.18",
     "@types/react-dom": "^19.2.4",
@@ -85,6 +85,7 @@
     "rollup": "4.62.4",
     "yaml": "1.10.3",
     "brace-expansion": "5.0.12",
-    "source-map-js": "1.2.2"
+    "source-map-js": "1.2.2",
+    "minimatch": "11.0.1"
   }
 }

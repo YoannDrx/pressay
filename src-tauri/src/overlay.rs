@@ -173,8 +173,9 @@ fn force_overlay_topmost(overlay_window: &tauri::webview::WebviewWindow) {
         if let Ok(hwnd) = overlay_clone.hwnd() {
             unsafe {
                 // Force Z-order: make this window topmost without changing size/pos or stealing focus
+                // Tauri 2.12 hands out a windows 0.62 HWND; our Win32 calls use 0.61.
                 let _ = SetWindowPos(
-                    hwnd,
+                    windows::Win32::Foundation::HWND(hwnd.0),
                     Some(HWND_TOPMOST),
                     0,
                     0,
@@ -355,8 +356,9 @@ fn place_windows_overlay(
         .map_err(|error| format!("failed to get overlay window handle: {error}"))?;
 
     unsafe {
+        // Tauri 2.12 hands out a windows 0.62 HWND; our Win32 calls use 0.61.
         SetWindowPos(
-            hwnd,
+            windows::Win32::Foundation::HWND(hwnd.0),
             None,
             x,
             y,
