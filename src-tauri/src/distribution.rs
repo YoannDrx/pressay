@@ -107,14 +107,33 @@ fn manage_subscription_url() -> Result<String, String> {
 /// Direct builds sell through the web checkout. The checkout itself collects
 /// consent, runs Stripe and grants Pro through a signed webhook; the app only
 /// opens the page and refreshes its entitlement when the user comes back.
-#[cfg(feature = "direct")]
+///
+/// The page is opened through the site's sign-in route, with the localized
+/// pricing page as its destination. A browser that is already signed in (the
+/// app's own OAuth sign-in runs in it) is redirected straight to pricing;
+/// otherwise the site asks for the account first and then returns to pricing,
+/// so the Checkout is always bound to a Pressay account. No account
+/// identifier ever goes into the URL.
+///
+/// Only `stripe-purchases` builds carry this URL. That feature implies
+/// `direct`, which `lib.rs` refuses to combine with `mas`: the Mac App Store
+/// binary cannot contain a link to an external purchase (App Review 3.1.1).
+#[cfg(feature = "stripe-purchases")]
 fn direct_checkout_url(locale: &str) -> Result<String, String> {
-    Ok(format!(
-        "{SITE_ORIGIN}/{locale}/pricing?source=pressay-desktop"
-    ))
+    let pricing = format!("/{locale}/{DIRECT_PRICING_PATH}");
+    let mut url = url::Url::parse(&format!("{SITE_ORIGIN}/sign-in"))
+        .map_err(|_| "direct_checkout_unavailable".to_string())?;
+    url.query_pairs_mut()
+        .append_pair("locale", locale)
+        .append_pair("redirect_url", &pricing);
+    Ok(url.into())
 }
 
-#[cfg(not(feature = "direct"))]
+/// The App Store release workflow greps the Store binary for this literal.
+#[cfg(feature = "stripe-purchases")]
+const DIRECT_PRICING_PATH: &str = "pricing?source=pressay-desktop";
+
+#[cfg(not(feature = "stripe-purchases"))]
 fn direct_checkout_url(_locale: &str) -> Result<String, String> {
     Err("direct_checkout_unavailable".to_string())
 }
@@ -168,17 +187,68 @@ mod tests {
     #[test]
     fn purchase_links_follow_the_channel() {
         let manage = external_page_url(ExternalPage::ManageSubscription, "en").unwrap();
-        let checkout = external_page_url(ExternalPage::DirectCheckout, "en");
         if cfg!(feature = "direct") {
             assert_eq!(manage, "https://press-say.app/account/billing");
-            assert!(checkout.unwrap().contains("/en/pricing"));
         } else {
             assert_eq!(manage, "https://apps.apple.com/account/subscriptions");
-            assert_eq!(checkout.unwrap_err(), "direct_checkout_unavailable");
         }
         assert_eq!(
             external_page_url(ExternalPage::AppleSubscriptions, "fr").unwrap(),
             "https://apps.apple.com/account/subscriptions"
+        );
+    }
+
+    #[test]
+    fn checkout_exists_only_in_stripe_purchase_builds() {
+        let checkout = external_page_url(ExternalPage::DirectCheckout, "fr-FR");
+        if cfg!(feature = "stripe-purchases") {
+            let url = url::Url::parse(&checkout.unwrap()).unwrap();
+            assert_eq!(url.origin().ascii_serialization(), "https://press-say.app");
+            assert_eq!(url.path(), "/sign-in");
+            let query: Vec<(String, String)> = url.query_pairs().into_owned().collect();
+            assert_eq!(
+                query,
+                [
+                    ("locale".to_string(), "fr".to_string()),
+                    (
+                        "redirect_url".to_string(),
+                        "/fr/pricing?source=pressay-desktop".to_string()
+                    ),
+                ]
+            );
+        } else {
+            assert_eq!(checkout.unwrap_err(), "direct_checkout_unavailable");
+        }
+    }
+
+    /// App Review 3.1.1: no page the Store build can open leads to a web
+    /// purchase. Runs in CI with `--features mas` and `storekit-purchases`.
+    #[test]
+    fn app_store_build_opens_no_external_purchase_page() {
+        if !cfg!(feature = "mas") {
+            return;
+        }
+        assert_eq!(distribution_channel(), DistributionChannel::MacAppStore);
+        for page in [
+            ExternalPage::Support,
+            ExternalPage::Terms,
+            ExternalPage::Privacy,
+            ExternalPage::ManageSubscription,
+            ExternalPage::DirectCheckout,
+            ExternalPage::AppleSubscriptions,
+        ] {
+            for language in ["en", "fr"] {
+                if let Ok(url) = external_page_url(page, language) {
+                    assert!(!url.contains("pricing"), "{url}");
+                    assert!(!url.contains("checkout"), "{url}");
+                    assert!(!url.contains("press-say.app/account"), "{url}");
+                    assert!(!url.contains("sign-in"), "{url}");
+                }
+            }
+        }
+        assert_eq!(
+            external_page_url(ExternalPage::DirectCheckout, "en").unwrap_err(),
+            "direct_checkout_unavailable"
         );
     }
 }

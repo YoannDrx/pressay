@@ -29,6 +29,8 @@ import {
 import { Button } from "@/components/ui/Button";
 import { SettingsGroup } from "@/components/ui/SettingsGroup";
 import { AppPageHeader } from "@/components/layout";
+import { ProUpgradeStatus } from "@/components/shared/ProUpgradeStatus";
+import { useProUpgrade } from "@/hooks/useProUpgrade";
 import { useSettings } from "@/hooks/useSettings";
 import {
   appErrorKey,
@@ -85,7 +87,6 @@ export function AccountSettings() {
   const [isAppStore, setIsAppStore] = useState(false);
   const [purchasesEnabled, setPurchasesEnabled] = useState(false);
   const [directCheckoutEnabled, setDirectCheckoutEnabled] = useState(false);
-  const [awaitingCheckout, setAwaitingCheckout] = useState(false);
   const [appleSubscriptionWarning, setAppleSubscriptionWarning] =
     useState(false);
 
@@ -185,14 +186,12 @@ export function AccountSettings() {
     };
   }, [refresh]);
 
-  // The web checkout grants Pro through a signed webhook; the app only notices
-  // it when it refreshes (on focus and every 30 s above).
-  useEffect(() => {
-    if (awaitingCheckout && account.entitlement?.tier === "pro") {
-      setAwaitingCheckout(false);
-      toast.success(t("cloud.appStore.purchased"));
-    }
-  }, [awaitingCheckout, account.entitlement?.tier, t]);
+  // The web checkout grants Pro through a signed webhook; the app notices it
+  // when it refreshes (on focus, every 30 s above, or on the explicit check).
+  const upgrade = useProUpgrade({
+    isPro: account.entitlement?.tier === "pro",
+    refresh,
+  });
 
   useEffect(() => {
     const unlisten = listen<CloudAuthEvent>(
@@ -485,10 +484,6 @@ export function AccountSettings() {
     }
   };
 
-  const openDirectCheckout = async () => {
-    if (await openPage("direct_checkout")) setAwaitingCheckout(true);
-  };
-
   const isPro = account.entitlement?.tier === "pro";
   const entitlementSource = account.entitlement?.source;
   const currentPeriod = new Date().toISOString().slice(0, 7);
@@ -699,11 +694,11 @@ export function AccountSettings() {
                   ) : !isPro ? (
                     <Button
                       size="sm"
-                      onClick={() => void openDirectCheckout()}
+                      onClick={() => void upgrade.start()}
                       disabled={pendingAction !== null}
                     >
                       <ExternalLink className="mr-1.5 h-3.5 w-3.5" />
-                      {t("cloud.direct.subscribe")}
+                      {t("upgrade.cta")}
                     </Button>
                   ) : null}
                   <Button
@@ -721,22 +716,7 @@ export function AccountSettings() {
                     {t("cloud.legal.privacy")}
                   </Button>
                 </div>
-                {awaitingCheckout ? (
-                  <div
-                    className="flex items-center justify-between gap-3 rounded-lg border border-accent/20 bg-accent/5 px-3 py-2 text-xs text-text"
-                    role="status"
-                  >
-                    <span>{t("cloud.direct.waiting")}</span>
-                    <Button
-                      size="sm"
-                      variant="secondary"
-                      onClick={() => void refresh()}
-                      disabled={loading}
-                    >
-                      {t("cloud.direct.checkNow")}
-                    </Button>
-                  </div>
-                ) : null}
+                <ProUpgradeStatus upgrade={upgrade} />
               </div>
             </SettingsGroup>
           ) : null}

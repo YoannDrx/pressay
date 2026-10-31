@@ -22,6 +22,21 @@ const account: CloudAccountSnapshot = {
   entitlement: null,
   usage: null,
 };
+// The web checkout grants Pro through a webhook; this scenario simulates it
+// having landed by the time the user comes back from the browser.
+const proAfterCheckout = scenario === "direct-checkout-paid";
+let checkoutOpened = false;
+const proAccount: CloudAccountSnapshot = {
+  ...account,
+  entitlement: {
+    tier: "pro",
+    source: "stripe",
+    validFrom: "2026-01-01T00:00:00Z",
+    validUntil: null,
+    offlineGraceUntil: null,
+    revision: 2,
+  },
+};
 const calls: string[] = [];
 // Arguments of the commands whose payload matters to the assertions.
 const payloads: Record<string, unknown>[] = [];
@@ -47,8 +62,9 @@ mockIPC(
           appStorePurchase: scenario?.startsWith("purchases-enabled")
             ? "enabled"
             : "release_gate",
-          directCheckout:
-            scenario === "direct-checkout" ? "enabled" : "release_gate",
+          directCheckout: scenario?.startsWith("direct-checkout")
+            ? "enabled"
+            : "release_gate",
         };
       case "get_cloud_auth_config":
         return {
@@ -56,7 +72,8 @@ mockIPC(
           callbackUrl: "pressay://oauth/callback",
         };
       case "get_cloud_account_snapshot":
-        return signedOut ? Promise.reject("cloud_not_connected") : account;
+        if (signedOut) return Promise.reject("cloud_not_connected");
+        return proAfterCheckout && checkoutOpened ? proAccount : account;
       case "reconcile_app_store_purchases":
         return account;
       case "restore_app_store_purchases":
@@ -70,6 +87,9 @@ mockIPC(
       case "purchase_app_store_product":
         return Promise.reject("storekit_pending");
       case "open_external_page":
+        if ((payload as { page?: string }).page === "direct_checkout")
+          checkoutOpened = true;
+        return null;
       case "begin_cloud_social_login":
       case "cancel_cloud_social_login":
         return null;
@@ -89,9 +109,12 @@ mockIPC(
         return null;
       case "get_app_store_products":
         if (
-          ["direct", "direct-checkout", "apple-subscription"].includes(
-            scenario ?? "",
-          )
+          [
+            "direct",
+            "direct-checkout",
+            "direct-checkout-paid",
+            "apple-subscription",
+          ].includes(scenario ?? "")
         )
           return Promise.reject("storekit_distribution_unavailable");
         if (scenario === "offline")

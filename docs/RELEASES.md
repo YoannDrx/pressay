@@ -9,7 +9,12 @@ Pressay has two independently gated macOS distributions and a Windows build.
 - Architecture: Apple Silicon (`aarch64-apple-darwin`)
 - Developer ID signing, hardened runtime, notarization, and stapling required
 - Pressay updater enabled and signed with the repository updater key
-- Stripe/web billing may be exposed after the Cloud gate passes
+- Stable releases are built with `stripe-purchases`: Free accounts get an
+  "Upgrade to Pro" button (locked features and Account page) that opens the
+  web pricing page through the site sign-in; the app re-reads the entitlement
+  on window focus or "I've finished my purchase". Sales themselves stay closed
+  on the site until its commercial gate opens. Prereleases enforce no
+  entitlement and offer no purchase.
 
 ### Update endpoints
 
