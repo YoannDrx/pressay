@@ -28,21 +28,7 @@ jobs:
         uses: taiki-e/install-action@cargo-audit
       - name: Audit Rust dependencies
         working-directory: src-tauri
-        # rust_decimal declares vulnerable rkyv 0.7 as an optional dependency,
-        # but no enabled Pressay feature selects it (`cargo tree -i rkyv` is
-        # empty). Keep this narrow exception visible until its upstream moves.
-        #
-        # RUSTSEC-2026-0367/0368/0369: zip 4.6 extraction of symlinks and
-        # SUID bits, pulled by tauri-plugin-updater 2.10 only to unpack `.zip`
-        # updates. Pressay ships `.app.tar.gz` and NSIS installers, both
-        # minisign-verified before use. The fixed plugin (2.14, zip 9) needs
-        # Tauri 2.12; drop these exceptions with that upgrade.
-        run: >-
-          cargo audit
-          --ignore RUSTSEC-2026-0235
-          --ignore RUSTSEC-2026-0367
-          --ignore RUSTSEC-2026-0368
-          --ignore RUSTSEC-2026-0369
+        run: cargo audit
 
   secret-scan:
     runs-on: ubuntu-latest
