@@ -37,7 +37,7 @@ Native sign-in and purchases on the Apple-delivered candidate remain release gat
 - Subscription group: `Pressay Pro`
 - Monthly: `app.pressay.desktop.mas.pro.monthly`
 - Annual: `app.pressay.desktop.mas.pro.annual`
-- No free trial and no lifetime product.
+- The annual plan has a one-week free trial for new subscribers. No lifetime product.
 - After signing in, choose an Apple subscription from Account.
 - Restore Purchases is available from Account, including when product loading fails.
 - Cancel the purchase sheet and confirm that Free remains available.
