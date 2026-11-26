@@ -32,12 +32,7 @@ import { PageAtmosphere } from "@/components/layout";
 import { APP_NAVIGATE_EVENT } from "@/lib/appNavigation";
 
 type OnboardingStep =
-  | "welcome"
-  | "accessibility"
-  | "model"
-  | "language"
-  | "sandbox"
-  | "done";
+  "welcome" | "accessibility" | "model" | "language" | "sandbox" | "done";
 
 const renderSettingsContent = (section: SidebarSection) => {
   const ActiveComponent =
