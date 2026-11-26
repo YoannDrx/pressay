@@ -210,7 +210,6 @@ fn stage_vc_runtime_dlls() {
     );
 }
 
-
 /// Stage transcribe-cpp's shared runtime libraries into `transcribe-libs/` so the
 /// installer can ship them next to the executable. One code path covers Windows
 /// (`.dll`) and Linux (versioned `.so`); the match-by-name filter below handles
