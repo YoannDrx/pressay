@@ -630,7 +630,11 @@ impl TranscriptionManager {
             let accelerator = settings.transcribe_accelerator;
             let options = ModelOptions {
                 backend: select_transcribe_backend(accelerator),
-                gpu_device: resolve_gpu_device(accelerator, settings.transcribe_gpu_device),
+                device: device_for_index(resolve_gpu_device(
+                    accelerator,
+                    settings.transcribe_gpu_device,
+                )),
+                ..Default::default()
             };
             let model = Model::load_with(&path, &options)
                 .map_err(|e| anyhow::anyhow!("could not load '{}': {}", model_id, e))?;
@@ -793,7 +797,8 @@ impl TranscriptionManager {
                 };
                 let model_options = ModelOptions {
                     backend,
-                    gpu_device,
+                    device: device_for_index(gpu_device),
+                    ..Default::default()
                 };
                 let model = Model::load_with(&model_path, &model_options).map_err(|e| {
                     let error_msg = format!("Failed to load whisper model {}: {}", model_id, e);
@@ -815,7 +820,7 @@ impl TranscriptionManager {
                 // loaded model's real ones (GGUF metadata) so badges/gating
                 // reflect runtime truth, not the pre-download probe. The
                 // load-completed event below triggers the frontend refresh.
-                let caps = session.model().capabilities();
+                let caps = run_caps(&session.model());
                 let honors_language_hint = honors_language_hint(
                     Some(session.model().arch().as_str()),
                     GgufHeaderProber.probe_file(&model_path).language_prompts,
@@ -1145,7 +1150,7 @@ impl TranscriptionManager {
         let (supports_streaming, supports_translate, languages) = match &engine {
             LoadedEngine::TranscribeCpp(session) => {
                 let model = session.model();
-                let caps = model.capabilities();
+                let caps = run_caps(&model);
                 info!(
                     "Live preview: model '{}' arch='{}' variant='{}' supports_streaming={} \
                      supports_translate={} languages={:?}",
@@ -1627,7 +1632,7 @@ impl TranscriptionManager {
             let mut model_detected_language: Option<String> = None;
             if let LoadedEngine::TranscribeCpp(session) = &engine {
                 let model = session.model();
-                let caps = model.capabilities();
+                let caps = run_caps(&model);
                 let model_takes_initial_prompt = model.supports(Feature::InitialPrompt);
                 model_is_whisper = model.arch() == "whisper";
                 model_supports_translate = caps.supports_translate;
@@ -2068,6 +2073,47 @@ fn apply_language_override_value(language: &mut String, language_override: Optio
     if let Some(value) = language_override.filter(|value| !value.trim().is_empty()) {
         *language = value.to_string();
     }
+}
+
+/// The capabilities Pressay reads from a loaded transcribe-cpp model. Since
+/// transcribe-cpp 0.4 reading them can fail; a model whose capabilities
+/// cannot be read is treated as transcription-only, in its own languages.
+struct RunCaps {
+    supports_streaming: bool,
+    supports_translate: bool,
+    supports_language_detect: bool,
+    languages: Vec<String>,
+}
+
+fn run_caps(model: &Model) -> RunCaps {
+    match model.capabilities() {
+        Ok(caps) => RunCaps {
+            supports_streaming: caps.supports_streaming,
+            supports_translate: caps.supports_translate,
+            supports_language_detect: caps.supports_language_detect,
+            languages: caps.languages,
+        },
+        Err(e) => {
+            warn!("Could not read model capabilities: {}", e);
+            RunCaps {
+                supports_streaming: false,
+                supports_translate: false,
+                supports_language_detect: false,
+                languages: Vec::new(),
+            }
+        }
+    }
+}
+
+/// The compute device for a registry index; `0` (or a vanished device) lets
+/// transcribe-cpp apply its automatic policy for the backend.
+fn device_for_index(index: i32) -> Option<transcribe_cpp::Device> {
+    if index <= 0 {
+        return None;
+    }
+    transcribe_compute_devices()
+        .into_iter()
+        .find(|device| device.index == Some(index as usize))
 }
 
 fn base_language_code(language: &str) -> &str {
