@@ -90,6 +90,10 @@ pub struct ShortcutBinding {
     pub description: String,
     pub default_binding: String,
     pub current_binding: String,
+    /// The mode this shortcut always dictates with, ahead of app profiles and
+    /// the active mode. `None` follows the active mode and profiles.
+    #[serde(default)]
+    pub mode_id: Option<String>,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone, Type)]
@@ -444,6 +448,9 @@ pub struct AppSettings {
     pub selected_output_device: Option<String>,
     #[serde(default = "default_translate_to_english")]
     pub translate_to_english: bool,
+    /// Target language of the "Dictate and translate" mode.
+    #[serde(default = "default_translation_target_language")]
+    pub translation_target_language: String,
     #[serde(default = "default_selected_language")]
     pub selected_language: String,
     #[serde(default = "default_overlay_position")]
@@ -573,7 +580,63 @@ fn default_model() -> String {
     "".to_string()
 }
 
-const CURRENT_SETTINGS_SCHEMA_VERSION: u32 = 8;
+const CURRENT_SETTINGS_SCHEMA_VERSION: u32 = 9;
+
+fn default_translation_target_language() -> String {
+    "en".to_string()
+}
+
+/// Id of the custom mode that keeps a legacy post-processing prompt.
+pub const LEGACY_POST_PROCESS_MODE_ID: &str = "legacy_post_process";
+
+/// Schema 9: the second dictation shortcut (formerly "Transcribe with
+/// Post-Processing", only active with post-processing enabled) dictates with
+/// a mode. Someone who used it keeps the same behaviour through a custom mode
+/// built from their selected prompt; everyone else gets "Dictate and
+/// translate".
+fn migrate_second_shortcut_to_a_mode(settings: &mut AppSettings) {
+    let legacy_prompt = settings
+        .post_process_enabled
+        .then_some(settings.post_process_selected_prompt_id.as_ref())
+        .flatten()
+        .and_then(|id| settings.post_process_prompts.iter().find(|p| &p.id == id))
+        .map(|prompt| (prompt.name.clone(), prompt.prompt.clone()));
+
+    let mode_id = match legacy_prompt {
+        Some((name, prompt)) => {
+            if !settings
+                .pressay_modes
+                .iter()
+                .any(|mode| mode.id == LEGACY_POST_PROCESS_MODE_ID)
+            {
+                settings
+                    .pressay_modes
+                    .push(crate::productivity::legacy_post_process_mode(
+                        LEGACY_POST_PROCESS_MODE_ID,
+                        &name,
+                        &prompt,
+                    ));
+            }
+            LEGACY_POST_PROCESS_MODE_ID
+        }
+        None => crate::productivity::TRANSLATE_TO_MODE_ID,
+    };
+
+    let defaults = get_default_settings().bindings;
+    if let Some(binding) = settings.bindings.get_mut(SECOND_DICTATION_BINDING_ID) {
+        binding.mode_id = Some(mode_id.to_string());
+        if mode_id == crate::productivity::TRANSLATE_TO_MODE_ID {
+            if let Some(default) = defaults.get(SECOND_DICTATION_BINDING_ID) {
+                binding.name = default.name.clone();
+                binding.description = default.description.clone();
+            }
+        }
+    }
+}
+
+/// The second dictation shortcut. The id predates shortcut modes and is kept
+/// so CLI flags, signals and stored settings keep working.
+pub const SECOND_DICTATION_BINDING_ID: &str = "transcribe_with_post_process";
 
 fn default_settings_schema_version() -> u32 {
     CURRENT_SETTINGS_SCHEMA_VERSION
@@ -961,6 +1024,7 @@ pub fn get_default_settings() -> AppSettings {
             description: "Converts your speech into text.".to_string(),
             default_binding: default_shortcut.to_string(),
             current_binding: default_shortcut.to_string(),
+            mode_id: None,
         },
     );
     #[cfg(target_os = "windows")]
@@ -976,11 +1040,12 @@ pub fn get_default_settings() -> AppSettings {
         "transcribe_with_post_process".to_string(),
         ShortcutBinding {
             id: "transcribe_with_post_process".to_string(),
-            name: "Transcribe with Post-Processing".to_string(),
-            description: "Converts your speech into text and applies AI post-processing."
+            name: "Dictate and translate".to_string(),
+            description: "Converts your speech into text in the language of your choice."
                 .to_string(),
             default_binding: default_post_process_shortcut.to_string(),
             current_binding: default_post_process_shortcut.to_string(),
+            mode_id: Some(crate::productivity::TRANSLATE_TO_MODE_ID.to_string()),
         },
     );
     bindings.insert(
@@ -991,6 +1056,7 @@ pub fn get_default_settings() -> AppSettings {
             description: "Cancels the current recording.".to_string(),
             default_binding: "escape".to_string(),
             current_binding: "escape".to_string(),
+            mode_id: None,
         },
     );
 
@@ -1015,6 +1081,7 @@ pub fn get_default_settings() -> AppSettings {
         clamshell_microphone: None,
         selected_output_device: None,
         translate_to_english: false,
+        translation_target_language: default_translation_target_language(),
         selected_language: "auto".to_string(),
         overlay_position: default_overlay_position(),
         debug_mode: false,
@@ -1885,6 +1952,11 @@ fn apply_settings_migrations(
         updated = true;
     }
 
+    if stored_schema_version < 9 {
+        migrate_second_shortcut_to_a_mode(settings);
+        updated = true;
+    }
+
     if stored_schema_version < u64::from(CURRENT_SETTINGS_SCHEMA_VERSION) {
         settings.settings_schema_version = CURRENT_SETTINGS_SCHEMA_VERSION;
         updated = true;
@@ -2218,6 +2290,72 @@ mod tests {
         assert_eq!(salvaged.sound_theme, default_sound_theme());
     }
 
+    fn schema_8_store() -> (AppSettings, serde_json::Value) {
+        let mut stored = default_settings_json();
+        stored["settings_schema_version"] = serde_json::json!(8);
+        stored["bindings"]["transcribe_with_post_process"]["name"] =
+            serde_json::json!("Transcribe with Post-Processing");
+        stored["bindings"]["transcribe_with_post_process"]
+            .as_object_mut()
+            .unwrap()
+            .remove("mode_id");
+        stored["bindings"]["transcribe_with_post_process"]["current_binding"] =
+            serde_json::json!("option+shift+k");
+        let settings: AppSettings = serde_json::from_value(stored.clone()).unwrap();
+        (settings, stored)
+    }
+
+    #[test]
+    fn second_shortcut_becomes_dictate_and_translate() {
+        let (mut settings, stored) = schema_8_store();
+        assert!(apply_settings_migrations(&mut settings, &stored));
+        let binding = &settings.bindings["transcribe_with_post_process"];
+        assert_eq!(
+            binding.mode_id.as_deref(),
+            Some(crate::productivity::TRANSLATE_TO_MODE_ID)
+        );
+        assert_eq!(binding.name, "Dictate and translate");
+        // The user's own keys are kept.
+        assert_eq!(binding.current_binding, "option+shift+k");
+        assert_eq!(settings.translation_target_language, "en");
+        assert!(settings
+            .pressay_modes
+            .iter()
+            .any(|mode| mode.id == "translate_to"));
+    }
+
+    #[test]
+    fn second_shortcut_keeps_a_used_post_processing_prompt_as_a_mode() {
+        let (mut settings, mut stored) = schema_8_store();
+        settings.post_process_enabled = true;
+        settings.post_process_prompts = vec![LLMPrompt {
+            id: "mine".to_string(),
+            name: "Pro tone".to_string(),
+            prompt: "Rewrite ${output} in a professional tone.".to_string(),
+        }];
+        settings.post_process_selected_prompt_id = Some("mine".to_string());
+        stored["post_process_enabled"] = serde_json::json!(true);
+        assert!(apply_settings_migrations(&mut settings, &stored));
+
+        let binding = &settings.bindings["transcribe_with_post_process"];
+        assert_eq!(
+            binding.mode_id.as_deref(),
+            Some(LEGACY_POST_PROCESS_MODE_ID)
+        );
+        let mode = settings
+            .pressay_modes
+            .iter()
+            .find(|mode| mode.id == LEGACY_POST_PROCESS_MODE_ID)
+            .unwrap();
+        assert_eq!(mode.name, "Pro tone");
+        assert!(!mode.is_builtin);
+        assert_eq!(
+            mode.steps[0].instruction.as_deref(),
+            Some("Rewrite ${transcript} in a professional tone.")
+        );
+        crate::productivity::validate_mode(mode).unwrap();
+    }
+
     #[test]
     fn build_channel_replaces_managed_cloud_url_even_after_schema_migrations() {
         let mut stored = default_settings_json();
@@ -2545,7 +2683,7 @@ mod tests {
     fn productivity_defaults_start_in_faithful_local_mode() {
         let settings = get_default_settings();
         assert_eq!(settings.active_mode_id, "faithful");
-        assert_eq!(settings.pressay_modes.len(), 12);
+        assert_eq!(settings.pressay_modes.len(), 13);
         assert!(settings
             .pressay_modes
             .iter()
@@ -2588,13 +2726,13 @@ mod tests {
             settings.settings_schema_version,
             CURRENT_SETTINGS_SCHEMA_VERSION
         );
-        assert_eq!(settings.pressay_modes.len(), 13);
-        assert_eq!(settings.pressay_modes[..12], builtin_modes());
-        assert_eq!(settings.pressay_modes[12], custom);
+        assert_eq!(settings.pressay_modes.len(), 14);
+        assert_eq!(settings.pressay_modes[..13], builtin_modes());
+        assert_eq!(settings.pressay_modes[13], custom);
 
         let serialized = serde_json::to_value(&settings).unwrap();
         assert!(!apply_settings_migrations(&mut settings, &serialized));
-        assert_eq!(settings.pressay_modes.len(), 13);
+        assert_eq!(settings.pressay_modes.len(), 14);
     }
 
     #[test]
@@ -2638,7 +2776,7 @@ mod tests {
         assert_eq!(settings.app_profiles[0].bundle_id, "com.apple.mail");
 
         assert!(!import_legacy_pressay_modes(&mut settings, legacy).unwrap());
-        assert_eq!(settings.pressay_modes.len(), 13);
+        assert_eq!(settings.pressay_modes.len(), 14);
         assert_eq!(settings.app_profiles.len(), 1);
     }
 

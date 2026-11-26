@@ -12,6 +12,7 @@ import { useSettings } from "../../../hooks/useSettings";
 import { VolumeSlider } from "../VolumeSlider";
 import { MuteWhileRecording } from "../MuteWhileRecording";
 import { ModelSettingsCard } from "./ModelSettingsCard";
+import { SecondShortcutSettings } from "./SecondShortcutSettings";
 import { AlwaysOnMicrophone } from "../AlwaysOnMicrophone";
 import { ClamshellMicrophoneSelector } from "../ClamshellMicrophoneSelector";
 import { SoundPicker } from "../SoundPicker";
@@ -42,6 +43,7 @@ export const GeneralSettings: React.FC = () => {
       />
       <SettingsGroup title={t("settings.general.shortcut.title")}>
         <ShortcutInput shortcutId="transcribe" grouped={true} />
+        <SecondShortcutSettings />
         <PushToTalk descriptionMode="tooltip" grouped={true} />
         {/* Cancel shortcut is hidden with push-to-talk (release key cancels) and on Linux (dynamic shortcut instability) */}
         {!isLinux && !pushToTalk && (

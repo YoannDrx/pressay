@@ -171,6 +171,15 @@ pub fn change_binding(
         }
     }
 
+    // Two dictation shortcuts on the same keys would race for every press.
+    if let Some(other) = conflicting_binding(&settings.bindings, &id, &binding) {
+        return Ok(BindingResponse {
+            success: false,
+            binding: None,
+            error: Some(format!("shortcut_conflict:{other}")),
+        });
+    }
+
     // Unregister the existing binding
     if let Err(e) = unregister_shortcut(&app, binding_to_modify.clone()) {
         let error_msg = format!("Failed to unregister shortcut: {}", e);
@@ -267,9 +276,6 @@ pub fn resume_all_shortcuts(app: &AppHandle) {
     let settings = get_settings(app);
     for (id, binding) in &settings.bindings {
         if id == "cancel" {
-            continue;
-        }
-        if id == "transcribe_with_post_process" && !settings.post_process_enabled {
             continue;
         }
         if let Err(e) = register_shortcut(app, binding.clone()) {
@@ -482,11 +488,6 @@ fn register_all_shortcuts_for_implementation(
             continue;
         }
 
-        // Skip post-processing shortcut when the feature is disabled
-        if id == "transcribe_with_post_process" && !current_settings.post_process_enabled {
-            continue;
-        }
-
         let mut binding = current_settings
             .bindings
             .get(id)
@@ -651,6 +652,74 @@ pub fn apply_window_theme(app: &AppHandle, theme: Theme) {
 pub fn change_translate_to_english_setting(app: AppHandle, enabled: bool) -> Result<(), String> {
     let mut settings = settings::get_settings(&app);
     settings.translate_to_english = enabled;
+    settings::write_settings(&app, settings);
+    Ok(())
+}
+
+/// Another binding (other than `cancel`, which is only registered while
+/// recording) already using `shortcut`, compared without case or spaces.
+fn conflicting_binding(
+    bindings: &std::collections::HashMap<String, ShortcutBinding>,
+    id: &str,
+    shortcut: &str,
+) -> Option<String> {
+    let normalize = |value: &str| value.to_lowercase().replace(' ', "");
+    let wanted = normalize(shortcut);
+    if id == "cancel" {
+        return None;
+    }
+    bindings
+        .iter()
+        .filter(|(other_id, _)| other_id.as_str() != id && other_id.as_str() != "cancel")
+        .find(|(_, binding)| normalize(&binding.current_binding) == wanted)
+        .map(|(other_id, _)| other_id.clone())
+}
+
+/// Binds a dictation shortcut to a mode (`None` follows the active mode and
+/// app profiles).
+#[tauri::command]
+#[specta::specta]
+pub fn change_binding_mode(
+    app: AppHandle,
+    id: String,
+    mode_id: Option<String>,
+) -> Result<(), String> {
+    if !crate::transcription_coordinator::is_transcribe_binding(&id) {
+        return Err(format!("'{id}' is not a dictation shortcut"));
+    }
+    let mut settings = settings::get_settings(&app);
+    let mode_id = mode_id.filter(|mode_id| !mode_id.trim().is_empty());
+    if let Some(mode_id) = &mode_id {
+        if !settings
+            .pressay_modes
+            .iter()
+            .any(|mode| &mode.id == mode_id)
+        {
+            return Err(format!("Unknown mode '{mode_id}'"));
+        }
+    }
+    let binding = settings
+        .bindings
+        .get_mut(&id)
+        .ok_or_else(|| format!("Binding '{id}' not found"))?;
+    binding.mode_id = mode_id;
+    settings::write_settings(&app, settings);
+    Ok(())
+}
+
+/// Target language of the "Dictate and translate" mode.
+#[tauri::command]
+#[specta::specta]
+pub fn change_translation_target_language_setting(
+    app: AppHandle,
+    language: String,
+) -> Result<(), String> {
+    let language = language.trim();
+    if language.is_empty() || language == "auto" || language.len() > 16 {
+        return Err("Choose a target language".to_string());
+    }
+    let mut settings = settings::get_settings(&app);
+    settings.translation_target_language = language.to_string();
     settings::write_settings(&app, settings);
     Ok(())
 }
@@ -1019,22 +1088,9 @@ pub fn change_auto_submit_key_setting(app: AppHandle, key: String) -> Result<(),
 pub fn change_post_process_enabled_setting(app: AppHandle, enabled: bool) -> Result<(), String> {
     let mut settings = settings::get_settings(&app);
     settings.post_process_enabled = enabled;
-    settings::write_settings(&app, settings.clone());
-
-    // Register or unregister the post-processing shortcut
-    if let Some(binding) = settings
-        .bindings
-        .get("transcribe_with_post_process")
-        .cloned()
-    {
-        if enabled {
-            let _ = register_shortcut(&app, binding);
-        } else {
-            let _ = unregister_shortcut(&app, binding);
-        }
-    }
-
-    crate::secure_input::reconcile_fallback(&app);
+    settings::write_settings(&app, settings);
+    // The second dictation shortcut no longer depends on post-processing: it
+    // dictates with its own mode and stays registered.
     Ok(())
 }
 
@@ -1403,4 +1459,43 @@ pub async fn get_available_accelerators() -> crate::managers::transcription::Ava
     tauri::async_runtime::spawn_blocking(crate::managers::transcription::get_available_accelerators)
         .await
         .expect("get_available_accelerators panicked")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_shortcut_used_by_another_dictation_binding_conflicts() {
+        let binding = |id: &str, keys: &str| {
+            (
+                id.to_string(),
+                ShortcutBinding {
+                    id: id.to_string(),
+                    name: id.to_string(),
+                    description: String::new(),
+                    default_binding: keys.to_string(),
+                    current_binding: keys.to_string(),
+                    mode_id: None,
+                },
+            )
+        };
+        let bindings: std::collections::HashMap<_, _> = [
+            binding("transcribe", "option+space"),
+            binding("transcribe_with_post_process", "option+shift+space"),
+            binding("cancel", "escape"),
+        ]
+        .into_iter()
+        .collect();
+        assert_eq!(
+            conflicting_binding(&bindings, "transcribe_with_post_process", "Option + Space")
+                .as_deref(),
+            Some("transcribe")
+        );
+        assert_eq!(
+            conflicting_binding(&bindings, "transcribe", "option+space"),
+            None
+        );
+        assert_eq!(conflicting_binding(&bindings, "transcribe", "escape"), None);
+    }
 }

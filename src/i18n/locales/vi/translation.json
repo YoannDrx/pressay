@@ -361,14 +361,15 @@
             "description": "Phím tắt để hủy bản ghi hiện tại."
           },
           "transcribe_with_post_process": {
-            "name": "Phím tắt xử lý sau",
-            "description": "Tùy chọn: Phím tắt chuyên dụng luôn áp dụng xử lý sau bằng AI cho bản chuyển đổi của bạn."
+            "name": "Dictate and translate",
+            "description": "A second shortcut that always dictates with the mode chosen below. By default: you speak, the text comes out translated."
           }
         },
         "errors": {
           "restore": "Không thể khôi phục phím tắt gốc",
           "set": "Không thể đặt phím tắt: {{error}}",
-          "reset": "Không thể đặt lại phím tắt về giá trị gốc"
+          "reset": "Không thể đặt lại phím tắt về giá trị gốc",
+          "conflict": "This shortcut is already used by “{{other}}”. Choose other keys."
         },
         "changeLabel": "Change the {{name}}, currently {{binding}}",
         "recordingLabel": "Recording a new {{name}}. Press the keys to use."
@@ -387,7 +388,17 @@
       },
       "eyebrow": "VOICE INPUT",
       "description": "Tune the gesture, microphone and feedback that make Pressay feel native on this Mac.",
-      "interface": "Interface"
+      "interface": "Interface",
+      "secondShortcut": {
+        "modeTitle": "Second shortcut mode",
+        "modeDescription": "This shortcut always dictates with this mode, in every app. The main shortcut keeps the active mode and app profiles.",
+        "activeMode": "Active mode (same as the main shortcut)",
+        "translateMode": "Dictate and translate",
+        "modeError": "The mode could not be saved.",
+        "targetTitle": "Translate into",
+        "targetEnglish": "Into English, translation runs on your device with Whisper, for free. Without a Whisper model installed, it goes through your AI provider (Pro).",
+        "targetOther": "Into this language, translation goes through your AI provider or Pressay Cloud (Pro)."
+      }
     },
     "sound": {
       "title": "Âm thanh",

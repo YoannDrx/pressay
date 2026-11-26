@@ -568,7 +568,13 @@ impl TranscriptionManager {
         let fallback = pick_language_fallback_model(&models, active_model, language);
         let rescued = fallback.as_deref().and_then(|model_id| {
             let started = Instant::now();
-            match self.run_language_fallback(model_id, audio, language, cancel_token) {
+            match self.run_language_fallback(
+                model_id,
+                audio,
+                Task::Transcribe,
+                Some(base_language_code(language).to_string()),
+                cancel_token,
+            ) {
                 Ok(rescued) if !rescued.trim().is_empty() => {
                     info!(
                         "Dictation came out in English instead of '{}'; re-transcribed with '{}' in {} ms",
@@ -603,11 +609,14 @@ impl TranscriptionManager {
         rescued
     }
 
+    /// Runs `audio` through the side model (`language_fallback`), loading it
+    /// first if needed. `language` is the source language hint.
     fn run_language_fallback(
         &self,
         model_id: &str,
         audio: &[f32],
-        language: &str,
+        task: Task,
+        language: Option<String>,
         cancel_token: &CancelToken,
     ) -> Result<String> {
         let mut slot = self
@@ -634,9 +643,11 @@ impl TranscriptionManager {
         let Some((_, session)) = slot.as_mut() else {
             return Err(anyhow::anyhow!("language fallback model is not loaded"));
         };
+        let target_language = matches!(task, Task::Translate).then(|| "en".to_string());
         let run_options = RunOptions {
-            task: Task::Transcribe,
-            language: Some(base_language_code(language).to_string()),
+            task,
+            language,
+            target_language,
             ..Default::default()
         };
         session.set_cancel_token(cancel_token);
@@ -1436,6 +1447,68 @@ impl TranscriptionManager {
         audio: Vec<f32>,
         language_override: Option<&str>,
     ) -> Result<String> {
+        self.transcribe_with_options(audio, language_override, false)
+    }
+
+    /// Whether a dictation can be translated to English locally: the loaded
+    /// model translates, or an installed Whisper model can.
+    pub fn can_translate_to_english(&self) -> bool {
+        let settings = get_settings(&self.app_handle);
+        let active_model = self
+            .get_current_model()
+            .unwrap_or_else(|| settings.selected_model.clone());
+        self.model_manager
+            .get_model_info(&active_model)
+            .is_some_and(|info| info.supports_translation)
+            || pick_translation_model(&self.model_manager.get_available_models(), &active_model)
+                .is_some()
+    }
+
+    /// Transcribes and translates to English on this Mac or PC, with the
+    /// loaded model when it translates, otherwise with an installed Whisper
+    /// model. Used by the "Dictate and translate" shortcut, free for English.
+    pub fn transcribe_to_english(
+        &self,
+        audio: Vec<f32>,
+        language_override: Option<&str>,
+    ) -> Result<String> {
+        let settings = get_settings(&self.app_handle);
+        let active_model = self
+            .get_current_model()
+            .unwrap_or_else(|| settings.selected_model.clone());
+        let active_translates = self
+            .model_manager
+            .get_model_info(&active_model)
+            .is_some_and(|info| info.supports_translation);
+        if active_translates {
+            return self.transcribe_with_options(audio, language_override, true);
+        }
+
+        let model_id =
+            pick_translation_model(&self.model_manager.get_available_models(), &active_model)
+                .ok_or_else(|| anyhow::anyhow!("No installed model can translate to English"))?;
+        let mut language = settings.selected_language.clone();
+        apply_language_override_value(&mut language, language_override);
+        let source = (language != "auto").then(|| base_language_code(&language).to_string());
+        let (_cancel_guard, cancel_token) = self.begin_cancel_scope();
+        let started = Instant::now();
+        let text =
+            self.run_language_fallback(&model_id, &audio, Task::Translate, source, &cancel_token)?;
+        info!(
+            "Translated to English with '{}' in {} ms",
+            model_id,
+            started.elapsed().as_millis()
+        );
+        self.touch_activity();
+        Ok(normalize_transcription_output(&text))
+    }
+
+    fn transcribe_with_options(
+        &self,
+        audio: Vec<f32>,
+        language_override: Option<&str>,
+        force_translate_to_english: bool,
+    ) -> Result<String> {
         #[cfg(debug_assertions)]
         if std::env::var("HANDY_FORCE_TRANSCRIPTION_FAILURE").is_ok() {
             return Err(anyhow::anyhow!(
@@ -1474,6 +1547,9 @@ impl TranscriptionManager {
         // Get current settings for configuration
         let mut settings = get_settings(&self.app_handle);
         apply_language_override(&mut settings, language_override);
+        if force_translate_to_english {
+            settings.translate_to_english = true;
+        }
 
         // Validate selected language against the model's supported languages.
         // If the language isn't supported, fall back to "auto" to prevent errors.
@@ -1971,6 +2047,27 @@ fn pick_language_fallback_model(
                 .then(a.accuracy_score.total_cmp(&b.accuracy_score))
         })
         .map(|m| m.id.clone())
+}
+
+/// An installed model that can translate to English, other than the active
+/// one: the most accurate.
+fn pick_translation_model(models: &[ModelInfo], active_model: &str) -> Option<String> {
+    models
+        .iter()
+        .filter(|m| {
+            m.id != active_model
+                && m.is_downloaded
+                && m.supports_translation
+                && matches!(m.engine_type, EngineType::TranscribeCpp)
+        })
+        .max_by(|a, b| a.accuracy_score.total_cmp(&b.accuracy_score))
+        .map(|m| m.id.clone())
+}
+
+fn apply_language_override_value(language: &mut String, language_override: Option<&str>) {
+    if let Some(value) = language_override.filter(|value| !value.trim().is_empty()) {
+        *language = value.to_string();
+    }
 }
 
 fn base_language_code(language: &str) -> &str {
