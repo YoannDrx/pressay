@@ -49,9 +49,6 @@ Install dependencies and run the app:
 
 ```bash
 bun install --frozen-lockfile
-mkdir -p src-tauri/resources/models
-curl -o src-tauri/resources/models/silero_vad_v4.onnx \
-  https://models.press-say.app/silero_vad_v4.onnx
 CMAKE_POLICY_VERSION_MINIMUM=3.5 bun run tauri dev \
   --config src-tauri/tauri.updater.conf.json \
   --features updater
