@@ -371,6 +371,27 @@ pub struct AudioRecordingManager {
     invocation_microphone: Arc<Mutex<Option<String>>>,
 }
 
+/// Silence added before a clip shorter than one second. Models judge the
+/// language and the first word better with a little lead-in than with speech
+/// starting on the very first sample.
+const SHORT_CLIP_LEAD_IN: usize = WHISPER_SAMPLE_RATE / 4;
+/// Minimum length of a padded short clip (lead-in included).
+const SHORT_CLIP_MIN_LEN: usize = WHISPER_SAMPLE_RATE * 3 / 2;
+
+/// Pads a clip shorter than one second with silence on both sides.
+fn pad_short_clip(samples: Vec<f32>) -> Vec<f32> {
+    if samples.is_empty() || samples.len() >= WHISPER_SAMPLE_RATE {
+        return samples;
+    }
+    let mut padded = Vec::with_capacity(SHORT_CLIP_MIN_LEN);
+    padded.resize(SHORT_CLIP_LEAD_IN, 0.0);
+    padded.extend_from_slice(&samples);
+    if padded.len() < SHORT_CLIP_MIN_LEN {
+        padded.resize(SHORT_CLIP_MIN_LEN, 0.0);
+    }
+    padded
+}
+
 impl AudioRecordingManager {
     /* ---------- construction ------------------------------------------------ */
 
@@ -1082,16 +1103,7 @@ impl AudioRecordingManager {
                     return None;
                 }
 
-                // Pad if very short
-                let s_len = samples.len();
-                // debug!("Got {} samples", s_len);
-                if s_len < WHISPER_SAMPLE_RATE && s_len > 0 {
-                    let mut padded = samples;
-                    padded.resize(WHISPER_SAMPLE_RATE * 5 / 4, 0.0);
-                    Some(padded)
-                } else {
-                    Some(samples)
-                }
+                Some(pad_short_clip(samples))
             }
             _ => None,
         }
@@ -1142,7 +1154,28 @@ impl AudioRecordingManager {
 
 #[cfg(test)]
 mod tests {
-    use super::configured_device_changed;
+
+    #[test]
+    fn short_clips_get_silence_on_both_sides() {
+        let speech = vec![0.5_f32; WHISPER_SAMPLE_RATE / 2];
+        let padded = pad_short_clip(speech);
+        assert_eq!(padded.len(), SHORT_CLIP_MIN_LEN);
+        assert!(padded[..SHORT_CLIP_LEAD_IN].iter().all(|s| *s == 0.0));
+        assert_eq!(padded[SHORT_CLIP_LEAD_IN], 0.5);
+        assert_eq!(*padded.last().unwrap(), 0.0);
+    }
+
+    #[test]
+    fn long_and_empty_clips_are_untouched() {
+        let long = vec![0.5_f32; WHISPER_SAMPLE_RATE];
+        assert_eq!(pad_short_clip(long.clone()), long);
+        assert!(pad_short_clip(Vec::new()).is_empty());
+    }
+
+    use super::{
+        configured_device_changed, pad_short_clip, SHORT_CLIP_LEAD_IN, SHORT_CLIP_MIN_LEN,
+        WHISPER_SAMPLE_RATE,
+    };
 
     #[test]
     fn explicit_profile_microphone_reopens_only_when_the_device_differs() {

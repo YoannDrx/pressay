@@ -362,7 +362,7 @@
         "searchPlaceholder": "Search languages...",
         "noResults": "No languages found",
         "auto": "Auto",
-        "autoDetectOnly": "This model detects the spoken language on its own and cannot be locked to one, so short dictations may come out in another language. To always transcribe in one language, choose a Whisper model."
+        "autoDetectOnly": "This model detects the spoken language on its own. If a dictation comes out in English although you picked another language, Pressay redoes it automatically with an installed Whisper model (Whisper Small is enough)."
       },
       "pushToTalk": {
         "label": "Push To Talk",
@@ -1273,5 +1273,9 @@
     "waiting": "Finish your purchase on press-say.app, signed in with this same account. Pro unlocks here as soon as you come back.",
     "done": "I’ve finished my purchase",
     "notYet": "Pro is not active yet. Payment confirmation can take a minute; make sure you bought it with the account signed in here."
+  },
+  "dictationLanguage": {
+    "mismatchTitle": "Dictation came out in English",
+    "mismatchDescription": "Parakeet answered in English although you dictate in another language. Download Whisper Small in Models and Pressay will redo these dictations in your language automatically."
   }
 }

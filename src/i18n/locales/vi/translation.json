@@ -1273,5 +1273,9 @@
     "waiting": "Hoàn tất giao dịch mua trên press-say.app khi đăng nhập bằng chính tài khoản này. Pro sẽ được mở khóa tại đây ngay khi bạn quay lại.",
     "done": "Tôi đã hoàn tất giao dịch mua",
     "notYet": "Pro chưa được kích hoạt. Việc xác nhận thanh toán có thể mất một phút; hãy kiểm tra rằng bạn đã mua bằng tài khoản đang đăng nhập tại đây."
+  },
+  "dictationLanguage": {
+    "mismatchTitle": "Dictation came out in English",
+    "mismatchDescription": "Parakeet answered in English although you dictate in another language. Download Whisper Small in Models and Pressay will redo these dictations in your language automatically."
   }
 }

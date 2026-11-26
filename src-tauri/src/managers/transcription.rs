@@ -1,9 +1,10 @@
 use crate::audio_toolkit::{
     apply_custom_words, apply_dictionary_entries, detect_output_language,
-    normalize_transcription_output, remove_filler_words, OutputLanguageEvidence,
+    normalize_transcription_output, reads_as_english_instead_of, remove_filler_words,
+    OutputLanguageEvidence,
 };
 use crate::managers::audio::AudioRecordingManager;
-use crate::managers::model::{EngineType, ModelManager};
+use crate::managers::model::{EngineType, ModelInfo, ModelManager};
 use crate::managers::model_capabilities::{
     honors_language_hint, CapabilityProber, GgufHeaderProber,
 };
@@ -51,6 +52,18 @@ fn panic_payload_message(payload: &(dyn std::any::Any + Send)) -> String {
     } else {
         "unknown panic".to_string()
     }
+}
+
+/// Emitted when a dictation came out in English although the user chose
+/// another language, and the active model cannot be told which language to use.
+#[derive(Clone, Debug, Serialize)]
+pub struct DictationLanguageFallbackEvent {
+    /// The language the user dictates in (their persisted choice).
+    pub expected_language: String,
+    /// Whether the text was re-transcribed in that language.
+    pub rescued: bool,
+    /// The model that re-transcribed it, when one was available.
+    pub fallback_model: Option<String>,
 }
 
 #[derive(Clone, Debug, Serialize)]
@@ -304,6 +317,11 @@ pub struct TranscriptionManager {
     /// action layer when cancellation is requested.
     active_cancel: Arc<Mutex<Option<(u64, CancelToken)>>>,
     next_cancel_id: Arc<AtomicU64>,
+    /// A language-aware model kept beside the main one, used only to redo a
+    /// dictation that came out in the wrong language (see
+    /// [`TranscriptionManager::rescue_dictation_language`]). Freed with the
+    /// main model.
+    language_fallback: Arc<Mutex<Option<(String, Session)>>>,
 }
 
 fn requested_model_requires_load(
@@ -336,6 +354,7 @@ impl TranscriptionManager {
             active_engine_lease: Arc::new(AtomicU64::new(0)),
             active_cancel: Arc::new(Mutex::new(None)),
             next_cancel_id: Arc::new(AtomicU64::new(1)),
+            language_fallback: Arc::new(Mutex::new(None)),
         };
 
         // Start the idle watcher
@@ -489,6 +508,7 @@ impl TranscriptionManager {
             // Dropping the engine frees all resources
             *engine = None;
         }
+        self.drop_language_fallback();
         {
             let mut current_model = self.current_model_id.lock().unwrap();
             *current_model = None;
@@ -511,6 +531,130 @@ impl TranscriptionManager {
             unload_duration.as_millis()
         );
         Ok(())
+    }
+
+    fn drop_language_fallback(&self) {
+        let mut slot = self
+            .language_fallback
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
+        *slot = None;
+    }
+
+    /// Redo a dictation that came out in English although the user chose
+    /// another language, with a model that honors the language.
+    ///
+    /// Only for models that ignore language hints (Parakeet V3 detects the
+    /// language on every utterance and sometimes answers in English on short
+    /// clips). Returns the re-transcribed text, or `None` to keep `text`.
+    fn rescue_dictation_language(
+        &self,
+        audio: &[f32],
+        settings: &AppSettings,
+        active_model: &str,
+        text: &str,
+        cancel_token: &CancelToken,
+    ) -> Option<String> {
+        let language = settings.selected_language.as_str();
+        if language == "auto" || settings.translate_to_english || text.trim().is_empty() {
+            return None;
+        }
+        let info = self.model_manager.get_model_info(active_model)?;
+        if info.honors_language_hint || !reads_as_english_instead_of(text, language) {
+            return None;
+        }
+
+        let models = self.model_manager.get_available_models();
+        let fallback = pick_language_fallback_model(&models, active_model, language);
+        let rescued = fallback.as_deref().and_then(|model_id| {
+            let started = Instant::now();
+            match self.run_language_fallback(model_id, audio, language, cancel_token) {
+                Ok(rescued) if !rescued.trim().is_empty() => {
+                    info!(
+                        "Dictation came out in English instead of '{}'; re-transcribed with '{}' in {} ms",
+                        language,
+                        model_id,
+                        started.elapsed().as_millis()
+                    );
+                    Some(rescued)
+                }
+                Ok(_) => None,
+                Err(e) => {
+                    warn!("Language fallback with '{}' failed: {}", model_id, e);
+                    None
+                }
+            }
+        });
+        if fallback.is_none() {
+            warn!(
+                "Dictation came out in English instead of '{}' and no language-aware model is installed",
+                language
+            );
+        }
+
+        let _ = self.app_handle.emit(
+            "dictation-language-fallback",
+            DictationLanguageFallbackEvent {
+                expected_language: language.to_string(),
+                rescued: rescued.is_some(),
+                fallback_model: fallback,
+            },
+        );
+        rescued
+    }
+
+    fn run_language_fallback(
+        &self,
+        model_id: &str,
+        audio: &[f32],
+        language: &str,
+        cancel_token: &CancelToken,
+    ) -> Result<String> {
+        let mut slot = self
+            .language_fallback
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
+        if slot.as_ref().map(|(id, _)| id.as_str()) != Some(model_id) {
+            *slot = None;
+            let path = self.model_manager.get_model_path(model_id)?;
+            let settings = get_settings(&self.app_handle);
+            let accelerator = settings.transcribe_accelerator;
+            let options = ModelOptions {
+                backend: select_transcribe_backend(accelerator),
+                gpu_device: resolve_gpu_device(accelerator, settings.transcribe_gpu_device),
+            };
+            let model = Model::load_with(&path, &options)
+                .map_err(|e| anyhow::anyhow!("could not load '{}': {}", model_id, e))?;
+            let session = model
+                .session()
+                .map_err(|e| anyhow::anyhow!("could not open '{}': {}", model_id, e))?;
+            *slot = Some((model_id.to_string(), session));
+        }
+
+        let Some((_, session)) = slot.as_mut() else {
+            return Err(anyhow::anyhow!("language fallback model is not loaded"));
+        };
+        let run_options = RunOptions {
+            task: Task::Transcribe,
+            language: Some(base_language_code(language).to_string()),
+            ..Default::default()
+        };
+        session.set_cancel_token(cancel_token);
+        let result = catch_unwind(AssertUnwindSafe(|| session.run(audio, &run_options)));
+        session.clear_cancel_token();
+        match result {
+            Ok(run) => run
+                .map(|t| t.text)
+                .map_err(|e| anyhow::anyhow!("transcription failed: {}", e)),
+            Err(payload) => {
+                // Unknown native state: never reuse this session.
+                *slot = None;
+                Err(anyhow::anyhow!(
+                    "engine panicked: {}",
+                    panic_payload_message(payload.as_ref())
+                ))
+            }
+        }
     }
 
     fn now_ms() -> u64 {
@@ -597,6 +741,7 @@ impl TranscriptionManager {
             let mut engine = self.lock_engine();
             *engine = None;
         }
+        self.drop_language_fallback();
         {
             let mut current_model = self.current_model_id.lock().unwrap();
             *current_model = None;
@@ -1605,6 +1750,22 @@ impl TranscriptionManager {
                 }
             };
 
+            let text = match self.rescue_dictation_language(
+                &audio,
+                &settings,
+                &active_model,
+                &text,
+                &cancel_token,
+            ) {
+                Some(rescued) => {
+                    applied_language_hint = Some(settings.selected_language.clone());
+                    model_detected_language = None;
+                    output_was_translated = false;
+                    rescued
+                }
+                None => text,
+            };
+
             let output_language = with_model_detected_language(
                 resolve_output_language_evidence(
                     &settings,
@@ -1780,6 +1941,33 @@ fn normalize_cjk_language(language: &str) -> &str {
         "zh-Hans" | "zh-Hant" => "zh",
         other => other,
     }
+}
+
+/// The installed model to redo a wrong-language dictation with: one that
+/// honors language hints and knows `language`. Whisper Turbo first (fast and
+/// accurate), then the smallest, since it only runs on short clips.
+fn pick_language_fallback_model(
+    models: &[ModelInfo],
+    active_model: &str,
+    language: &str,
+) -> Option<String> {
+    let wanted = base_language_code(language);
+    models
+        .iter()
+        .filter(|m| {
+            m.id != active_model
+                && m.is_downloaded
+                && m.honors_language_hint
+                && matches!(m.engine_type, EngineType::TranscribeCpp)
+                && m.supported_languages
+                    .iter()
+                    .any(|l| base_language_code(l).eq_ignore_ascii_case(wanted))
+        })
+        .min_by_key(|m| {
+            let turbo = m.id.to_ascii_lowercase().contains("turbo");
+            (!turbo, m.size_mb)
+        })
+        .map(|m| m.id.clone())
 }
 
 fn base_language_code(language: &str) -> &str {
@@ -2342,6 +2530,77 @@ mod tests {
 
     fn languages(codes: &[&str]) -> Vec<String> {
         codes.iter().map(|code| (*code).to_string()).collect()
+    }
+
+    fn fallback_candidate(
+        id: &str,
+        size_mb: u64,
+        honors_language_hint: bool,
+        downloaded: bool,
+        langs: &[&str],
+    ) -> ModelInfo {
+        ModelInfo {
+            id: id.to_string(),
+            name: id.to_string(),
+            description: String::new(),
+            filename: format!("{id}.gguf"),
+            source: crate::managers::model::ModelSource::Local,
+            size_mb,
+            is_downloaded: downloaded,
+            is_downloading: false,
+            partial_size: 0,
+            is_directory: false,
+            engine_type: EngineType::TranscribeCpp,
+            accuracy_score: 0.5,
+            speed_score: 0.5,
+            supports_translation: false,
+            is_recommended: false,
+            supported_languages: languages(langs),
+            supports_language_selection: honors_language_hint,
+            is_custom: false,
+            supports_streaming: false,
+            supports_language_detection: true,
+            honors_language_hint,
+        }
+    }
+
+    #[test]
+    fn language_fallback_prefers_turbo_then_the_smallest_installed_whisper() {
+        let models = vec![
+            fallback_candidate("parakeet-v3", 650, false, true, &["en", "fr"]),
+            fallback_candidate("whisper-large-v3", 1100, true, true, &["en", "fr"]),
+            fallback_candidate("whisper-small", 260, true, true, &["en", "fr"]),
+        ];
+        assert_eq!(
+            pick_language_fallback_model(&models, "parakeet-v3", "fr").as_deref(),
+            Some("whisper-small")
+        );
+
+        let mut with_turbo = models.clone();
+        with_turbo.push(fallback_candidate(
+            "whisper-large-v3-turbo",
+            850,
+            true,
+            true,
+            &["en", "fr"],
+        ));
+        assert_eq!(
+            pick_language_fallback_model(&with_turbo, "parakeet-v3", "fr-FR").as_deref(),
+            Some("whisper-large-v3-turbo")
+        );
+    }
+
+    #[test]
+    fn language_fallback_skips_missing_unaware_or_unsupported_models() {
+        let models = vec![
+            fallback_candidate("parakeet-v3", 650, false, true, &["en", "fr"]),
+            fallback_candidate("whisper-small", 260, true, false, &["en", "fr"]),
+            fallback_candidate("english-only", 100, true, true, &["en"]),
+        ];
+        assert_eq!(
+            pick_language_fallback_model(&models, "parakeet-v3", "fr"),
+            None
+        );
     }
 
     #[test]

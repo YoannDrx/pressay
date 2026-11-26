@@ -84,6 +84,34 @@ pub fn detect_output_language(text: &str, supported_languages: &[String]) -> Opt
     iso639_1_for_whatlang(info.lang()).map(str::to_string)
 }
 
+/// Minimum whatlang confidence for the dictation language guard. Lower than
+/// [`MIN_CONFIDENCE`] on purpose: a false alarm only costs one re-transcription
+/// in the language the user chose, while a miss pastes the wrong language.
+const LANGUAGE_GUARD_MIN_CONFIDENCE: f64 = 0.5;
+
+/// Whether `text` reads as English when the user dictates in `expected`.
+///
+/// Parakeet V3 ignores language hints and detects the language per utterance;
+/// on short clips it sometimes answers in English. Detection is limited to the
+/// two candidates (`expected` and English), which keeps short phrases usable.
+/// Returns `false` for English, unmappable or empty expectations, and for text
+/// with no letters.
+pub fn reads_as_english_instead_of(text: &str, expected: &str) -> bool {
+    let Some(expected_lang) = whatlang_lang_for_model_code(expected) else {
+        return false;
+    };
+    if expected_lang == Lang::Eng || !text.chars().any(char::is_alphabetic) {
+        return false;
+    }
+    let detector = Detector::with_allowlist(vec![expected_lang, Lang::Eng]);
+    match detector.detect(text) {
+        Some(info) => {
+            info.lang() == Lang::Eng && info.confidence() >= LANGUAGE_GUARD_MIN_CONFIDENCE
+        }
+        None => false,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -166,5 +194,52 @@ mod tests {
             &[],
         );
         assert_eq!(detected.as_deref(), Some("pt"));
+    }
+
+    #[test]
+    fn english_output_contradicts_a_french_dictation() {
+        for text in [
+            "Thank you very much for your help.",
+            "I will send you the file tomorrow morning.",
+            "Can you call me back when you get this message?",
+        ] {
+            assert!(reads_as_english_instead_of(text, "fr"), "{text}");
+        }
+    }
+
+    #[test]
+    fn french_output_matches_a_french_dictation() {
+        for text in [
+            "Merci beaucoup pour ton aide.",
+            "Je t'envoie le fichier demain matin.",
+            "Est-ce que tu peux me rappeler quand tu as ce message ?",
+            "On se voit à quelle heure ?",
+        ] {
+            assert!(!reads_as_english_instead_of(text, "fr"), "{text}");
+        }
+    }
+
+    #[test]
+    fn language_guard_ignores_english_expectations_and_empty_text() {
+        assert!(!reads_as_english_instead_of("Thank you very much.", "en"));
+        assert!(!reads_as_english_instead_of(
+            "Thank you very much.",
+            "en-US"
+        ));
+        assert!(!reads_as_english_instead_of("", "fr"));
+        assert!(!reads_as_english_instead_of("...", "fr"));
+        assert!(!reads_as_english_instead_of("Thank you very much.", "auto"));
+    }
+
+    #[test]
+    fn language_guard_accepts_regional_codes() {
+        assert!(reads_as_english_instead_of(
+            "I will send you the file tomorrow morning.",
+            "fr-CA"
+        ));
+        assert!(reads_as_english_instead_of(
+            "I will send you the file tomorrow morning.",
+            "de"
+        ));
     }
 }

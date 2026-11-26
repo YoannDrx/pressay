@@ -1273,5 +1273,9 @@
     "waiting": "Gennemfør dit køb på press-say.app, logget ind med den samme konto. Pro låses op her, så snart du kommer tilbage.",
     "done": "Jeg har gennemført mit køb",
     "notYet": "Pro er ikke aktiv endnu. Betalingsbekræftelsen kan tage et minut; kontrollér, at du købte med den konto, der er logget ind her."
+  },
+  "dictationLanguage": {
+    "mismatchTitle": "Dictation came out in English",
+    "mismatchDescription": "Parakeet answered in English although you dictate in another language. Download Whisper Small in Models and Pressay will redo these dictations in your language automatically."
   }
 }

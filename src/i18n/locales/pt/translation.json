@@ -1273,5 +1273,9 @@
     "waiting": "Conclua a compra em press-say.app com esta mesma conta. O Pro é desbloqueado aqui assim que voltar.",
     "done": "Concluí a minha compra",
     "notYet": "O Pro ainda não está ativo. A confirmação do pagamento pode demorar um minuto; verifique se comprou com a conta ligada aqui."
+  },
+  "dictationLanguage": {
+    "mismatchTitle": "Dictation came out in English",
+    "mismatchDescription": "Parakeet answered in English although you dictate in another language. Download Whisper Small in Models and Pressay will redo these dictations in your language automatically."
   }
 }

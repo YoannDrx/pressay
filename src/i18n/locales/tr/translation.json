@@ -1273,5 +1273,9 @@
     "waiting": "Satın alma işlemini aynı hesapla oturum açmış olarak press-say.app üzerinde tamamlayın. Geri döndüğünüzde Pro burada hemen açılır.",
     "done": "Satın alma işlemimi tamamladım",
     "notYet": "Pro henüz etkin değil. Ödeme onayı bir dakika sürebilir; burada oturum açmış olan hesapla satın aldığınızdan emin olun."
+  },
+  "dictationLanguage": {
+    "mismatchTitle": "Dictation came out in English",
+    "mismatchDescription": "Parakeet answered in English although you dictate in another language. Download Whisper Small in Models and Pressay will redo these dictations in your language automatically."
   }
 }

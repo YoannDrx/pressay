@@ -1273,5 +1273,9 @@
     "waiting": "أكمل عملية الشراء على press-say.app وأنت مسجّل الدخول بالحساب نفسه. يُفعَّل Pro هنا فور عودتك.",
     "done": "أكملت عملية الشراء",
     "notYet": "لم يُفعَّل Pro بعد. قد يستغرق تأكيد الدفع دقيقة؛ تأكد من أنك اشتريت بالحساب المسجّل الدخول هنا."
+  },
+  "dictationLanguage": {
+    "mismatchTitle": "Dictation came out in English",
+    "mismatchDescription": "Parakeet answered in English although you dictate in another language. Download Whisper Small in Models and Pressay will redo these dictations in your language automatically."
   }
 }

@@ -13,8 +13,8 @@ use crate::managers::transcription::StreamWorkKind;
 use crate::managers::transcription::TranscriptionManager;
 use crate::productivity::{
     dictionary_prompt_terms, frontmost_application, mode_uses_variable, render_mode_instruction,
-    resolve_mode, CorrectionRecord, ModeStepKind, ModeVariables, ProcessingRoute,
-    ProductivityRuntime, ResolvedMode, SelectionContext,
+    resolve_mode, with_mode_language_rule, CorrectionRecord, ModeStepKind, ModeVariables,
+    ProcessingRoute, ProductivityRuntime, ResolvedMode, SelectionContext,
 };
 use crate::selection_context::{capture_selected_text, verify_correction_target};
 use crate::settings::{
@@ -732,6 +732,7 @@ async fn process_pressay_mode(
                 let instruction = step.instruction.as_deref().ok_or(TransformFailure {
                     code: "mode_instruction_missing",
                 })?;
+                let instruction = &with_mode_language_rule(instruction, &resolved.mode);
                 let rendered = render_mode_instruction(
                     instruction,
                     &ModeVariables {
