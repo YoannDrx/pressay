@@ -362,7 +362,7 @@
         "searchPlaceholder": "Search languages...",
         "noResults": "No languages found",
         "auto": "Auto",
-        "autoDetectOnly": "This model detects the spoken language on its own. If a dictation comes out in English although you picked another language, Pressay redoes it automatically with an installed Whisper model (Whisper Small is enough)."
+        "autoDetectOnly": "This model detects the spoken language on its own. If a dictation comes out in English although you picked another language, Pressay redoes it automatically with the most accurate Whisper model installed."
       },
       "pushToTalk": {
         "label": "Push To Talk",
@@ -1276,6 +1276,6 @@
   },
   "dictationLanguage": {
     "mismatchTitle": "Dictation came out in English",
-    "mismatchDescription": "Parakeet answered in English although you dictate in another language. Download Whisper Small in Models and Pressay will redo these dictations in your language automatically."
+    "mismatchDescription": "Parakeet answered in English although you dictate in another language. Download Whisper Large v3 in Models and Pressay will redo these dictations in your language automatically."
   }
 }

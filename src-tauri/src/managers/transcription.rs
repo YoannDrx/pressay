@@ -1945,7 +1945,8 @@ fn normalize_cjk_language(language: &str) -> &str {
 
 /// The installed model to redo a wrong-language dictation with: one that
 /// honors language hints and knows `language`. Whisper Turbo first (fast and
-/// accurate), then the smallest, since it only runs on short clips.
+/// accurate), then the most accurate: the rescue is rare, and on short clips
+/// Whisper Small often does worse than the text it replaces.
 fn pick_language_fallback_model(
     models: &[ModelInfo],
     active_model: &str,
@@ -1963,9 +1964,11 @@ fn pick_language_fallback_model(
                     .iter()
                     .any(|l| base_language_code(l).eq_ignore_ascii_case(wanted))
         })
-        .min_by_key(|m| {
-            let turbo = m.id.to_ascii_lowercase().contains("turbo");
-            (!turbo, m.size_mb)
+        .max_by(|a, b| {
+            let turbo = |m: &ModelInfo| m.id.to_ascii_lowercase().contains("turbo");
+            turbo(a)
+                .cmp(&turbo(b))
+                .then(a.accuracy_score.total_cmp(&b.accuracy_score))
         })
         .map(|m| m.id.clone())
 }
@@ -2565,15 +2568,19 @@ mod tests {
     }
 
     #[test]
-    fn language_fallback_prefers_turbo_then_the_smallest_installed_whisper() {
+    fn language_fallback_prefers_turbo_then_the_most_accurate_whisper() {
+        let mut large = fallback_candidate("whisper-large-v3", 1100, true, true, &["en", "fr"]);
+        large.accuracy_score = 0.9;
+        let mut small = fallback_candidate("whisper-small", 260, true, true, &["en", "fr"]);
+        small.accuracy_score = 0.6;
         let models = vec![
             fallback_candidate("parakeet-v3", 650, false, true, &["en", "fr"]),
-            fallback_candidate("whisper-large-v3", 1100, true, true, &["en", "fr"]),
-            fallback_candidate("whisper-small", 260, true, true, &["en", "fr"]),
+            small,
+            large,
         ];
         assert_eq!(
             pick_language_fallback_model(&models, "parakeet-v3", "fr").as_deref(),
-            Some("whisper-small")
+            Some("whisper-large-v3")
         );
 
         let mut with_turbo = models.clone();

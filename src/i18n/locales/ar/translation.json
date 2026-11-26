@@ -1276,6 +1276,6 @@
   },
   "dictationLanguage": {
     "mismatchTitle": "Dictation came out in English",
-    "mismatchDescription": "Parakeet answered in English although you dictate in another language. Download Whisper Small in Models and Pressay will redo these dictations in your language automatically."
+    "mismatchDescription": "Parakeet answered in English although you dictate in another language. Download Whisper Large v3 in Models and Pressay will redo these dictations in your language automatically."
   }
 }

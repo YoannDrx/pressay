@@ -382,7 +382,7 @@
         "searchPlaceholder": "Rechercher des langues...",
         "noResults": "Aucune langue trouvée",
         "auto": "Automatique",
-        "autoDetectOnly": "Ce modèle détecte seul la langue parlée. Si une dictée sort en anglais alors que tu as choisi une autre langue, Pressay la refait automatiquement avec un modèle Whisper installé (Whisper Small suffit)."
+        "autoDetectOnly": "Ce modèle détecte seul la langue parlée. Si une dictée sort en anglais alors que tu as choisi une autre langue, Pressay la refait automatiquement avec le modèle Whisper installé le plus précis."
       },
       "pushToTalk": {
         "label": "Appuyer pour parler",
@@ -1276,6 +1276,6 @@
   },
   "dictationLanguage": {
     "mismatchTitle": "Dictée sortie en anglais",
-    "mismatchDescription": "Parakeet a répondu en anglais alors que tu dictes dans une autre langue. Télécharge Whisper Small dans Modèles : Pressay refera alors ces dictées dans ta langue, automatiquement."
+    "mismatchDescription": "Parakeet a répondu en anglais alors que tu dictes dans une autre langue. Télécharge Whisper Large v3 dans Modèles : Pressay refera alors ces dictées dans ta langue, automatiquement."
   }
 }
