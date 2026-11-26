@@ -140,11 +140,12 @@ mod tests {
         let path = std::env::var("PRESSAY_VAD_SAMPLE").expect("PRESSAY_VAD_SAMPLE");
         let samples = crate::audio_toolkit::read_wav_samples(&path).unwrap();
         let mut vad = SileroVad::new(bundled_model(), 0.5).unwrap();
-        let frames = samples.chunks_exact(PRESSAY_FRAME_SAMPLES).count();
-        let speech = samples
-            .chunks_exact(PRESSAY_FRAME_SAMPLES)
-            .filter(|frame| vad.push_frame(frame).unwrap().is_speech())
+        let (frames, _) = samples.as_chunks::<PRESSAY_FRAME_SAMPLES>();
+        let speech = frames
+            .iter()
+            .filter(|frame| vad.push_frame(frame.as_slice()).unwrap().is_speech())
             .count();
+        let frames = frames.len();
         eprintln!("speech frames: {speech}/{frames}");
         assert!(speech * 2 > frames, "{speech}/{frames}");
     }
