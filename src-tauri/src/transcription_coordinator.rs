@@ -20,6 +20,9 @@ enum PttAction {
     CancelRelease,
 }
 
+/// How long a press made while the pipeline is busy stays valid.
+const QUEUED_PRESS_TTL: Duration = Duration::from_secs(15);
+
 struct PendingRelease {
     binding_id: String,
     hotkey_string: String,
@@ -158,6 +161,14 @@ impl PipelineState {
         )
     }
 
+    /// Processing a finished recording: a new press has to wait.
+    fn is_busy(&self) -> bool {
+        matches!(
+            self.phase,
+            PipelinePhase::Transcribing | PipelinePhase::Transforming | PipelinePhase::Pasting
+        )
+    }
+
     fn recording_binding(&self) -> Option<&str> {
         (self.phase == PipelinePhase::Recording)
             .then_some(self.binding_id.as_deref())
@@ -269,8 +280,35 @@ impl TranscriptionCoordinator {
                 let mut last_press: Option<Instant> = None;
                 let mut pending_release: Option<PendingRelease> = None;
                 let mut recording_limit: Option<PendingRelease> = None;
+                // A press that arrived while the previous dictation was still
+                // being transcribed, transformed or pasted. It starts the next
+                // recording as soon as the pipeline is free instead of being
+                // dropped; `deadline` is when it goes stale.
+                let mut queued_press: Option<PendingRelease> = None;
 
                 loop {
+                    if pipeline.accepts_start() {
+                        if let Some(queued) = queued_press.take() {
+                            if queued.deadline > Instant::now() {
+                                debug!("Starting the press queued for '{}'", queued.binding_id);
+                                begin_start(
+                                    &app,
+                                    &shared_state,
+                                    &mut pipeline,
+                                    &queued.binding_id,
+                                    &queued.hotkey_string,
+                                );
+                                if pipeline.recording_binding().is_some() {
+                                    recording_limit = Some(PendingRelease {
+                                        binding_id: queued.binding_id,
+                                        hotkey_string: queued.hotkey_string,
+                                        deadline: Instant::now()
+                                            + crate::audio_toolkit::audio::MAX_RECORDING_DURATION,
+                                    });
+                                }
+                            }
+                        }
+                    }
                     if pipeline.recording_binding().is_none() {
                         recording_limit = None;
                     }
@@ -393,6 +431,21 @@ impl TranscriptionCoordinator {
                                         &binding_id,
                                         &hotkey_string,
                                     );
+                                } else if is_pressed && pipeline.is_busy() {
+                                    // Held while the last dictation finishes:
+                                    // start as soon as the pipeline is free.
+                                    queued_press = Some(PendingRelease {
+                                        binding_id: binding_id.clone(),
+                                        hotkey_string: hotkey_string.clone(),
+                                        deadline: Instant::now() + QUEUED_PRESS_TTL,
+                                    });
+                                } else if !is_pressed
+                                    && queued_press
+                                        .as_ref()
+                                        .is_some_and(|q| q.binding_id == binding_id)
+                                {
+                                    // Released before the pipeline freed up.
+                                    queued_press = None;
                                 }
                             } else if is_pressed {
                                 if pipeline.accepts_start() {
@@ -412,6 +465,16 @@ impl TranscriptionCoordinator {
                                         &binding_id,
                                         &hotkey_string,
                                     );
+                                } else if pipeline.is_busy() {
+                                    // A second press cancels a queued toggle.
+                                    if queued_press.take().is_none() {
+                                        debug!("Queueing press for '{binding_id}': pipeline busy");
+                                        queued_press = Some(PendingRelease {
+                                            binding_id: binding_id.clone(),
+                                            hotkey_string: hotkey_string.clone(),
+                                            deadline: Instant::now() + QUEUED_PRESS_TTL,
+                                        });
+                                    }
                                 } else {
                                     debug!("Ignoring press for '{binding_id}': pipeline busy")
                                 }
@@ -431,6 +494,7 @@ impl TranscriptionCoordinator {
                             recording_was_active,
                         } => {
                             pending_release = None;
+                            queued_press = None;
                             if recording_was_active
                                 || !matches!(
                                     pipeline.phase,
@@ -457,6 +521,12 @@ impl TranscriptionCoordinator {
                             route,
                         } => {
                             if operation_id == pipeline.operation_id
+                                && pipeline.phase == PipelinePhase::Idle
+                                && phase == PipelinePhase::Idle
+                            {
+                                // The paste receipt confirms an operation that
+                                // already finished when its chord was sent.
+                            } else if operation_id == pipeline.operation_id
                                 && transition_allowed(pipeline.phase, phase)
                             {
                                 pipeline.phase = phase;
@@ -915,6 +985,25 @@ fn begin_stop(
 
 #[cfg(test)]
 mod tests {
+
+    #[test]
+    fn only_processing_phases_queue_a_new_press() {
+        let mut state = PipelineState::default();
+        for (phase, busy, starts) in [
+            (PipelinePhase::Idle, false, true),
+            (PipelinePhase::Recording, false, false),
+            (PipelinePhase::Transcribing, true, false),
+            (PipelinePhase::Transforming, true, false),
+            (PipelinePhase::Pasting, true, false),
+            (PipelinePhase::Failed, false, true),
+            (PipelinePhase::Cancelled, false, true),
+        ] {
+            state.phase = phase;
+            assert_eq!(state.is_busy(), busy, "{phase:?}");
+            assert_eq!(state.accepts_start(), starts, "{phase:?}");
+        }
+    }
+
     use super::*;
 
     #[test]
