@@ -88,8 +88,8 @@ Its dependency graph excludes NSPanel and private Tauri APIs. The base Store
 configuration has no signing identity: distribution additionally needs the
 matching Apple certificate, provisioning profile and a new bundle build number.
 A successful build does not certify purchase/restore, inter-app paste or export
-compliance. See `docs/MAC_APP_STORE_SPIKE.md` and
-`docs/PRE_SALE_REMEDIATION_2026-09-07.md` for the remaining release conditions.
+compliance. See `docs/archive/MAC_APP_STORE_SPIKE.md` and
+`docs/archive/PRE_SALE_REMEDIATION_2026-09-07.md` for the remaining release conditions.
 
 Release builds emit a separate `pressay.dSYM` containing crash line information.
 Keep it with the exact binary: rebuilding the same source can change its UUID.

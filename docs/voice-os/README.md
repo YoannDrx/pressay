@@ -28,7 +28,7 @@ Avec cette définition stricte, aucune grande capacité de dictée n'est encore 
 
 ## Livrables
 
-- [Audit production du 6 septembre 2026](../PRODUCTION_READINESS_AUDIT_2026-09-06.md) — nouveaux défauts, corrections, preuves locales et conditions de commercialisation.
+- [Audit production du 6 septembre 2026](../archive/PRODUCTION_READINESS_AUDIT_2026-09-06.md) — nouveaux défauts, corrections, preuves locales et conditions de commercialisation.
 - [Feature ledger](FEATURE_LEDGER.md) — inventaire des capacités et niveau de preuve.
 - [Architecture produit](PRODUCT_ARCHITECTURE.md) — benchmark, Free/Pro, routes et fonctionnalités locales.
 - [Direction Signal OS](SIGNAL_OS_DESIGN.md) — explorations, tokens, motion, onboarding et landing.
@@ -77,4 +77,4 @@ Avec cette définition stricte, aucune grande capacité de dictée n'est encore 
 - [`docs/CLOUD_SYNC.md`](../CLOUD_SYNC.md) — protocole E2EE et scénarios opératoires.
 - [`docs/MODELS.md`](../MODELS.md) — catalogue signé et presets locaux.
 - [`docs/RELEASES.md`](../RELEASES.md) — différences DMG/MAS et release gates.
-- [`docs/MAC_APP_STORE_SPIKE.md`](../MAC_APP_STORE_SPIKE.md) — état du spike Mac App Store.
+- [`docs/archive/MAC_APP_STORE_SPIKE.md`](../archive/MAC_APP_STORE_SPIKE.md) — état du spike Mac App Store.
