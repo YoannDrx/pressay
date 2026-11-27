@@ -164,17 +164,14 @@ pub(crate) fn evaluate(state: &TxState, now: Instant) -> WaitDecision {
     WaitDecision::KeepWaiting
 }
 
-/// Modifier hold for the receipt-sequenced chord, kept at parity with the
-/// legacy path (100ms) for the beta: that hold was added in #165 because real
-/// users' systems dropped chords released too quickly, and the beta should
-/// validate the receipt mechanism without changing a second variable.
-///
-/// Once receipts are proven in the field this becomes a safe tuning knob — a
-/// chord the target never recognizes produces no receipt and is logged ("no
-/// read within timeout") rather than failing silently, so a shorter hold
-/// (measured working at 10ms on a fast machine, cutting visible latency from
-/// ~110ms to ~20ms) can be tried as its own experiment later.
-const CHORD_HOLD_MS: u64 = 100;
+/// Modifier hold for the receipt-sequenced chord. The chord is sent from the
+/// main thread, which also serves the clipboard promise the target reads, so
+/// every millisecond held delays the text appearing. 100 ms (from #165) was
+/// kept through the beta to validate receipts alone; a chord too short for the
+/// target produces no receipt and is reported ("paste not confirmed") rather
+/// than lost silently. 10 ms was measured working on a fast machine; 30 ms
+/// keeps a margin for loaded systems.
+const CHORD_HOLD_MS: u64 = 30;
 
 /// Sends the platform paste chord for the configured method.
 pub(crate) fn send_chord(

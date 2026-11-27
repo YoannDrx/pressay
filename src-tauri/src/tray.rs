@@ -358,16 +358,31 @@ pub fn change_tray_icon(app: &AppHandle, icon: TrayIconState) {
         start_listening_animation(app.clone(), revision);
     }
 
-    // Update menu based on state
-    let menu_started = std::time::Instant::now();
-    update_tray_menu(app, None);
     debug!(
-        "tray icon change ({:?}): icon={} set_icon={:?} menu={:?}",
-        icon,
-        icon_path,
-        icon_elapsed,
-        menu_started.elapsed()
+        "tray icon change ({:?}): icon={} set_icon={:?}",
+        icon, icon_path, icon_elapsed
     );
+
+    // Rebuilding the menu reads settings and models and creates every item on
+    // the main thread; doing it here held up each pipeline transition,
+    // including the one before the microphone opens. Rebuild in the
+    // background, and only for the latest state.
+    let app = app.clone();
+    std::thread::spawn(move || {
+        if !app
+            .state::<CurrentTrayIconState>()
+            .is_current(icon, revision)
+        {
+            return;
+        }
+        let menu_started = std::time::Instant::now();
+        update_tray_menu(&app, None);
+        debug!(
+            "tray menu rebuilt ({:?}) in {:?}",
+            icon,
+            menu_started.elapsed()
+        );
+    });
 }
 
 /// Re-applies the last known tray state — for when only the *theme* changed

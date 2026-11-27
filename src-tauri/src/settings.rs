@@ -1195,7 +1195,12 @@ pub fn get_settings(app: &AppHandle) -> AppSettings {
         updated = true;
     }
 
-    if refresh_api_key_statuses(&mut settings) {
+    // Keychain lookups are slow and get_settings runs dozens of times per
+    // dictation: discover keys stored outside Pressay once per launch. Keys
+    // saved through Pressay set their flag directly.
+    if !API_KEY_STATUSES_REFRESHED.swap(true, std::sync::atomic::Ordering::Relaxed)
+        && refresh_api_key_statuses(&mut settings)
+    {
         updated = true;
     }
 
@@ -1691,6 +1696,9 @@ fn migrate_legacy_api_keys(
         LegacyApiKeyMigration::Complete
     }
 }
+
+static API_KEY_STATUSES_REFRESHED: std::sync::atomic::AtomicBool =
+    std::sync::atomic::AtomicBool::new(false);
 
 fn refresh_api_key_statuses(settings: &mut AppSettings) -> bool {
     let mut updated = false;

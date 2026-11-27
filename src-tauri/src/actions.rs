@@ -1424,7 +1424,7 @@ impl ShortcutAction for TranscribeAction {
         );
 
         tauri::async_runtime::spawn(async move {
-            let mut finish_guard = FinishGuard {
+            let _finish_guard = FinishGuard {
                 app: ah.clone(),
                 operation_id,
                 finish_on_drop: true,
@@ -1745,17 +1745,25 @@ impl ShortcutAction for TranscribeAction {
                             }
 
                             // Save encrypted text only when encrypted audio exists.
+                            // SQLite and encryption run off the paste path: the
+                            // dictation is inserted without waiting for history.
                             if audio_saved {
-                                if let Err(err) = hm.save_entry(
-                                    file_name.clone(),
-                                    transcription,
-                                    requires_transform,
-                                    processed.post_processed_text.clone(),
-                                    processed.post_process_prompt.clone(),
-                                ) {
-                                    error!("Failed to save history entry: {}", err);
-                                    let _ = hm.discard_audio(&file_name);
-                                }
+                                let history = Arc::clone(&hm);
+                                let history_file = file_name.clone();
+                                let post_processed_text = processed.post_processed_text.clone();
+                                let post_process_prompt = processed.post_process_prompt.clone();
+                                tauri::async_runtime::spawn_blocking(move || {
+                                    if let Err(err) = history.save_entry(
+                                        history_file.clone(),
+                                        transcription,
+                                        requires_transform,
+                                        post_processed_text,
+                                        post_process_prompt,
+                                    ) {
+                                        error!("Failed to save history entry: {}", err);
+                                        let _ = history.discard_audio(&history_file);
+                                    }
+                                });
                             }
 
                             if processed.final_text.is_empty() {
@@ -1786,7 +1794,6 @@ impl ShortcutAction for TranscribeAction {
                                 // the menu-bar preview even when local history is
                                 // disabled. This is deliberately not persisted.
                                 crate::tray::remember_last_transcript(&ah, &final_text);
-                                crate::tray::update_tray_menu(&ah, None);
                                 let recovery_text = final_text.clone();
                                 let recovery_text_for_closure = recovery_text.clone();
                                 let correction_for_delivery = correction_invocation.clone();
@@ -1917,12 +1924,13 @@ impl ShortcutAction for TranscribeAction {
                                     Some(PasteCompletion::Finished(Ok(
                                         crate::clipboard::PasteDispatch::AwaitingReceipt,
                                     ))) => {
-                                        // The platform paste transaction owns the final
-                                        // Pasting -> Idle/Failed transition once the target
-                                        // actually reads (or fails to read) the clipboard.
-                                        finish_guard.finish_on_drop = false;
+                                        // The chord is sent: free the pipeline now so the
+                                        // next dictation can start. The platform paste
+                                        // transaction still restores the clipboard and, if
+                                        // the target never reads it, reports the failure
+                                        // (Idle -> Failed for this operation only).
                                         debug!(
-                                            "Paste dispatched; waiting for clipboard receipt after {:?}",
+                                            "Paste dispatched in {:?}; clipboard receipt continues in the background",
                                             paste_time.elapsed()
                                         );
                                     }

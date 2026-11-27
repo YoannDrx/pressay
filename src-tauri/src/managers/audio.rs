@@ -568,10 +568,20 @@ impl AudioRecordingManager {
     }
 
     fn schedule_lazy_close(&self) {
+        self.schedule_close_after(STREAM_IDLE_TIMEOUT);
+    }
+
+    /// Closes the microphone stream on a worker thread after `delay`, unless a
+    /// recording or a newer close request came first. Closing CoreAudio takes
+    /// tens of milliseconds (more over Bluetooth), so even an immediate close
+    /// stays off the path that hands the samples to transcription.
+    fn schedule_close_after(&self, delay: Duration) {
         let gen = self.close_generation.fetch_add(1, Ordering::SeqCst) + 1;
         let app = self.app_handle.clone();
         std::thread::spawn(move || {
-            std::thread::sleep(STREAM_IDLE_TIMEOUT);
+            if !delay.is_zero() {
+                std::thread::sleep(delay);
+            }
             let rm = app.state::<Arc<AudioRecordingManager>>();
             // Hold state lock across the check AND close to serialize against
             // try_start_recording, preventing a race where the stream is closed
@@ -582,10 +592,7 @@ impl AudioRecordingManager {
             {
                 // stop_microphone_stream does not acquire the state lock,
                 // so holding it here is safe (no deadlock).
-                info!(
-                    "Closing idle microphone stream after {:?}",
-                    STREAM_IDLE_TIMEOUT
-                );
+                info!("Closing idle microphone stream after {:?}", delay);
                 rm.stop_microphone_stream();
             }
         });
@@ -1094,7 +1101,7 @@ impl AudioRecordingManager {
                     if get_settings(&self.app_handle).lazy_stream_close {
                         self.schedule_lazy_close();
                     } else {
-                        self.stop_microphone_stream();
+                        self.schedule_close_after(Duration::ZERO);
                     }
                 }
 
