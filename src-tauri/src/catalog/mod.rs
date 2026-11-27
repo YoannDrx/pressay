@@ -184,6 +184,14 @@ pub struct MirrorFile {
 /// The URL is not trusted: callers still verify the
 /// downloaded bytes against the size and SHA-256 from the signed catalogue.
 fn audited_public_fallback(model_id: &str, filename: &str) -> Option<String> {
+    // Whisper Large v3 Turbo comes from upstream Handy's public GGUF
+    // repository, pinned to an immutable revision (MIT, converted from
+    // openai/whisper-large-v3-turbo).
+    if model_id == "pressay/whisper-turbo" {
+        return Some(format!(
+            "https://huggingface.co/handy-computer/whisper-large-v3-turbo-gguf/resolve/5eaf945c7978e564bae5b28a5b1639dd93c2bfb1/{filename}?download=true"
+        ));
+    }
     let repository = match model_id {
         "pressay/parakeet-v3" => "memoravox/parakeet-tdt-0.6b-v3-gguf",
         "pressay/whisper-small" => "memoravox/whisper-small-gguf",
@@ -300,7 +308,7 @@ mod tests {
     }
 
     #[test]
-    fn launch_catalog_is_exactly_the_three_pressay_presets() {
+    fn launch_catalog_is_exactly_the_four_pressay_presets() {
         let ids: BTreeSet<&str> = ROOT.models.iter().map(|model| model.id.as_str()).collect();
         assert_eq!(
             ids,
@@ -308,6 +316,7 @@ mod tests {
                 "pressay/parakeet-v3",
                 "pressay/whisper-large",
                 "pressay/whisper-small",
+                "pressay/whisper-turbo",
             ])
         );
         assert!(ROOT.models.iter().all(|model| model.recommended));
@@ -358,6 +367,16 @@ mod tests {
         }
     }
 
+    /// Public sources are Pressay's own `memoravox` copies, or one pinned
+    /// upstream revision for a model not yet copied there.
+    fn is_audited_public_source(model_id: &str, url: &str) -> bool {
+        url.starts_with("https://huggingface.co/memoravox/")
+            || (model_id.starts_with("pressay/whisper-turbo")
+                && url.starts_with(
+                    "https://huggingface.co/handy-computer/whisper-large-v3-turbo-gguf/resolve/5eaf945c7978e564bae5b28a5b1639dd93c2bfb1/",
+                ))
+    }
+
     #[test]
     fn launch_models_have_a_hash_verified_public_fallback() {
         for descriptor in CATALOG.iter() {
@@ -367,9 +386,7 @@ mod tests {
                 .expect("launch model must have a public fallback");
 
             assert!(
-                fallback
-                    .url
-                    .starts_with("https://huggingface.co/memoravox/"),
+                is_audited_public_source(&descriptor.id, &fallback.url),
                 "{}: unexpected public fallback {}",
                 descriptor.id,
                 fallback.url
@@ -386,7 +403,7 @@ mod tests {
                 panic!("{}: launch model is not downloadable", descriptor.id);
             };
             assert!(
-                url.starts_with("https://huggingface.co/memoravox/"),
+                is_audited_public_source(&descriptor.id, url),
                 "{}: unexpected primary source {url}",
                 descriptor.id
             );
