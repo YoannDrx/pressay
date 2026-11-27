@@ -40,12 +40,7 @@ bun run format:frontend   # Prettier only
 bun run format:backend    # cargo fmt only
 ```
 
-**Model Setup (Required for Development):**
-
-```bash
-mkdir -p src-tauri/resources/models
-curl -o src-tauri/resources/models/silero_vad_v4.onnx https://models.press-say.app/silero_vad_v4.onnx
-```
+**Model Setup:** the voice activity model (`src-tauri/resources/models/silero-vad-v6.2-F32.gguf`, Silero VAD v6.2, MIT, from `handy-computer/silero-vad-v6.2-gguf`) is committed; nothing to download. Transcription models are downloaded by the app from the signed catalog.
 
 For detailed platform-specific build setup, see [BUILD.md](BUILD.md).
 
