@@ -85,6 +85,29 @@ async changeTranslateToEnglishSetting(enabled: boolean) : Promise<Result<null, s
     else return { status: "error", error: e  as any };
 }
 },
+/**
+ * Binds a dictation shortcut to a mode (`None` follows the active mode and
+ * app profiles).
+ */
+async changeBindingMode(id: string, modeId: string | null) : Promise<Result<null, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("change_binding_mode", { id, modeId }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+/**
+ * Target language of the "Dictate and translate" mode.
+ */
+async changeTranslationTargetLanguageSetting(language: string) : Promise<Result<null, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("change_translation_target_language_setting", { language }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
 async changeSelectedLanguageSetting(language: string) : Promise<Result<null, string>> {
     try {
     return { status: "ok", data: await TAURI_INVOKE("change_selected_language_setting", { language }) };
@@ -1313,7 +1336,11 @@ whats_new_last_seen_version?: string; selected_model?: string; onboarding_comple
  * Which input channel to use on the selected microphone device.
  * None means "average all channels" (original behavior).
  */
-selected_channel?: number | null; clamshell_microphone?: string | null; selected_output_device?: string | null; translate_to_english?: boolean; selected_language?: string; overlay_position?: OverlayPosition; debug_mode?: boolean; log_level?: LogLevel; custom_words?: string[]; pressay_modes?: PressayMode[]; active_mode_id?: string; app_profiles?: AppProfile[]; dictionary_entries?: DictionaryEntry[];
+selected_channel?: number | null; clamshell_microphone?: string | null; selected_output_device?: string | null; translate_to_english?: boolean; 
+/**
+ * Target language of the "Dictate and translate" mode.
+ */
+translation_target_language?: string; selected_language?: string; overlay_position?: OverlayPosition; debug_mode?: boolean; log_level?: LogLevel; custom_words?: string[]; pressay_modes?: PressayMode[]; active_mode_id?: string; app_profiles?: AppProfile[]; dictionary_entries?: DictionaryEntry[];
 /**
  * Non-secret Cloud routing and device metadata. Reusable session tokens,
  * E2EE keys and recovery material live only in macOS Keychain.
@@ -1534,7 +1561,12 @@ uncovered_bindings: string[];
  * warning banner appears and explains why recording refused.
  */
 recorder_blocked: boolean }
-export type ShortcutBinding = { id: string; name: string; description: string; default_binding: string; current_binding: string }
+export type ShortcutBinding = { id: string; name: string; description: string; default_binding: string; current_binding: string; 
+/**
+ * The mode this shortcut always dictates with, ahead of app profiles and
+ * the active mode. `None` follows the active mode and profiles.
+ */
+mode_id?: string | null }
 export type SoundTheme = "marimba" | "pop" | "minimal" | "soft" | "glass" | "mechanical" | "dreamy" | "scifi" | "studio" | "zen" | "custom"
 export type StoreKitProduct = { id: string; displayName: string; description: string; displayPrice: string;
 /**

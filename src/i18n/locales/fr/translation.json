@@ -364,14 +364,15 @@
             "description": "Le raccourci clavier pour annuler l'enregistrement en cours."
           },
           "transcribe_with_post_process": {
-            "name": "Raccourci de post-traitement",
-            "description": "Facultatif : Un raccourci dédié qui applique toujours le post-traitement IA à votre transcription."
+            "name": "Dicter et traduire",
+            "description": "Un second raccourci qui dicte toujours avec le mode choisi ci-dessous. Par défaut : tu parles, le texte sort traduit."
           }
         },
         "errors": {
           "restore": "Échec de la restauration du raccourci original",
           "set": "Échec de la définition du raccourci : {{error}}",
-          "reset": "Échec de la réinitialisation du raccourci à sa valeur d'origine"
+          "reset": "Échec de la réinitialisation du raccourci à sa valeur d'origine",
+          "conflict": "Ce raccourci est déjà utilisé par « {{other}} ». Choisis d'autres touches."
         },
         "changeLabel": "Modifier : {{name}}, actuellement {{binding}}",
         "recordingLabel": "Enregistrement : {{name}}. Appuyez sur les touches à utiliser."
@@ -387,6 +388,16 @@
       "pushToTalk": {
         "label": "Appuyer pour parler",
         "description": "Maintenez pour enregistrer, relâchez pour arrêter"
+      },
+      "secondShortcut": {
+        "modeTitle": "Mode du second raccourci",
+        "modeDescription": "Ce raccourci dicte toujours avec ce mode, quelle que soit l'application. Le raccourci principal garde le mode actif et les profils d'app.",
+        "activeMode": "Mode actif (comme le raccourci principal)",
+        "translateMode": "Dicter et traduire",
+        "modeError": "Le mode n'a pas pu être enregistré.",
+        "targetTitle": "Traduire vers",
+        "targetEnglish": "Vers l'anglais, la traduction se fait sur ton appareil avec Whisper, gratuitement. Sans modèle Whisper installé, elle passe par ton fournisseur IA (Pro).",
+        "targetOther": "Vers cette langue, la traduction passe par ton fournisseur IA ou Pressay Cloud (Pro)."
       }
     },
     "sound": {

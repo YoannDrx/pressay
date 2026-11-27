@@ -341,14 +341,15 @@
             "description": "用於取消目前錄製的鍵盤快捷鍵"
           },
           "transcribe_with_post_process": {
-            "name": "後處理快捷鍵",
-            "description": "可選：專用快捷鍵，使用時一律對轉錄結果套用 AI 後處理"
+            "name": "Dictate and translate",
+            "description": "A second shortcut that always dictates with the mode chosen below. By default: you speak, the text comes out translated."
           }
         },
         "errors": {
           "restore": "無法還原原始快捷鍵",
           "set": "無法設定快捷鍵: {{error}}",
-          "reset": "無法將快捷鍵重設為原始值"
+          "reset": "無法將快捷鍵重設為原始值",
+          "conflict": "This shortcut is already used by “{{other}}”. Choose other keys."
         },
         "changeLabel": "Change the {{name}}, currently {{binding}}",
         "recordingLabel": "Recording a new {{name}}. Press the keys to use."
@@ -367,7 +368,17 @@
       },
       "eyebrow": "VOICE INPUT",
       "description": "Tune the gesture, microphone and feedback that make Pressay feel native on this Mac.",
-      "interface": "Interface"
+      "interface": "Interface",
+      "secondShortcut": {
+        "modeTitle": "Second shortcut mode",
+        "modeDescription": "This shortcut always dictates with this mode, in every app. The main shortcut keeps the active mode and app profiles.",
+        "activeMode": "Active mode (same as the main shortcut)",
+        "translateMode": "Dictate and translate",
+        "modeError": "The mode could not be saved.",
+        "targetTitle": "Translate into",
+        "targetEnglish": "Into English, translation runs on your device with Whisper, for free. Without a Whisper model installed, it goes through your AI provider (Pro).",
+        "targetOther": "Into this language, translation goes through your AI provider or Pressay Cloud (Pro)."
+      }
     },
     "models": {
       "title": "轉錄模型",

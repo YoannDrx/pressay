@@ -12,7 +12,11 @@ const MAX_MODE_STEPS: usize = 8;
 const MAX_DICTIONARY_ENTRIES: usize = 5_000;
 const MAX_PORTABLE_MODES: usize = 1_000;
 const MAX_PORTABLE_PROFILES: usize = 1_000;
-const BUILTIN_MODE_IDS: [&str; 12] = [
+/// Built-in mode of the "Dictate and translate" shortcut. Its target
+/// language comes from `translation_target_language` at dictation time.
+pub const TRANSLATE_TO_MODE_ID: &str = "translate_to";
+
+const BUILTIN_MODE_IDS: [&str; 13] = [
     "faithful",
     "clean",
     "message",
@@ -25,6 +29,7 @@ const BUILTIN_MODE_IDS: [&str; 12] = [
     "translation",
     "summary",
     "tasks",
+    TRANSLATE_TO_MODE_ID,
 ];
 const ALLOWED_VARIABLES: [&str; 4] = ["transcript", "selected", "app_name", "custom_words"];
 const CORRECTION_SESSION_TTL_MS: u64 = 2 * 60 * 1_000;
@@ -758,7 +763,66 @@ pub fn builtin_modes() -> Vec<PressayMode> {
             "actionnable",
             "liste",
         ),
+        PressayMode {
+            id: TRANSLATE_TO_MODE_ID.to_string(),
+            name: "Dicter et traduire".to_string(),
+            description: "Traduit la dictée dans la langue choisie pour le raccourci de traduction."
+                .to_string(),
+            route: ProcessingRoute::Byok,
+            steps: vec![
+                step("normalize", ModeStepKind::Normalize, None),
+                step("dictionary", ModeStepKind::Dictionary, None),
+                step(
+                    "transform",
+                    ModeStepKind::Transform,
+                    Some("Translate ${transcript} into the target language. Preserve meaning, names, numbers, formatting and tone. If it is already in the target language, return it unchanged. Return only the translation."),
+                ),
+            ],
+            tone: Some("fidèle".to_string()),
+            length: Some("identique".to_string()),
+            language: None,
+            is_builtin: true,
+        },
     ]
+}
+
+/// The built-in translate mode with its target language set, or `mode`
+/// unchanged. Built-in definitions are immutable, so the target lives in
+/// settings and is applied per dictation.
+pub fn with_translation_target(mut mode: PressayMode, target_language: &str) -> PressayMode {
+    if mode.id == TRANSLATE_TO_MODE_ID {
+        let target = target_language.trim();
+        mode.language = Some(if target.is_empty() { "en" } else { target }.to_string());
+    }
+    mode
+}
+
+/// A custom mode that runs a legacy post-processing prompt through the user's
+/// own provider, exactly as the old post-processing shortcut did.
+pub fn legacy_post_process_mode(id: &str, name: &str, prompt: &str) -> PressayMode {
+    let name = name.trim();
+    PressayMode {
+        id: id.to_string(),
+        name: if name.is_empty() {
+            "Post-traitement"
+        } else {
+            name
+        }
+        .chars()
+        .take(60)
+        .collect(),
+        description: "Ancien raccourci de post-traitement.".to_string(),
+        route: ProcessingRoute::Byok,
+        steps: vec![step(
+            "transform",
+            ModeStepKind::Transform,
+            Some(&prompt.replace("${output}", "${transcript}")),
+        )],
+        tone: None,
+        length: None,
+        language: None,
+        is_builtin: false,
+    }
 }
 
 pub fn portable_productivity_bundle(
@@ -1212,7 +1276,7 @@ mod tests {
     #[test]
     fn builtin_modes_are_valid_and_ids_are_unique() {
         let modes = builtin_modes();
-        assert_eq!(modes.len(), 12);
+        assert_eq!(modes.len(), 13);
         let mut ids = HashSet::new();
         for mode in modes {
             validate_mode(&mode).unwrap();

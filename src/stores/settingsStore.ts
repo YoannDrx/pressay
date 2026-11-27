@@ -139,6 +139,14 @@ const settingUpdaters: {
     commands.changeTranslateToEnglishSetting(value as boolean),
   selected_language: (value) =>
     commands.changeSelectedLanguageSetting(value as string),
+  translation_target_language: async (value) => {
+    const result = await commands.changeTranslationTargetLanguageSetting(
+      value as string,
+    );
+    if (result.status === "error") {
+      throw new Error(result.error);
+    }
+  },
   overlay_position: (value) =>
     commands.changeOverlayPositionSetting(value as string),
   debug_mode: (value) => commands.changeDebugModeSetting(value as boolean),

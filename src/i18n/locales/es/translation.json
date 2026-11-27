@@ -361,14 +361,15 @@
             "description": "El atajo de teclado para cancelar la grabación actual."
           },
           "transcribe_with_post_process": {
-            "name": "Tecla de post procesamiento",
-            "description": "Opcional: Una tecla de acceso rápido dedicada que siempre aplica post procesamiento con IA a tu transcripción."
+            "name": "Dictate and translate",
+            "description": "A second shortcut that always dictates with the mode chosen below. By default: you speak, the text comes out translated."
           }
         },
         "errors": {
           "restore": "Error al restaurar el atajo original",
           "set": "Error al configurar el atajo: {{error}}",
-          "reset": "Error al restablecer el atajo al valor original"
+          "reset": "Error al restablecer el atajo al valor original",
+          "conflict": "This shortcut is already used by “{{other}}”. Choose other keys."
         },
         "changeLabel": "Change the {{name}}, currently {{binding}}",
         "recordingLabel": "Recording a new {{name}}. Press the keys to use."
@@ -387,7 +388,17 @@
       },
       "eyebrow": "VOICE INPUT",
       "description": "Tune the gesture, microphone and feedback that make Pressay feel native on this Mac.",
-      "interface": "Interface"
+      "interface": "Interface",
+      "secondShortcut": {
+        "modeTitle": "Second shortcut mode",
+        "modeDescription": "This shortcut always dictates with this mode, in every app. The main shortcut keeps the active mode and app profiles.",
+        "activeMode": "Active mode (same as the main shortcut)",
+        "translateMode": "Dictate and translate",
+        "modeError": "The mode could not be saved.",
+        "targetTitle": "Translate into",
+        "targetEnglish": "Into English, translation runs on your device with Whisper, for free. Without a Whisper model installed, it goes through your AI provider (Pro).",
+        "targetOther": "Into this language, translation goes through your AI provider or Pressay Cloud (Pro)."
+      }
     },
     "sound": {
       "title": "Sonido",

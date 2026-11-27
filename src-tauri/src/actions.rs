@@ -114,9 +114,42 @@ pub trait ShortcutAction: Send + Sync {
     fn stop(&self, app: &AppHandle, binding_id: &str, shortcut_str: &str);
 }
 
-// Transcribe Action
-struct TranscribeAction {
-    post_process: bool,
+// Transcribe Action. Every dictation shortcut runs it; a shortcut with its
+// own `mode_id` dictates with that mode (see `binding_mode_id`).
+struct TranscribeAction;
+
+/// Whether `mode` is the built-in translate mode aimed at English.
+fn translates_to_english(mode: &crate::productivity::PressayMode) -> bool {
+    mode.id == crate::productivity::TRANSLATE_TO_MODE_ID
+        && mode
+            .language
+            .as_deref()
+            .map(|language| language.split(['-', '_']).next().unwrap_or(language))
+            .is_none_or(|language| language.eq_ignore_ascii_case("en"))
+}
+
+/// The mode a dictation shortcut is bound to, if it still exists.
+fn binding_mode_id(settings: &AppSettings, binding_id: &str) -> Option<String> {
+    settings
+        .bindings
+        .get(binding_id)
+        .and_then(|binding| binding.mode_id.clone())
+        .filter(|mode_id| {
+            settings
+                .pressay_modes
+                .iter()
+                .any(|mode| &mode.id == mode_id)
+        })
+}
+
+/// Applies the per-dictation parts of a resolved mode (the translation
+/// target of the built-in translate mode).
+fn finalize_resolved_mode(mut resolved: ResolvedMode, settings: &AppSettings) -> ResolvedMode {
+    resolved.mode = crate::productivity::with_translation_target(
+        resolved.mode,
+        &settings.translation_target_language,
+    );
+    resolved
 }
 
 /// Field name for structured output JSON schema
@@ -1085,20 +1118,25 @@ impl ShortcutAction for TranscribeAction {
         // Resolve the complete invocation before any overlay can change the
         // frontmost application. Selected text is queried only when the chosen
         // mode explicitly references `${selected}` and remains in memory.
-        if !self.post_process {
+        {
             if let Some(runtime) = app.try_state::<ProductivityRuntime>() {
                 let target = frontmost_application();
                 match runtime.take_armed_correction(target.as_ref()) {
                     Ok(Some(correction)) => runtime.prepare_correction_invocation(correction),
                     Ok(None) => {
-                        let temporary_mode_id = runtime.take_temporary_mode();
+                        // A shortcut bound to a mode wins over a voice-command
+                        // mode, which is still consumed for this dictation.
+                        let voice_mode_id = runtime.take_temporary_mode();
+                        let temporary_mode_id =
+                            binding_mode_id(&settings, binding_id).or(voice_mode_id);
                         let resolved_mode = resolve_mode(
                             &settings.pressay_modes,
                             &settings.app_profiles,
                             &settings.active_mode_id,
                             temporary_mode_id.as_deref(),
                             target,
-                        );
+                        )
+                        .map(|resolved| finalize_resolved_mode(resolved, &settings));
                         let selection = resolved_mode
                             .as_ref()
                             .filter(|resolved| mode_uses_variable(&resolved.mode, "selected"))
@@ -1122,13 +1160,10 @@ impl ShortcutAction for TranscribeAction {
         // Load model in the background
         let tm = app.state::<Arc<TranscriptionManager>>();
         let rm = app.state::<Arc<AudioRecordingManager>>();
-        let invocation_profile = (!self.post_process)
-            .then(|| {
-                app.try_state::<ProductivityRuntime>()
-                    .and_then(|runtime| runtime.peek_invocation_mode())
-                    .and_then(|resolved| resolved.profile)
-            })
-            .flatten();
+        let invocation_profile = app
+            .try_state::<ProductivityRuntime>()
+            .and_then(|runtime| runtime.peek_invocation_mode())
+            .and_then(|resolved| resolved.profile);
         let invocation_model = invocation_profile
             .as_ref()
             .and_then(|profile| profile.model.clone())
@@ -1350,15 +1385,15 @@ impl ShortcutAction for TranscribeAction {
         play_feedback_sound(app, SoundType::Stop);
 
         let binding_id = binding_id.to_string(); // Clone binding_id for the async task
-        let post_process = self.post_process;
         let (prepared_mode, selection_context, correction_invocation) = app
             .try_state::<ProductivityRuntime>()
             .map(|runtime| runtime.take_invocation())
             .unwrap_or((None, None, None));
-        // The inherited post-processing shortcut remains an explicit manual
-        // override. A missing prepared invocation fails closed to the current
-        // default local mode without trying to infer a new target application.
-        let resolved_mode = (!post_process && correction_invocation.is_none())
+        // A missing prepared invocation fails closed to the shortcut's mode or
+        // the current default mode without trying to infer a new target
+        // application.
+        let resolved_mode = correction_invocation
+            .is_none()
             .then(|| {
                 prepared_mode.or_else(|| {
                     let settings = get_settings(app);
@@ -1366,14 +1401,34 @@ impl ShortcutAction for TranscribeAction {
                         &settings.pressay_modes,
                         &settings.app_profiles,
                         &settings.active_mode_id,
-                        None,
+                        binding_mode_id(&settings, &binding_id).as_deref(),
                         None,
                     )
+                    .map(|resolved| finalize_resolved_mode(resolved, &settings))
                 })
             })
             .flatten();
+        // "Dictate and translate" to English stays local and free when a
+        // Whisper model can translate: the transcription itself comes out in
+        // English and no remote step runs. Other targets go through the mode's
+        // remote route (Pro).
+        let translate_locally = resolved_mode
+            .as_ref()
+            .is_some_and(|resolved| translates_to_english(&resolved.mode))
+            && tm.can_translate_to_english();
+        let resolved_mode = if translate_locally {
+            let settings = get_settings(app);
+            resolve_mode(
+                &settings.pressay_modes,
+                &[],
+                "faithful",
+                Some("faithful"),
+                None,
+            )
+        } else {
+            resolved_mode
+        };
         let requires_transform = correction_invocation.is_some()
-            || post_process
             || resolved_mode.as_ref().is_some_and(|resolved| {
                 resolved.mode.route != ProcessingRoute::Local
                     || resolved
@@ -1498,6 +1553,8 @@ impl ShortcutAction for TranscribeAction {
                             {
                                 Err(anyhow::anyhow!("Transcription cancelled"))
                             }
+                            Ok(_) if translate_locally => tm_for_transcription
+                                .transcribe_to_english(samples, batch_language.as_deref()),
                             Ok(_) => tm_for_transcription
                                 .transcribe_with_language(samples, batch_language.as_deref()),
                             Err(err) => Err(err),
@@ -1601,7 +1658,7 @@ impl ShortcutAction for TranscribeAction {
                                     process_transcription_output(
                                         &ah,
                                         &transcription,
-                                        post_process,
+                                        false,
                                         resolved_mode.as_ref(),
                                         selection_context.as_ref(),
                                         language_override.as_deref(),
@@ -2079,13 +2136,11 @@ pub static ACTION_MAP: Lazy<HashMap<String, Arc<dyn ShortcutAction>>> = Lazy::ne
     let mut map = HashMap::new();
     map.insert(
         "transcribe".to_string(),
-        Arc::new(TranscribeAction {
-            post_process: false,
-        }) as Arc<dyn ShortcutAction>,
+        Arc::new(TranscribeAction) as Arc<dyn ShortcutAction>,
     );
     map.insert(
         "transcribe_with_post_process".to_string(),
-        Arc::new(TranscribeAction { post_process: true }) as Arc<dyn ShortcutAction>,
+        Arc::new(TranscribeAction) as Arc<dyn ShortcutAction>,
     );
     map.insert(
         "cancel".to_string(),

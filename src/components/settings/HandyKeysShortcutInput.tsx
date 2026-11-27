@@ -8,6 +8,7 @@ import { useSettings } from "../../hooks/useSettings";
 import { useOsType } from "../../hooks/useOsType";
 import { commands } from "@/bindings";
 import { toast } from "sonner";
+import { shortcutErrorMessage } from "@/lib/utils/shortcutErrors";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import { SECURE_INPUT_HELP_URL } from "../SecureInputWarning";
 
@@ -98,11 +99,7 @@ export const HandyKeysShortcutInput: React.FC<HandyKeysShortcutInputProps> = ({
           await updateBinding(shortcutId, keysToCommit);
         } catch (error) {
           console.error("Failed to change binding:", error);
-          toast.error(
-            t("settings.general.shortcut.errors.set", {
-              error: String(error),
-            }),
-          );
+          toast.error(shortcutErrorMessage(error, t));
 
           // Reset to original binding on error
           if (originalBinding) {
