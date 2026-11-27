@@ -46,7 +46,7 @@ For detailed platform-specific build setup, see [BUILD.md](BUILD.md).
 
 ## Architecture Overview
 
-Pressay is a local-first macOS speech-to-text application built with Tauri 2.x (Rust backend + React/TypeScript frontend). The inherited cross-platform core is retained where practical, but only macOS 14+ on Apple Silicon is a release target.
+Pressay is a local-first speech-to-text application for macOS and Windows, built with Tauri 2.x (Rust backend + React/TypeScript frontend). Release targets: macOS 14+ on Apple Silicon (direct download and Mac App Store) and Windows 10/11 (x64 and ARM64). There is no iPhone app.
 
 ### Backend Structure (src-tauri/src/)
 
@@ -61,7 +61,7 @@ Pressay is a local-first macOS speech-to-text application built with Tauri 2.x (
   - `vad/` - Voice Activity Detection (Silero VAD)
 - `commands/` - Tauri command handlers for frontend communication
 - `cli.rs` - CLI argument definitions (clap derive)
-- `shortcut.rs` - Global keyboard shortcut handling
+- `shortcut/` - Global keyboard shortcuts (Tauri plugin and HandyKeys backends); each dictation binding can carry a `mode_id`
 - `settings.rs` - Application settings management
 - `overlay.rs` - Recording overlay window (platform-specific)
 - `signal_handle.rs` - `send_transcription_input()` reusable function
@@ -98,9 +98,8 @@ Pressay is a local-first macOS speech-to-text application built with Tauri 2.x (
 **Core Libraries:**
 
 - `transcribe-cpp` - Local Whisper-family inference (GGML/GGUF) with GPU acceleration
-- `transcribe-rs` - ONNX speech recognition (Parakeet, Moonshine, SenseVoice, etc.)
 - `cpal` - Cross-platform audio I/O
-- `vad-rs` - Voice Activity Detection
+- Silero VAD v6.2 (GGUF) also runs through `transcribe-cpp`; there is no ONNX Runtime
 - `rdev` - Global keyboard shortcuts
 - `rubato` - Audio resampling
 - `rodio` - Audio playback for feedback sounds
@@ -108,7 +107,7 @@ Pressay is a local-first macOS speech-to-text application built with Tauri 2.x (
 ### Application Flow
 
 1. **Initialization:** App starts minimized to tray, loads settings, initializes managers
-2. **Model Setup:** First-run downloads preferred Whisper model (Small/Medium/Turbo/Large)
+2. **Model Setup:** First-run downloads a model from the signed catalog (`src-tauri/src/catalog/`): Parakeet V3, Whisper Small or Whisper Large v3, all GGUF through transcribe-cpp
 3. **Recording:** Global shortcut triggers audio recording with VAD filtering
 4. **Processing:** Audio sent to Whisper model for transcription
 5. **Output:** Text pasted to active application via system clipboard
@@ -119,7 +118,7 @@ Settings are stored using Tauri's store plugin with reactive updates:
 
 - Keyboard shortcuts (configurable, supports push-to-talk)
 - Audio devices (microphone/output selection)
-- Model preferences (Small/Medium/Turbo/Large Whisper variants)
+- Model and spoken-language preferences (Parakeet ignores the language hint; a wrong-language output is redone with an installed Whisper model)
 - Audio feedback and translation options
 
 ### Single Instance Architecture
@@ -192,7 +191,8 @@ Debug panels are available only in development builds with `Cmd+Shift+D` on macO
 ## Platform Notes
 
 - **macOS**: Metal acceleration, accessibility permissions required for keyboard shortcuts
-- **Windows/Linux**: inherited core only; no binary distribution or support promise
+- **Windows**: shipped (NSIS installers, x64 and ARM64); Authenticode signing pending
+- **Linux**: inherited core only; no binary distribution or support promise
 
 ## Troubleshooting
 
