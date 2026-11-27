@@ -1273,5 +1273,9 @@
     "waiting": "Завершите покупку на press-say.app, войдя в тот же аккаунт. Pro разблокируется здесь, как только вы вернётесь.",
     "done": "Я завершил покупку",
     "notYet": "Pro пока не активен. Подтверждение оплаты может занять минуту; убедитесь, что вы покупали с аккаунтом, в который вошли здесь."
+  },
+  "dictationLanguage": {
+    "mismatchTitle": "Dictation came out in English",
+    "mismatchDescription": "Parakeet answered in English although you dictate in another language. Download Whisper Large v3 in Models and Pressay will redo these dictations in your language automatically."
   }
 }

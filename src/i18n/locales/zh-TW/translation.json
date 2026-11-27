@@ -1273,5 +1273,9 @@
     "waiting": "請使用同一帳號登入 press-say.app 完成購買。返回後，Pro 會立即在此解鎖。",
     "done": "我已完成購買",
     "notYet": "Pro 尚未啟用。付款確認可能需要一分鐘；請確認你是使用此處登入的帳號購買。"
+  },
+  "dictationLanguage": {
+    "mismatchTitle": "Dictation came out in English",
+    "mismatchDescription": "Parakeet answered in English although you dictate in another language. Download Whisper Large v3 in Models and Pressay will redo these dictations in your language automatically."
   }
 }

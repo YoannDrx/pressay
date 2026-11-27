@@ -27,8 +27,9 @@ export const ModelSettingsCard: React.FC = () => {
     capabilityLanguages[0] === CHINESE_LANGUAGE_CODE;
   const showLanguageSelector =
     supportsLanguageSelection || supportsChineseOnlyScriptSelection;
-  // Parakeet V3 re-detects the language on every utterance: a picker here
-  // would promise a choice the engine never receives.
+  // Parakeet V3 re-detects the language on every utterance. The pick still
+  // matters: a dictation that comes out in English is redone in that language
+  // with an installed Whisper model (see `rescue_dictation_language`).
   const ignoresLanguageHint = currentModelInfo?.honors_language_hint === false;
   const supportsTranslation = currentModelInfo?.supports_translation ?? false;
   const hasAnySettings = showLanguageSelector || supportsTranslation;
@@ -44,19 +45,7 @@ export const ModelSettingsCard: React.FC = () => {
         model: currentModelInfo.name,
       })}
     >
-      {showLanguageSelector && ignoresLanguageHint && (
-        <SettingContainer
-          title={t("settings.general.language.title")}
-          description={t("settings.general.language.autoDetectOnly")}
-          descriptionMode="inline"
-          grouped={true}
-        >
-          <span className="text-sm text-mid-gray">
-            {t("settings.general.language.auto")}
-          </span>
-        </SettingContainer>
-      )}
-      {showLanguageSelector && !ignoresLanguageHint && (
+      {showLanguageSelector && (
         <LanguageSelector
           descriptionMode="tooltip"
           grouped={true}
@@ -65,6 +54,11 @@ export const ModelSettingsCard: React.FC = () => {
             currentModelInfo.supports_language_detection
           }
         />
+      )}
+      {showLanguageSelector && ignoresLanguageHint && (
+        <p className="px-4 pb-3 text-xs text-mid-gray">
+          {t("settings.general.language.autoDetectOnly")}
+        </p>
       )}
       {supportsTranslation && (
         <TranslateToEnglish descriptionMode="tooltip" grouped={true} />

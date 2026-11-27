@@ -18,6 +18,7 @@ import Onboarding, {
   AccessibilityOnboarding,
   FirstDictationOnboarding,
   OnboardingProgress,
+  PersonalizationOnboarding,
   WelcomeOnboarding,
 } from "./components/onboarding";
 import { ErrorBoundary } from "./components/ErrorBoundary";
@@ -31,7 +32,7 @@ import { PageAtmosphere } from "@/components/layout";
 import { APP_NAVIGATE_EVENT } from "@/lib/appNavigation";
 
 type OnboardingStep =
-  "welcome" | "accessibility" | "model" | "sandbox" | "done";
+  "welcome" | "accessibility" | "model" | "language" | "sandbox" | "done";
 
 const renderSettingsContent = (section: SidebarSection) => {
   const ActiveComponent =
@@ -195,6 +196,25 @@ function App() {
           label: t("common.copy", { defaultValue: "Copy text" }),
           onClick: () => navigator.clipboard.writeText(event.payload.text),
         },
+      });
+    });
+    return () => {
+      unlisten.then((fn) => fn());
+    };
+  }, [t]);
+
+  // A dictation came out in English although the user picked another
+  // language, on a model that cannot be locked to one (Parakeet V3).
+  useEffect(() => {
+    const unlisten = listen<{
+      expected_language: string;
+      rescued: boolean;
+      fallback_model: string | null;
+    }>("dictation-language-fallback", (event) => {
+      if (event.payload.rescued) return;
+      toast.warning(t("dictationLanguage.mismatchTitle"), {
+        description: t("dictationLanguage.mismatchDescription"),
+        duration: 10000,
       });
     });
     return () => {
@@ -402,11 +422,12 @@ function App() {
     welcome: 1,
     accessibility: 2,
     model: 2,
+    language: 3,
     sandbox: 3,
   } as const;
 
   const handleModelSelected = () => {
-    setOnboardingStep("sandbox");
+    setOnboardingStep("language");
   };
 
   const handleOnboardingComplete = async () => {
@@ -466,6 +487,12 @@ function App() {
     );
   } else if (onboardingStep === "model") {
     content = <Onboarding onModelSelected={handleModelSelected} />;
+  } else if (onboardingStep === "language") {
+    content = (
+      <PersonalizationOnboarding
+        onComplete={() => setOnboardingStep("sandbox")}
+      />
+    );
   } else if (onboardingStep === "sandbox") {
     content = (
       <FirstDictationOnboarding

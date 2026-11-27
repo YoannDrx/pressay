@@ -84,6 +84,102 @@ pub fn detect_output_language(text: &str, supported_languages: &[String]) -> Opt
     iso639_1_for_whatlang(info.lang()).map(str::to_string)
 }
 
+/// Minimum whatlang confidence for the dictation language guard. Lower than
+/// [`MIN_CONFIDENCE`] on purpose: a false alarm only costs one re-transcription
+/// in the language the user chose, while a miss pastes the wrong language.
+const LANGUAGE_GUARD_MIN_CONFIDENCE: f64 = 0.5;
+
+/// English function words that French never uses as words. Shared spellings
+/// ("a", "on", "me", "ok", "super", "message"…) are left out on purpose.
+const ENGLISH_ONLY_WORDS: &[&str] = &[
+    "i", "you", "we", "they", "he", "she", "it", "its", "it's", "i'm", "the", "an", "of", "to",
+    "so", "much", "and", "or", "not", "is", "are", "was", "were", "be", "been", "okay", "off",
+    "my", "your", "our", "their", "what", "this", "that", "these", "those", "with", "for", "can",
+    "could", "will", "would", "should", "have", "has", "had", "do", "does", "did", "don't",
+    "later", "thank", "thanks", "please", "yes", "see", "there", "here", "one", "just", "very",
+    "from", "about", "if", "when", "how", "why", "who", "all", "get", "got", "send", "call",
+    "back", "tomorrow", "today", "good", "night", "morning", "kiss", "by",
+];
+
+/// French function words, a few greetings, and elided forms (`c'`, `j'`…).
+const FRENCH_WORDS: &[&str] = &[
+    "je", "j", "tu", "il", "elle", "nous", "vous", "ils", "elles", "le", "la", "les", "l", "un",
+    "une", "des", "du", "de", "d", "et", "est", "c", "ce", "ces", "ça", "qui", "que", "qu", "pas",
+    "ne", "n", "oui", "non", "merci", "au", "aux", "pour", "avec", "sur", "dans", "mais", "ou",
+    "où", "très", "bien", "bonne", "bon", "bonjour", "bonsoir", "salut", "demain", "accord",
+    "alors", "voilà", "te", "t", "moi", "toi", "mon", "ma", "mes", "ton", "ta", "tes", "son", "sa",
+    "ses", "se", "s", "y", "en", "tout", "toute", "tous", "rien", "plus", "peux", "veux", "fait",
+    "faire", "suis", "es", "sont", "ai", "as", "avons",
+];
+
+/// Counts English-only and French words in `text`. A word written with a
+/// French diacritic counts as French.
+fn english_and_french_hits(text: &str) -> (usize, usize) {
+    let mut english = 0;
+    let mut french = 0;
+    let lowered = text.to_lowercase();
+    for raw in lowered.split(|c: char| !(c.is_alphabetic() || c == '\'' || c == '’')) {
+        let word = raw.trim_matches(|c| c == '\'' || c == '’');
+        if word.is_empty() {
+            continue;
+        }
+        if ENGLISH_ONLY_WORDS.contains(&word) {
+            english += 1;
+            continue;
+        }
+        if word.chars().any(|c| "àâçéèêëîïôûùüÿœæ".contains(c)) {
+            french += 1;
+            continue;
+        }
+        // "c'est" → "c" + "est"; "aujourd'hui" stays one unknown word.
+        let parts: Vec<&str> = word.split(['\'', '’']).collect();
+        let elided = parts.len() > 1;
+        // A lone letter ("S not A") is French only when elided ("s'il").
+        if parts
+            .iter()
+            .any(|part| FRENCH_WORDS.contains(part) && (elided || part.chars().count() > 1))
+        {
+            french += 1;
+        }
+    }
+    (english, french)
+}
+
+/// Whether `text` reads as English when the user dictates in `expected`.
+///
+/// Parakeet V3 ignores language hints and detects the language per utterance;
+/// on short clips it sometimes answers in English ("Okay, so much." for
+/// "Ok, ça marche."). For French, English-only function words outnumbering
+/// French ones decide, which works on two- or three-word phrases where
+/// statistical detection cannot. For every language, a whatlang detection
+/// limited to the expected language and English also decides.
+/// Returns `false` for English, unmappable or empty expectations, and for text
+/// with no letters.
+pub fn reads_as_english_instead_of(text: &str, expected: &str) -> bool {
+    let Some(expected_lang) = whatlang_lang_for_model_code(expected) else {
+        return false;
+    };
+    if expected_lang == Lang::Eng || !text.chars().any(char::is_alphabetic) {
+        return false;
+    }
+    if expected_lang == Lang::Fra {
+        let (english, french) = english_and_french_hits(text);
+        if english > french {
+            return true;
+        }
+        if french > 0 {
+            return false;
+        }
+    }
+    let detector = Detector::with_allowlist(vec![expected_lang, Lang::Eng]);
+    match detector.detect(text) {
+        Some(info) => {
+            info.lang() == Lang::Eng && info.confidence() >= LANGUAGE_GUARD_MIN_CONFIDENCE
+        }
+        None => false,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -166,5 +262,66 @@ mod tests {
             &[],
         );
         assert_eq!(detected.as_deref(), Some("pt"));
+    }
+
+    #[test]
+    fn english_output_contradicts_a_french_dictation() {
+        for text in [
+            "Thank you very much for your help.",
+            "I will send you the file tomorrow morning.",
+            "Can you call me back when you get this message?",
+            // Parakeet V3 outputs for short French clips (macOS voices).
+            "Okay, so much.",
+            "I could kiss off it.",
+            "Ooh, we missy.",
+            "Dacod, cast off it.",
+            "And one later main.",
+            "S not A.",
+        ] {
+            assert!(reads_as_english_instead_of(text, "fr"), "{text}");
+        }
+    }
+
+    #[test]
+    fn french_output_matches_a_french_dictation() {
+        for text in [
+            "Merci beaucoup pour ton aide.",
+            "Je t'envoie le fichier demain matin.",
+            "Est-ce que tu peux me rappeler quand tu as ce message ?",
+            "On se voit à quelle heure ?",
+            "Oui, merci.",
+            "Ok, ça marche.",
+            "C'est noté.",
+            "Je te rappelle.",
+            "Super, à tout à l'heure.",
+            "It's ok pour moi, on fait le meeting demain.",
+            "Je vais checker le call avec Thomas.",
+        ] {
+            assert!(!reads_as_english_instead_of(text, "fr"), "{text}");
+        }
+    }
+
+    #[test]
+    fn language_guard_ignores_english_expectations_and_empty_text() {
+        assert!(!reads_as_english_instead_of("Thank you very much.", "en"));
+        assert!(!reads_as_english_instead_of(
+            "Thank you very much.",
+            "en-US"
+        ));
+        assert!(!reads_as_english_instead_of("", "fr"));
+        assert!(!reads_as_english_instead_of("...", "fr"));
+        assert!(!reads_as_english_instead_of("Thank you very much.", "auto"));
+    }
+
+    #[test]
+    fn language_guard_accepts_regional_codes() {
+        assert!(reads_as_english_instead_of(
+            "I will send you the file tomorrow morning.",
+            "fr-CA"
+        ));
+        assert!(reads_as_english_instead_of(
+            "I will send you the file tomorrow morning.",
+            "de"
+        ));
     }
 }

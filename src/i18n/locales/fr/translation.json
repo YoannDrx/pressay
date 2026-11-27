@@ -382,7 +382,7 @@
         "searchPlaceholder": "Rechercher des langues...",
         "noResults": "Aucune langue trouvée",
         "auto": "Automatique",
-        "autoDetectOnly": "Ce modèle détecte seul la langue parlée et ne peut pas être forcé sur une langue : une dictée courte peut sortir dans une autre langue. Pour toujours transcrire dans une seule langue, choisissez un modèle Whisper."
+        "autoDetectOnly": "Ce modèle détecte seul la langue parlée. Si une dictée sort en anglais alors que tu as choisi une autre langue, Pressay la refait automatiquement avec le modèle Whisper installé le plus précis."
       },
       "pushToTalk": {
         "label": "Appuyer pour parler",
@@ -1273,5 +1273,9 @@
     "waiting": "Terminez votre achat sur press-say.app, connecté avec ce même compte. Pro se débloque ici dès votre retour.",
     "done": "J’ai terminé mon achat",
     "notYet": "Pro n’est pas encore actif. La confirmation du paiement peut prendre une minute ; vérifiez que vous avez acheté avec le compte connecté ici."
+  },
+  "dictationLanguage": {
+    "mismatchTitle": "Dictée sortie en anglais",
+    "mismatchDescription": "Parakeet a répondu en anglais alors que tu dictes dans une autre langue. Télécharge Whisper Large v3 dans Modèles : Pressay refera alors ces dictées dans ta langue, automatiquement."
   }
 }

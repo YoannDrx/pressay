@@ -1273,5 +1273,9 @@
     "waiting": "यही खाताबाट साइन इन गरेर press-say.app मा आफ्नो खरिद पूरा गर्नुहोस्। फर्किनेबित्तिकै Pro यहाँ अनलक हुन्छ।",
     "done": "मैले खरिद पूरा गरें",
     "notYet": "Pro अझै सक्रिय छैन। भुक्तानी पुष्टि हुन एक मिनेट लाग्न सक्छ; यहाँ साइन इन गरिएको खाताबाट किन्नुभएको हो भनी जाँच गर्नुहोस्।"
+  },
+  "dictationLanguage": {
+    "mismatchTitle": "Dictation came out in English",
+    "mismatchDescription": "Parakeet answered in English although you dictate in another language. Download Whisper Large v3 in Models and Pressay will redo these dictations in your language automatically."
   }
 }

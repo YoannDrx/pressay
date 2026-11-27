@@ -580,6 +580,41 @@ pub fn render_mode_instruction(instruction: &str, variables: &ModeVariables<'_>)
         .replace("${custom_words}", &variables.custom_words.join(", "))
 }
 
+/// The language rule appended to every remote mode instruction. Built-in
+/// instructions are written in English, and without this a model often
+/// answers in English to a French dictation.
+///
+/// A mode with a target `language` writes in that language; the built-in
+/// translation mode carries its own rule; every other mode keeps the language
+/// of the dictation.
+pub fn mode_language_rule(mode: &PressayMode) -> Option<String> {
+    if let Some(target) = mode
+        .language
+        .as_deref()
+        .map(str::trim)
+        .filter(|language| !language.is_empty() && *language != "auto")
+    {
+        return Some(format!(
+            "Write the result in the language whose code is \"{target}\"."
+        ));
+    }
+    if mode.id == "translation" {
+        return None;
+    }
+    Some(
+        "Write the result in the same language as the dictated text. Never translate it."
+            .to_string(),
+    )
+}
+
+/// `instruction` followed by the mode's language rule, if it has one.
+pub fn with_mode_language_rule(instruction: &str, mode: &PressayMode) -> String {
+    match mode_language_rule(mode) {
+        Some(rule) => format!("{}\n\n{}", instruction.trim_end(), rule),
+        None => instruction.to_string(),
+    }
+}
+
 pub fn mode_uses_variable(mode: &PressayMode, variable: &str) -> bool {
     let token = format!("${{{variable}}}");
     mode.steps.iter().any(|step| {
@@ -1143,6 +1178,35 @@ fn validate_variables(value: &str) -> Result<(), String> {
 
 #[cfg(test)]
 mod tests {
+
+    #[test]
+    fn remote_modes_keep_the_dictation_language() {
+        let note = builtin_modes()
+            .into_iter()
+            .find(|mode| mode.id == "note")
+            .unwrap();
+        let instruction = with_mode_language_rule("Turn ${transcript} into a note.", &note);
+        assert!(instruction.starts_with("Turn ${transcript} into a note."));
+        assert!(instruction.ends_with("Never translate it."));
+    }
+
+    #[test]
+    fn translation_and_targeted_modes_get_their_own_language_rule() {
+        let modes = builtin_modes();
+        let translation = modes.iter().find(|mode| mode.id == "translation").unwrap();
+        assert_eq!(mode_language_rule(translation), None);
+
+        let mut targeted = translation.clone();
+        targeted.language = Some("es".to_string());
+        assert_eq!(
+            mode_language_rule(&targeted).as_deref(),
+            Some("Write the result in the language whose code is \"es\".")
+        );
+
+        targeted.language = Some("auto".to_string());
+        assert_eq!(mode_language_rule(&targeted), None);
+    }
+
     use super::*;
 
     #[test]

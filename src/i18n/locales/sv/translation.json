@@ -1273,5 +1273,9 @@
     "waiting": "Slutför köpet på press-say.app, inloggad med samma konto. Pro låses upp här så fort du kommer tillbaka.",
     "done": "Jag har slutfört mitt köp",
     "notYet": "Pro är inte aktivt än. Betalningsbekräftelsen kan ta en minut; kontrollera att du köpte med kontot som är inloggat här."
+  },
+  "dictationLanguage": {
+    "mismatchTitle": "Dictation came out in English",
+    "mismatchDescription": "Parakeet answered in English although you dictate in another language. Download Whisper Large v3 in Models and Pressay will redo these dictations in your language automatically."
   }
 }

@@ -1273,5 +1273,9 @@
     "waiting": "Rond je aankoop af op press-say.app, aangemeld met hetzelfde account. Pro wordt hier ontgrendeld zodra je terugkomt.",
     "done": "Ik heb mijn aankoop afgerond",
     "notYet": "Pro is nog niet actief. De betalingsbevestiging kan een minuut duren; controleer of je hebt gekocht met het account dat hier is aangemeld."
+  },
+  "dictationLanguage": {
+    "mismatchTitle": "Dictation came out in English",
+    "mismatchDescription": "Parakeet answered in English although you dictate in another language. Download Whisper Large v3 in Models and Pressay will redo these dictations in your language automatically."
   }
 }

@@ -11,7 +11,7 @@ pub use audio::{
     read_wav_samples_from_bytes, save_wav_file, verify_wav_file, AudioRecorder, CpalDeviceInfo,
     VadPolicy,
 };
-pub use lang_id::detect_output_language;
+pub use lang_id::{detect_output_language, reads_as_english_instead_of};
 pub use text::{
     apply_custom_words, apply_dictionary_entries, normalize_transcription_output,
     remove_filler_words, OutputLanguageEvidence,
