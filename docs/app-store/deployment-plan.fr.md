@@ -9,7 +9,7 @@ Exécution commencée le 15 septembre avec l'accord de Yoann. La
 [matrice native](native-release-matrix.fr.md) détaillent les commandes et recettes.
 App Store Connect a été consulté en session connectée : le chiffrement attend
 toujours sa validation et le formulaire DSA exige le justificatif demandé.
-L'[état d'exécution](../PRE_SALE_EXECUTION_2026-09-15.md) actualise les observations
+L'[état d'exécution](../archive/PRE_SALE_EXECUTION_2026-09-15.md) actualise les observations
 historiques du tableau ci-dessous, notamment le build 12001 retrouvé dans la
 version 1.2.0 et la PR désormais prête pour revue humaine.
 
@@ -39,7 +39,7 @@ non validée doit être corrigée ou retirée de la version et des promesses ass
 | TestFlight et App Review     | Aucun parcours natif TestFlight validé, aucune soumission App Review effectuée                                                                                                                    | Recette Apple complète encore à réaliser                                |
 
 Les états Apple ci-dessus sont historiques, et ne sont pas présentés comme
-revérifiés le 15 septembre. Détails : [rapport des corrections](../PRE_SALE_REMEDIATION_2026-09-10.md),
+revérifiés le 15 septembre. Détails : [rapport des corrections](../archive/PRE_SALE_REMEDIATION_2026-09-10.md),
 [notes de review](review-notes.md) et [recette TestFlight](testflight.fr-FR.md).
 Les tests automatisés réussis ne prouvent pas à eux seuls les permissions macOS,
 la dictée dans d'autres applications ou les achats distribués par Apple.

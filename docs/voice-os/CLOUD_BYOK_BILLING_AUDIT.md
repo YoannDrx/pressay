@@ -182,7 +182,7 @@ Matrice : StoreKit Configuration locale, Sandbox puis TestFlight ; achat mensuel
 
 Le rapprochement Apple transaction ↔ compte Pressay doit éviter qu'un achat disparaisse tout en empêchant son attribution silencieuse au mauvais compte. Prévoir une UX de liaison/récupération et un support auditable.
 
-Gate : aucune mention « MAS ready » avant le passage de [`docs/MAC_APP_STORE_SPIKE.md`](../MAC_APP_STORE_SPIKE.md), de la Sandbox et de TestFlight sur build signé.
+Gate : aucune mention « MAS ready » avant le passage de [`docs/archive/MAC_APP_STORE_SPIKE.md`](../archive/MAC_APP_STORE_SPIKE.md), de la Sandbox et de TestFlight sur build signé.
 
 ## Journal des release gates
 
