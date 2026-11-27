@@ -367,6 +367,16 @@ mod tests {
         }
     }
 
+    /// Public sources are Pressay's own `memoravox` copies, or one pinned
+    /// upstream revision for a model not yet copied there.
+    fn is_audited_public_source(model_id: &str, url: &str) -> bool {
+        url.starts_with("https://huggingface.co/memoravox/")
+            || (model_id.starts_with("pressay/whisper-turbo")
+                && url.starts_with(
+                    "https://huggingface.co/handy-computer/whisper-large-v3-turbo-gguf/resolve/5eaf945c7978e564bae5b28a5b1639dd93c2bfb1/",
+                ))
+    }
+
     #[test]
     fn launch_models_have_a_hash_verified_public_fallback() {
         for descriptor in CATALOG.iter() {
@@ -376,9 +386,7 @@ mod tests {
                 .expect("launch model must have a public fallback");
 
             assert!(
-                fallback
-                    .url
-                    .starts_with("https://huggingface.co/memoravox/"),
+                is_audited_public_source(&descriptor.id, &fallback.url),
                 "{}: unexpected public fallback {}",
                 descriptor.id,
                 fallback.url
@@ -395,7 +403,7 @@ mod tests {
                 panic!("{}: launch model is not downloadable", descriptor.id);
             };
             assert!(
-                url.starts_with("https://huggingface.co/memoravox/"),
+                is_audited_public_source(&descriptor.id, url),
                 "{}: unexpected primary source {url}",
                 descriptor.id
             );

@@ -73,7 +73,7 @@
       "architecture": "whisper",
       "family": "whisper",
       "parameters": "809M",
-      "description": "Near Large v3 accuracy at several times its speed: the best choice to keep a language other than English, on Mac and PC.",
+      "description": "Near Large v3 accuracy, with the biggest speed gain on long dictations. Locks to your language; no translation to English.",
       "base_model": "openai/whisper-large-v3-turbo",
       "license": "mit",
       "license_url": "https://github.com/openai/whisper/blob/main/LICENSE",

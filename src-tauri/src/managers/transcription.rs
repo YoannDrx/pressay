@@ -1854,9 +1854,10 @@ fn normalize_cjk_language(language: &str) -> &str {
 }
 
 /// The installed model to redo a wrong-language dictation with: one that
-/// honors language hints and knows `language`. Whisper Turbo first (fast and
-/// accurate), then the most accurate: the rescue is rare, and on short clips
-/// Whisper Small often does worse than the text it replaces.
+/// honors language hints and knows `language`, the most accurate first. The
+/// rescue is rare and runs on short clips, where Whisper Large v3 beats Turbo
+/// (whose speed gain only shows on long audio) and Small often does worse
+/// than the text it replaces.
 fn pick_language_fallback_model(
     models: &[ModelInfo],
     active_model: &str,
@@ -1874,12 +1875,7 @@ fn pick_language_fallback_model(
                     .iter()
                     .any(|l| base_language_code(l).eq_ignore_ascii_case(wanted))
         })
-        .max_by(|a, b| {
-            let turbo = |m: &ModelInfo| m.id.to_ascii_lowercase().contains("turbo");
-            turbo(a)
-                .cmp(&turbo(b))
-                .then(a.accuracy_score.total_cmp(&b.accuracy_score))
-        })
+        .max_by(|a, b| a.accuracy_score.total_cmp(&b.accuracy_score))
         .map(|m| m.id.clone())
 }
 
@@ -2524,7 +2520,7 @@ mod tests {
     }
 
     #[test]
-    fn language_fallback_prefers_turbo_then_the_most_accurate_whisper() {
+    fn language_fallback_prefers_the_most_accurate_whisper() {
         let mut large = fallback_candidate("whisper-large-v3", 1100, true, true, &["en", "fr"]);
         large.accuracy_score = 0.9;
         let mut small = fallback_candidate("whisper-small", 260, true, true, &["en", "fr"]);
@@ -2539,16 +2535,23 @@ mod tests {
             Some("whisper-large-v3")
         );
 
+        let mut turbo =
+            fallback_candidate("whisper-large-v3-turbo", 620, true, true, &["en", "fr"]);
+        turbo.accuracy_score = 0.88;
         let mut with_turbo = models.clone();
-        with_turbo.push(fallback_candidate(
-            "whisper-large-v3-turbo",
-            850,
-            true,
-            true,
-            &["en", "fr"],
-        ));
+        with_turbo.push(turbo.clone());
         assert_eq!(
             pick_language_fallback_model(&with_turbo, "parakeet-v3", "fr-FR").as_deref(),
+            Some("whisper-large-v3")
+        );
+
+        // Without Large v3, Turbo beats Small.
+        let without_large: Vec<_> = with_turbo
+            .into_iter()
+            .filter(|m| m.id != "whisper-large-v3")
+            .collect();
+        assert_eq!(
+            pick_language_fallback_model(&without_large, "parakeet-v3", "fr").as_deref(),
             Some("whisper-large-v3-turbo")
         );
     }
